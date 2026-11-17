@@ -1,0 +1,146 @@
+{
+  "lightning/lightning-strike": {
+    "path": "assets/vfx/lightning/lightning-strike/sprite-sheet.png",
+    "frameWidth": 96,
+    "frameHeight": 128,
+    "frames": 18,
+    "frameRate": 13,
+    "loop": false
+  },
+  "projectiles/lightning-bolt-flight": {
+    "path": "assets/vfx/projectiles/lightning-bolt-flight/sprite-sheet.png",
+    "frameWidth": 72,
+    "frameHeight": 32,
+    "frames": 10,
+    "frameRate": 17,
+    "loop": true
+  },
+  "projectiles/lightning-bolt-impact": {
+    "path": "assets/vfx/projectiles/lightning-bolt-impact/sprite-sheet.png",
+    "frameWidth": 64,
+    "frameHeight": 64,
+    "frames": 12,
+    "frameRate": 17,
+    "loop": false
+  },
+  "projectiles/fireball-flight": {
+    "path": "assets/vfx/projectiles/fireball-flight/sprite-sheet.png",
+    "frameWidth": 72,
+    "frameHeight": 32,
+    "frames": 6,
+    "frameRate": 14,
+    "loop": true
+  },
+  "fire/fireball-impact": {
+    "path": "assets/vfx/fire/fireball-impact/sprite-sheet.png",
+    "frameWidth": 96,
+    "frameHeight": 64,
+    "frames": 15,
+    "frameRate": 14,
+    "loop": false
+  },
+  "projectiles/water-bolt-flight": {
+    "path": "assets/vfx/projectiles/water-bolt-flight/sprite-sheet.png",
+    "frameWidth": 56,
+    "frameHeight": 28,
+    "frames": 6,
+    "frameRate": 14,
+    "loop": true
+  },
+  "water/water-splash": {
+    "path": "assets/vfx/water/water-splash/sprite-sheet.png",
+    "frameWidth": 112,
+    "frameHeight": 80,
+    "frames": 22,
+    "frameRate": 14,
+    "loop": false
+  },
+  "water/tidal-wave": {
+    "path": "assets/vfx/water/tidal-wave/sprite-sheet.png",
+    "frameWidth": 96,
+    "frameHeight": 56,
+    "frames": 20,
+    "frameRate": 14,
+    "loop": false
+  },
+  "nature/bloom-heal": {
+    "path": "assets/vfx/nature/bloom-heal/sprite-sheet.png",
+    "frameWidth": 56,
+    "frameHeight": 64,
+    "frames": 22,
+    "frameRate": 14,
+    "loop": false
+  },
+  "nature/boulder-toss": {
+    "path": "assets/vfx/nature/boulder-toss/sprite-sheet.png",
+    "frameWidth": 80,
+    "frameHeight": 56,
+    "frames": 22,
+    "frameRate": 15,
+    "loop": false
+  },
+  "impacts/rock-shatter": {
+    "path": "assets/vfx/impacts/rock-shatter/sprite-sheet.png",
+    "frameWidth": 64,
+    "frameHeight": 56,
+    "frames": 18,
+    "frameRate": 17,
+    "loop": false
+  },
+  "shadow/shadow-bolt": {
+    "path": "assets/vfx/shadow/shadow-bolt/sprite-sheet.png",
+    "frameWidth": 112,
+    "frameHeight": 56,
+    "frames": 19,
+    "frameRate": 14,
+    "loop": false
+  },
+  "shadow/void-implosion": {
+    "path": "assets/vfx/shadow/void-implosion/sprite-sheet.png",
+    "frameWidth": 96,
+    "frameHeight": 96,
+    "frames": 21,
+    "frameRate": 14,
+    "loop": false
+  },
+  "melee/sword-combo": {
+    "path": "assets/vfx/melee/sword-combo/sprite-sheet.png",
+    "frameWidth": 104,
+    "frameHeight": 64,
+    "frames": 14,
+    "frameRate": 14,
+    "loop": false
+  },
+  "melee/dagger-slash": {
+    "path": "assets/vfx/melee/dagger-slash/sprite-sheet.png",
+    "frameWidth": 48,
+    "frameHeight": 40,
+    "frames": 7,
+    "frameRate": 17,
+    "loop": false
+  },
+  "holy/holy-heal": {
+    "path": "assets/vfx/holy/holy-heal/sprite-sheet.png",
+    "frameWidth": 64,
+    "frameHeight": 96,
+    "frames": 21,
+    "frameRate": 13,
+    "loop": false
+  },
+  "explosions/small-explosion": {
+    "path": "assets/vfx/explosions/small-explosion/sprite-sheet.png",
+    "frameWidth": 64,
+    "frameHeight": 64,
+    "frames": 14,
+    "frameRate": 17,
+    "loop": false
+  },
+  "explosions/big-explosion": {
+    "path": "assets/vfx/explosions/big-explosion/sprite-sheet.png",
+    "frameWidth": 128,
+    "frameHeight": 128,
+    "frames": 18,
+    "frameRate": 14,
+    "loop": false
+  }
+}

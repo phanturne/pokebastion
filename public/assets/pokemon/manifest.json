@@ -1,0 +1,282 @@
+{
+  "0025": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 40,
+      "frames": 4,
+      "frameRate": 7
+    },
+    "Idle": {
+      "frameWidth": 40,
+      "frameHeight": 56,
+      "frames": 6,
+      "frameRate": 7
+    },
+    "Attack": {
+      "frameWidth": 80,
+      "frameHeight": 80,
+      "frames": 10,
+      "frameRate": 29
+    }
+  },
+  "0001": {
+    "Walk": {
+      "frameWidth": 40,
+      "frameHeight": 40,
+      "frames": 6,
+      "frameRate": 15
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 40,
+      "frames": 3,
+      "frameRate": 4
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 72,
+      "frames": 11,
+      "frameRate": 24
+    }
+  },
+  "0004": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 4,
+      "frameRate": 9
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 40,
+      "frames": 4,
+      "frameRate": 7
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 64,
+      "frames": 11,
+      "frameRate": 28
+    }
+  },
+  "0007": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 4,
+      "frameRate": 6
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 8,
+      "frameRate": 10
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 72,
+      "frames": 10,
+      "frameRate": 32
+    }
+  },
+  "0143": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 48,
+      "frames": 4,
+      "frameRate": 7
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 6,
+      "frameRate": 7
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 88,
+      "frames": 10,
+      "frameRate": 26
+    }
+  },
+  "0094": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 40,
+      "frames": 4,
+      "frameRate": 7
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 40,
+      "frames": 8,
+      "frameRate": 8
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 11,
+      "frameRate": 26
+    }
+  },
+  "0074": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 4,
+      "frameRate": 7
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 24,
+      "frames": 4,
+      "frameRate": 6
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 14,
+      "frameRate": 35
+    }
+  },
+  "0012": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 56,
+      "frames": 12,
+      "frameRate": 8
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 56,
+      "frames": 4,
+      "frameRate": 8
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 14,
+      "frameRate": 34
+    }
+  },
+  "0133": {
+    "Walk": {
+      "frameWidth": 40,
+      "frameHeight": 48,
+      "frames": 7,
+      "frameRate": 16
+    },
+    "Idle": {
+      "frameWidth": 24,
+      "frameHeight": 32,
+      "frames": 2,
+      "frameRate": 4
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 72,
+      "frames": 11,
+      "frameRate": 22
+    }
+  },
+  "0448": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 48,
+      "frames": 4,
+      "frameRate": 10
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 56,
+      "frames": 6,
+      "frameRate": 7
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 72,
+      "frames": 15,
+      "frameRate": 30
+    }
+  },
+  "0019": {
+    "Walk": {
+      "frameWidth": 48,
+      "frameHeight": 40,
+      "frames": 7,
+      "frameRate": 14
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 8,
+      "frameRate": 9
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 72,
+      "frames": 10,
+      "frameRate": 32
+    }
+  },
+  "0041": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 56,
+      "frames": 8,
+      "frameRate": 10
+    },
+    "Idle": {
+      "frameWidth": 32,
+      "frameHeight": 56,
+      "frames": 8,
+      "frameRate": 9
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 11,
+      "frameRate": 30
+    }
+  },
+  "0050": {
+    "Walk": {
+      "frameWidth": 40,
+      "frameHeight": 40,
+      "frames": 3,
+      "frameRate": 8
+    },
+    "Idle": {
+      "frameWidth": 24,
+      "frameHeight": 24,
+      "frames": 2,
+      "frameRate": 4
+    },
+    "Attack": {
+      "frameWidth": 64,
+      "frameHeight": 56,
+      "frames": 9,
+      "frameRate": 25
+    }
+  },
+  "0063": {
+    "Walk": {
+      "frameWidth": 32,
+      "frameHeight": 48,
+      "frames": 8,
+      "frameRate": 7
+    },
+    "Idle": {
+      "frameWidth": 24,
+      "frameHeight": 48,
+      "frames": 6,
+      "frameRate": 5
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 11,
+      "frameRate": 26
+    }
+  }
+}
