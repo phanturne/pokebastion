@@ -10,6 +10,10 @@ const game = new Phaser.Game({
   parent: 'phaser-host',
   pixelArt: true,
   backgroundColor: '#11161d',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
   scene: [BootScene, BattleScene],
 });
 
