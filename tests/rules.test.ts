@@ -52,6 +52,8 @@ describe('Game Rules, AP Movement & Economy', () => {
   it('calculates sell refunds, repair costs, and AP/bounty artifacts', () => {
     expect(getSellRefund('wood_wall')).toBe(14); // 70% of 20
     expect(getRepairCost('stone_wall')).toBe(25); // 50% of 50
+    expect(getRepairCost('stone_wall', 150, 300)).toBe(13); // proportional 50% missing
+    expect(getRepairCost('stone_wall', 300, 300)).toBe(0);
     expect(getApKillThreshold([])).toBe(BASE_AP_KILL_THRESHOLD);
     expect(getApKillThreshold(['temporal_gear'])).toBe(TEMPORAL_GEAR_KILL_THRESHOLD);
     expect(getBountyGold(20, ['commanders_insignia'])).toBe(25);

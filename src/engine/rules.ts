@@ -1,8 +1,8 @@
 import { POKEMON_SPECIES, REWARD_POOL, STRUCTURE_SPECS } from '../data/pokemon';
 import { GamePhase, RewardOption, StructureKind } from '../types';
 
-export const HEAL_COST = 30;
-export const REVIVE_COST = 80;
+export const HEAL_COST = 15;
+export const REVIVE_COST = 35;
 export const SELL_REFUND_RATE = 0.7;
 export const REPAIR_COST_RATE = 0.5;
 export const BASE_AP_KILL_THRESHOLD = 6;
@@ -73,8 +73,14 @@ export function getSellRefund(kind: StructureKind): number {
   return Math.round(STRUCTURE_SPECS[kind].cost * SELL_REFUND_RATE);
 }
 
-export function getRepairCost(kind: StructureKind): number {
-  return Math.round(STRUCTURE_SPECS[kind].cost * REPAIR_COST_RATE);
+export function getRepairCost(kind: StructureKind, hp?: number, maxHp?: number): number {
+  const base = STRUCTURE_SPECS[kind].cost;
+  if (hp === undefined || maxHp === undefined || maxHp <= 0) {
+    return Math.round(base * REPAIR_COST_RATE);
+  }
+  const missingRatio = Math.max(0, Math.min(1, (maxHp - hp) / maxHp));
+  if (missingRatio <= 0) return 0;
+  return Math.max(5, Math.ceil(base * REPAIR_COST_RATE * missingRatio));
 }
 
 export function getApKillThreshold(artifacts: string[]): number {

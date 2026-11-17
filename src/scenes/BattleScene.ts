@@ -18,6 +18,7 @@ import {
   SPAWN_EAST,
   SPAWN_WEST,
 } from '../engine/pathfinding';
+import { getRepairCost, getSellRefund, HEAL_COST, REVIVE_COST } from '../engine/rules';
 import {
   ActiveUnit,
   GamePhase,
@@ -170,11 +171,22 @@ export class BattleScene extends Phaser.Scene {
   private berryHealTimerMs = 0;
   private nextUidCounter = 1;
   private hoverTile: GridPoint | null = null;
+  private hoveredUnitUid: string | null = null;
+  private hoveredEnemyUid: string | null = null;
+  private hoveredStructUid: string | null = null;
+  private lastPointerX = -1;
+  private lastPointerY = -1;
 
   private coreHpBarFill!: Phaser.GameObjects.Rectangle;
   private spawnMarkers: Phaser.GameObjects.Rectangle[] = [];
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
+  private buildGhostSprite!: Phaser.GameObjects.Image;
+  private moveCostBadge!: Phaser.GameObjects.Text;
+  private ultCasterRing!: Phaser.GameObjects.Arc;
+  private hoverReadoutContainer!: Phaser.GameObjects.Container;
+  private hoverReadoutBg!: Phaser.GameObjects.Rectangle;
+  private hoverReadoutText!: Phaser.GameObjects.Text;
   private transientVfx: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
@@ -192,6 +204,43 @@ export class BattleScene extends Phaser.Scene {
 
     this.highlightGraphics = this.add.graphics().setDepth(2);
     this.pathPreviewGraphics = this.add.graphics().setDepth(3);
+    this.buildGhostSprite = this.add
+      .image(0, 0, 'tex:wood_wall')
+      .setDepth(4)
+      .setAlpha(0.55)
+      .setVisible(false);
+    this.ultCasterRing = this.add
+      .circle(0, 0, TILE_SIZE * 0.56, 0xfbbf24, 0.1)
+      .setStrokeStyle(2.5, 0xfbbf24, 0.95)
+      .setDepth(6)
+      .setVisible(false);
+    this.moveCostBadge = this.add
+      .text(0, 0, '', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        fontStyle: 'bold',
+        color: '#22d3ee',
+        backgroundColor: '#020617cc',
+        padding: { left: 5, right: 5, top: 2, bottom: 2 },
+      })
+      .setDepth(10)
+      .setVisible(false);
+
+    this.hoverReadoutBg = this.add
+      .rectangle(0, 0, 120, 24, 0x020617, 0.86)
+      .setOrigin(0, 1)
+      .setStrokeStyle(1, 0x334155, 0.95);
+    this.hoverReadoutText = this.add
+      .text(8, -5, '', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#f8fafc',
+      })
+      .setOrigin(0, 1);
+    this.hoverReadoutContainer = this.add
+      .container(10, CANVAS_HEIGHT - 10, [this.hoverReadoutBg, this.hoverReadoutText])
+      .setDepth(100)
+      .setVisible(false);
 
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', this.handlePointerMove, this);
@@ -200,11 +249,27 @@ export class BattleScene extends Phaser.Scene {
     this.initNewRunState();
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const clampedDelta = Math.min(delta, 50);
     const timeScale = this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
     this.anims.globalTimeScale = timeScale;
     this.tweens.timeScale = timeScale;
+
+    if (this.aimingUltUnitUid) {
+      const caster = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
+      if (caster && !caster.data.fainted) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 0.008);
+        this.ultCasterRing
+          .setPosition(caster.sprite.x, caster.sprite.y)
+          .setScale(0.92 + pulse * 0.18)
+          .setAlpha(0.6 + pulse * 0.4)
+          .setVisible(true);
+      } else {
+        this.ultCasterRing.setVisible(false);
+      }
+    } else {
+      this.ultCasterRing.setVisible(false);
+    }
 
     if (this.phase !== 'COMBAT') return;
 
@@ -215,6 +280,14 @@ export class BattleScene extends Phaser.Scene {
     this.updateBerryBushes(simDtMs);
     this.updateEnemies(simDtMs);
     this.updateUnits(simDtMs);
+
+    if (this.lastPointerX >= 0 && this.lastPointerY >= 0) {
+      const hoverChanged = this.updateHoverTargets(this.lastPointerX, this.lastPointerY);
+      if (hoverChanged || this.aimingUltUnitUid) {
+        this.refreshHighlights();
+      }
+      this.refreshHoverReadout();
+    }
 
     if (this.coreHp <= 0) {
       this.handleDefeat();
@@ -268,7 +341,25 @@ export class BattleScene extends Phaser.Scene {
       this.selectedUnitUid = null;
       this.selectedStructureUid = null;
     }
+    this.refreshPathPreview();
     this.refreshHighlights();
+    this.refreshHoverReadout();
+    this.emitSnapshot();
+  }
+
+  public cancelAction(): void {
+    this.selectedTool = null;
+    this.selectedUnitUid = null;
+    this.selectedStructureUid = null;
+    this.movingStructureUid = null;
+    this.aimingUltUnitUid = null;
+    this.slowMo = false;
+    const normalScale = this.phase === 'COMBAT' ? this.speedMult : 1;
+    this.anims.globalTimeScale = normalScale;
+    this.tweens.timeScale = normalScale;
+    this.refreshPathPreview();
+    this.refreshHighlights();
+    this.refreshHoverReadout();
     this.emitSnapshot();
   }
 
@@ -353,6 +444,7 @@ export class BattleScene extends Phaser.Scene {
     this.aimingUltUnitUid = uid;
     this.slowMo = true;
     this.refreshHighlights();
+    this.refreshHoverReadout();
     this.setStatus(
       `Click a tile to cast ${POKEMON_SPECIES[unit.data.speciesId].ultName} (Right-click to cancel).`,
     );
@@ -364,10 +456,9 @@ export class BattleScene extends Phaser.Scene {
     if (!entity.data.ruined && entity.data.hp >= entity.data.maxHp) return;
 
     const spec = STRUCTURE_SPECS[entity.data.kind];
-    const missingRatio = 1 - entity.data.hp / entity.data.maxHp;
-    const cost = Math.max(5, Math.ceil(spec.cost * 0.5 * missingRatio));
+    const cost = getRepairCost(entity.data.kind, entity.data.hp, entity.data.maxHp);
     if (this.gold < cost) {
-      this.setStatus(`Need ${cost}G to repair ${spec.name}.`);
+      this.setStatus(`Need ₽${cost} to repair ${spec.name}.`);
       return;
     }
 
@@ -383,7 +474,53 @@ export class BattleScene extends Phaser.Scene {
     this.updateStructureBar(entity);
     this.invalidateEnemyPaths();
     this.refreshPathPreview();
-    this.setStatus(`Repaired ${spec.name} (-${cost}G).`);
+    this.refreshHoverReadout();
+    this.setStatus(`Repaired ${spec.name} (-₽${cost}).`);
+  }
+
+  public repairAllStructures(): void {
+    if (this.phase !== 'PREP') return;
+
+    let repairedCount = 0;
+    let totalCost = 0;
+    let sawDamaged = false;
+
+    for (const entity of this.structures) {
+      if (!entity.data.ruined && entity.data.hp >= entity.data.maxHp) continue;
+      sawDamaged = true;
+
+      if (entity.data.ruined && this.getUnitAt(entity.data.gx, entity.data.gy)) {
+        continue;
+      }
+
+      const cost = getRepairCost(entity.data.kind, entity.data.hp, entity.data.maxHp);
+      if (this.gold < cost) break;
+
+      this.gold -= cost;
+      entity.data.hp = entity.data.maxHp;
+      entity.data.ruined = false;
+      entity.sprite.setTexture(`tex:${entity.data.kind}`);
+      this.updateStructureBar(entity);
+      repairedCount += 1;
+      totalCost += cost;
+    }
+
+    if (repairedCount > 0) {
+      this.invalidateEnemyPaths();
+      this.refreshPathPreview();
+      this.refreshHighlights();
+      this.refreshHoverReadout();
+      this.setStatus(
+        `Repaired ${repairedCount} structure${repairedCount === 1 ? '' : 's'} (-₽${totalCost}).`,
+      );
+      return;
+    }
+
+    if (sawDamaged) {
+      this.setStatus('Not enough ₽ to repair structures.');
+    } else {
+      this.setStatus('All structures are already at full HP.');
+    }
   }
 
   public detonateBarrel(uid: string): void {
@@ -397,9 +534,9 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit || unit.data.fainted || unit.data.hp >= unit.data.maxHp) return;
 
-    const cost = 15;
+    const cost = HEAL_COST;
     if (this.gold < cost) {
-      this.setStatus(`Need ${cost}G to heal ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
+      this.setStatus(`Need ₽${cost} to heal ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
       return;
     }
 
@@ -413,16 +550,17 @@ export class BattleScene extends Phaser.Scene {
       `+${Math.round(healed)}`,
       '#4ade80',
     );
-    this.setStatus(`Healed ${POKEMON_SPECIES[unit.data.speciesId].name} (-${cost}G).`);
+    this.refreshHoverReadout();
+    this.setStatus(`Healed ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`);
   }
 
   public reviveUnit(uid: string): void {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit || !unit.data.fainted) return;
 
-    const cost = 35;
+    const cost = REVIVE_COST;
     if (this.gold < cost) {
-      this.setStatus(`Need ${cost}G to revive ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
+      this.setStatus(`Need ₽${cost} to revive ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
       return;
     }
 
@@ -435,7 +573,8 @@ export class BattleScene extends Phaser.Scene {
     this.playUnitAnim(unit, 'Idle');
     this.updateUnitBars(unit);
     this.spawnFloatingText(unit.sprite.x, unit.sprite.y - 24, 'REVIVED!', '#fde047');
-    this.setStatus(`Revived ${POKEMON_SPECIES[unit.data.speciesId].name} (-${cost}G).`);
+    this.refreshHoverReadout();
+    this.setStatus(`Revived ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`);
   }
 
   public swapReserve(activeUid: string, reserveSpeciesId: string): void {
@@ -565,6 +704,32 @@ export class BattleScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+
+    // Subtle hatched/chevron border markers on 1-tile no-build spawn buffers (1, 4..7) & (16, 4..7)
+    for (const gx of [1, 16]) {
+      const dir = gx === 1 ? 1 : -1;
+      for (let gy = 4; gy <= 7; gy++) {
+        const x = gx * TILE_SIZE;
+        const y = gy * TILE_SIZE;
+        const cx = tileCenterX(gx);
+        const cy = tileCenterY(gy);
+
+        gridG.lineStyle(1, 0xfb7185, 0.25);
+        gridG.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        gridG.lineStyle(1, 0xfb7185, 0.18);
+        gridG.lineBetween(x + 4, y + 14, x + 14, y + 4);
+        gridG.lineBetween(
+          x + TILE_SIZE - 14,
+          y + TILE_SIZE - 4,
+          x + TILE_SIZE - 4,
+          y + TILE_SIZE - 14,
+        );
+
+        gridG.lineStyle(1.5, 0xfb7185, 0.32);
+        gridG.lineBetween(cx - 4 * dir, cy - 6, cx + 4 * dir, cy);
+        gridG.lineBetween(cx + 4 * dir, cy, cx - 4 * dir, cy + 6);
+      }
+    }
   }
 
   private renderBastionCore(): void {
@@ -646,26 +811,83 @@ export class BattleScene extends Phaser.Scene {
     }
     this.transientVfx = [];
     this.spawnQueue = [];
+    this.hoveredUnitUid = null;
+    this.hoveredEnemyUid = null;
+    this.hoveredStructUid = null;
+    this.buildGhostSprite?.setVisible(false);
+    this.moveCostBadge?.setVisible(false);
+    this.ultCasterRing?.setVisible(false);
+    this.hoverReadoutContainer?.setVisible(false);
   }
 
   // ---------------------------------------------------------------------------
   // Input Handling
   // ---------------------------------------------------------------------------
 
-  private handlePointerMove(pointer: Phaser.Input.Pointer): void {
-    if (pointer.x < 0 || pointer.x >= CANVAS_WIDTH || pointer.y < 0 || pointer.y >= CANVAS_HEIGHT) {
-      if (this.hoverTile !== null) {
-        this.hoverTile = null;
-        this.refreshHighlights();
-      }
-      return;
+  private updateHoverTargets(x: number, y: number): boolean {
+    if (x < 0 || x >= CANVAS_WIDTH || y < 0 || y >= CANVAS_HEIGHT) {
+      const changed =
+        this.hoverTile !== null ||
+        this.hoveredUnitUid !== null ||
+        this.hoveredEnemyUid !== null ||
+        this.hoveredStructUid !== null;
+      this.hoverTile = null;
+      this.hoveredUnitUid = null;
+      this.hoveredEnemyUid = null;
+      this.hoveredStructUid = null;
+      return changed;
     }
 
-    const pt = worldToGrid(pointer.x, pointer.y);
-    if (!this.hoverTile || this.hoverTile.gx !== pt.gx || this.hoverTile.gy !== pt.gy) {
-      this.hoverTile = pt;
-      this.refreshHighlights();
+    const pt = worldToGrid(x, y);
+    const tileChanged = !this.hoverTile || this.hoverTile.gx !== pt.gx || this.hoverTile.gy !== pt.gy;
+    const unit = this.getUnitAt(pt.gx, pt.gy);
+    const struct = this.getStructureAt(pt.gx, pt.gy);
+    const enemy =
+      this.enemies.find(
+        (e) => e.hp > 0 && Math.hypot(e.x - x, e.y - y) <= TILE_SIZE * 0.5,
+      ) ?? this.enemies.find((e) => e.hp > 0 && e.gx === pt.gx && e.gy === pt.gy);
+
+    const nextUnitUid = unit?.data.uid ?? null;
+    const nextEnemyUid = enemy?.uid ?? null;
+    const nextStructUid = struct?.data.uid ?? null;
+
+    const changed =
+      tileChanged ||
+      this.hoveredUnitUid !== nextUnitUid ||
+      this.hoveredEnemyUid !== nextEnemyUid ||
+      this.hoveredStructUid !== nextStructUid;
+
+    this.hoverTile = pt;
+    this.hoveredUnitUid = nextUnitUid;
+    this.hoveredEnemyUid = nextEnemyUid;
+    this.hoveredStructUid = nextStructUid;
+    return changed;
+  }
+
+  private handlePointerMove(pointer: Phaser.Input.Pointer): void {
+    const prevTile = this.hoverTile ? { ...this.hoverTile } : null;
+    if (pointer.x < 0 || pointer.x >= CANVAS_WIDTH || pointer.y < 0 || pointer.y >= CANVAS_HEIGHT) {
+      this.lastPointerX = -1;
+      this.lastPointerY = -1;
+    } else {
+      this.lastPointerX = pointer.x;
+      this.lastPointerY = pointer.y;
     }
+
+    const changed = this.updateHoverTargets(pointer.x, pointer.y);
+    if (!changed) return;
+
+    const tileChanged =
+      (prevTile === null) !== (this.hoverTile === null) ||
+      (prevTile !== null &&
+        this.hoverTile !== null &&
+        (prevTile.gx !== this.hoverTile.gx || prevTile.gy !== this.hoverTile.gy));
+
+    if (tileChanged && this.phase === 'PREP') {
+      this.refreshPathPreview();
+    }
+    this.refreshHighlights();
+    this.refreshHoverReadout();
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -695,14 +917,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private cancelActiveSelections(): void {
-    this.selectedTool = null;
-    this.selectedUnitUid = null;
-    this.selectedStructureUid = null;
-    this.movingStructureUid = null;
-    this.aimingUltUnitUid = null;
-    this.slowMo = false;
-    this.refreshHighlights();
-    this.emitSnapshot();
+    this.cancelAction();
   }
 
   private handlePrepClick(gx: number, gy: number): void {
@@ -770,7 +985,9 @@ export class BattleScene extends Phaser.Scene {
     if (!this.movingStructureUid) {
       if (clickedStructure) {
         this.movingStructureUid = clickedStructure.data.uid;
+        this.refreshPathPreview();
         this.refreshHighlights();
+        this.refreshHoverReadout();
         this.setStatus(
           `Moving ${STRUCTURE_SPECS[clickedStructure.data.kind].name}. Click a valid empty tile.`,
         );
@@ -879,7 +1096,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     if (this.gold < spec.cost) {
-      this.setStatus(`Need ${spec.cost}G to build ${spec.name}.`);
+      this.setStatus(`Need ₽${spec.cost} to build ${spec.name}.`);
       return;
     }
 
@@ -909,17 +1126,18 @@ export class BattleScene extends Phaser.Scene {
     this.updateStructureBar(entity);
     this.refreshPathPreview();
     this.refreshHighlights();
-    this.setStatus(`Built ${spec.name} (-${spec.cost}G).`);
+    this.setStatus(`Built ${spec.name} (-₽${spec.cost}).`);
   }
 
   private sellStructure(entity: StructureEntity): void {
     const spec = STRUCTURE_SPECS[entity.data.kind];
-    const refund = Math.round(spec.cost * 0.7);
+    const refund = getSellRefund(entity.data.kind);
     this.gold += refund;
     this.removeStructureEntity(entity);
     this.refreshPathPreview();
     this.refreshHighlights();
-    this.setStatus(`Sold ${spec.name} (+${refund}G).`);
+    this.refreshHoverReadout();
+    this.setStatus(`Sold ${spec.name} (+₽${refund}).`);
   }
 
   private removeStructureEntity(entity: StructureEntity): void {
@@ -935,11 +1153,73 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private getBlockedWallKeys(): Set<string> {
+  private isValidBuildTile(gx: number, gy: number): boolean {
+    return (
+      !isNoBuildTile(gx, gy, this.tiles) &&
+      !this.getStructureAt(gx, gy) &&
+      !this.getUnitAt(gx, gy)
+    );
+  }
+
+  private getSpeculativeWallPreview(): {
+    addKey: string;
+    removeKey: string | null;
+    addStruct: GridStructure;
+    removeUid: string | null;
+  } | null {
+    if (this.phase !== 'PREP' || !this.hoverTile) return null;
+    const { gx, gy } = this.hoverTile;
+    if (!this.isValidBuildTile(gx, gy)) return null;
+
+    if (this.selectedTool === 'wood_wall' || this.selectedTool === 'stone_wall') {
+      return {
+        addKey: keyOf(gx, gy),
+        removeKey: null,
+        addStruct: {
+          uid: '__preview__',
+          kind: this.selectedTool,
+          gx,
+          gy,
+          hp: 100,
+          maxHp: 100,
+          ruined: false,
+        },
+        removeUid: null,
+      };
+    }
+
+    if (this.selectedTool === 'move_struct' && this.movingStructureUid) {
+      const moving = this.structures.find((s) => s.data.uid === this.movingStructureUid);
+      if (
+        moving &&
+        !moving.data.ruined &&
+        moving.data.hp > 0 &&
+        STRUCTURE_SPECS[moving.data.kind].blocksGround
+      ) {
+        return {
+          addKey: keyOf(gx, gy),
+          removeKey: keyOf(moving.data.gx, moving.data.gy),
+          addStruct: { ...moving.data, gx, gy },
+          removeUid: moving.data.uid,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private getBlockedWallKeys(includeSpeculativeHover = false): Set<string> {
     const blocked = new Set<string>();
     for (const s of this.structures) {
       if (!s.data.ruined && s.data.hp > 0 && STRUCTURE_SPECS[s.data.kind].blocksGround) {
         blocked.add(keyOf(s.data.gx, s.data.gy));
+      }
+    }
+    if (includeSpeculativeHover) {
+      const specPreview = this.getSpeculativeWallPreview();
+      if (specPreview) {
+        if (specPreview.removeKey) blocked.delete(specPreview.removeKey);
+        blocked.add(specPreview.addKey);
       }
     }
     return blocked;
@@ -949,7 +1229,17 @@ export class BattleScene extends Phaser.Scene {
     this.pathPreviewGraphics.clear();
     if (this.phase !== 'PREP') return;
 
-    const blockedWalls = this.getBlockedWallKeys();
+    const specPreview = this.getSpeculativeWallPreview();
+    const blockedWalls = this.getBlockedWallKeys(true);
+    const previewStructures = specPreview
+      ? [
+          ...this.structures
+            .filter((s) => s.data.uid !== specPreview.removeUid)
+            .map((s) => s.data),
+          specPreview.addStruct,
+        ]
+      : this.structures.map((s) => s.data);
+
     const starts: GridPoint[] = [
       { gx: 0, gy: 5 },
       { gx: 17, gy: 5 },
@@ -962,16 +1252,13 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      const blockingWall = findNearestBlockingWall(
-        start,
-        this.tiles,
-        this.structures.map((s) => s.data),
-      );
+      const blockingWall = findNearestBlockingWall(start, this.tiles, previewStructures);
       if (blockingWall) {
-        const toWall = this.findPathToTile(start, {
-          gx: blockingWall.gx,
-          gy: blockingWall.gy,
-        });
+        const toWall = this.findPathToTile(
+          start,
+          { gx: blockingWall.gx, gy: blockingWall.gy },
+          blockedWalls,
+        );
         if (toWall.length > 1) {
           this.drawDashedPath(toWall, 0xf97316, 0.9);
         }
@@ -1013,10 +1300,14 @@ export class BattleScene extends Phaser.Scene {
   /**
    * 4-dir BFS from `start` to `target` avoiding water and intact walls (except `target` itself).
    */
-  private findPathToTile(start: GridPoint, target: GridPoint): GridPoint[] {
+  private findPathToTile(
+    start: GridPoint,
+    target: GridPoint,
+    baseBlockedWalls?: Set<string>,
+  ): GridPoint[] {
     if (start.gx === target.gx && start.gy === target.gy) return [start];
 
-    const blockedWalls = this.getBlockedWallKeys();
+    const blockedWalls = new Set(baseBlockedWalls ?? this.getBlockedWallKeys());
     blockedWalls.delete(keyOf(target.gx, target.gy));
 
     const queue: GridPoint[] = [start];
@@ -1061,8 +1352,111 @@ export class BattleScene extends Phaser.Scene {
   // Highlights
   // ---------------------------------------------------------------------------
 
+  private drawDashedRect(
+    g: Phaser.GameObjects.Graphics,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    primaryColor: number,
+    secondaryColor: number | null,
+    alpha: number,
+    lineWidth = 2,
+    dashLen = 8,
+    gapLen = 5,
+  ): void {
+    const edges: Array<[number, number, number, number]> = [
+      [x, y, x + w, y],
+      [x + w, y, x + w, y + h],
+      [x + w, y + h, x, y + h],
+      [x, y + h, x, y],
+    ];
+    let stepIdx = 0;
+    for (const [x1, y1, x2, y2] of edges) {
+      const dist = Math.hypot(x2 - x1, y2 - y1);
+      if (dist <= 0) continue;
+      const ux = (x2 - x1) / dist;
+      const uy = (y2 - y1) / dist;
+      let d = 0;
+      while (d < dist) {
+        const end = Math.min(d + dashLen, dist);
+        const color =
+          secondaryColor !== null && stepIdx % 2 === 1 ? secondaryColor : primaryColor;
+        g.lineStyle(lineWidth, color, alpha);
+        g.lineBetween(x1 + ux * d, y1 + uy * d, x1 + ux * end, y1 + uy * end);
+        d += dashLen + gapLen;
+        stepIdx += 1;
+      }
+    }
+  }
+
+  private drawAttackRangePerimeter(
+    gx: number,
+    gy: number,
+    range: number,
+    alpha: number,
+    lineWidth: number,
+  ): void {
+    const size = (2 * range + 1) * TILE_SIZE;
+    const x = (gx - range) * TILE_SIZE + 1;
+    const y = (gy - range) * TILE_SIZE + 1;
+    this.drawDashedRect(
+      this.highlightGraphics,
+      x,
+      y,
+      size - 2,
+      size - 2,
+      0xfb7185,
+      0xffffff,
+      alpha,
+      lineWidth,
+      8,
+      5,
+    );
+  }
+
+  private drawTargetReticle(cx: number, cy: number, color: number): void {
+    const r = 18;
+    const arm = 6;
+    this.highlightGraphics.lineStyle(2, color, 0.95);
+    this.highlightGraphics.strokeCircle(cx, cy, r);
+    for (const [sx, sy] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ]) {
+      const px = cx + sx * (r + 3);
+      const py = cy + sy * (r + 3);
+      this.highlightGraphics.lineBetween(px, py, px - sx * arm, py);
+      this.highlightGraphics.lineBetween(px, py, px, py - sy * arm);
+    }
+  }
+
+  private drawStructureAuraPreview(kind: StructureKind, gx: number, gy: number): void {
+    if (kind === 'berry_bush') {
+      const zx = (gx - 1) * TILE_SIZE;
+      const zy = (gy - 1) * TILE_SIZE;
+      const size = 3 * TILE_SIZE;
+      this.highlightGraphics.fillStyle(0x4ade80, 0.14);
+      this.highlightGraphics.fillRect(zx, zy, size, size);
+      this.highlightGraphics.lineStyle(1.5, 0x4ade80, 0.6);
+      this.highlightGraphics.strokeRect(zx + 1, zy + 1, size - 2, size - 2);
+    } else if (kind === 'barrel') {
+      const cx = tileCenterX(gx);
+      const cy = tileCenterY(gy);
+      const radiusPx = 86;
+      this.highlightGraphics.fillStyle(0xf97316, 0.16);
+      this.highlightGraphics.fillCircle(cx, cy, radiusPx);
+      this.highlightGraphics.lineStyle(1.8, 0xf97316, 0.78);
+      this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
+    }
+  }
+
   private refreshHighlights(): void {
     this.highlightGraphics.clear();
+    this.buildGhostSprite.setVisible(false);
+    this.moveCostBadge.setVisible(false);
 
     // Selected structure outline
     if (this.selectedStructureUid) {
@@ -1092,49 +1486,126 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    // Unit movement rings
-    if (this.selectedUnitUid) {
-      const unit = this.units.find((u) => u.data.uid === this.selectedUnitUid);
-      if (unit && !unit.data.fainted) {
-        const moveRange = this.getUnitMoveRange(unit);
-        this.highlightGraphics.lineStyle(2, 0x22d3ee, 1);
-        this.highlightGraphics.strokeRect(
-          unit.data.gx * TILE_SIZE + 2,
-          unit.data.gy * TILE_SIZE + 2,
-          TILE_SIZE - 4,
-          TILE_SIZE - 4,
-        );
+    // Unit movement rings + selected unit Chebyshev attack range
+    const selectedUnit = this.selectedUnitUid
+      ? this.units.find((u) => u.data.uid === this.selectedUnitUid)
+      : undefined;
 
-        for (let gy = 0; gy < GRID_ROWS; gy++) {
-          for (let gx = 0; gx < GRID_COLS; gx++) {
-            const dist = manhattanDist(unit.data.gx, unit.data.gy, gx, gy);
-            if (dist === 0 || !this.isValidUnitTile(gx, gy)) continue;
+    if (selectedUnit && !selectedUnit.data.fainted) {
+      const moveRange = this.getUnitMoveRange(selectedUnit);
+      this.highlightGraphics.lineStyle(2, 0x22d3ee, 1);
+      this.highlightGraphics.strokeRect(
+        selectedUnit.data.gx * TILE_SIZE + 2,
+        selectedUnit.data.gy * TILE_SIZE + 2,
+        TILE_SIZE - 4,
+        TILE_SIZE - 4,
+      );
 
-            if (dist <= moveRange) {
-              this.highlightGraphics.fillStyle(0x22d3ee, 0.22);
-              this.highlightGraphics.fillRect(
-                gx * TILE_SIZE + 2,
-                gy * TILE_SIZE + 2,
-                TILE_SIZE - 4,
-                TILE_SIZE - 4,
-              );
-            } else if (dist <= moveRange * 2) {
-              const color = this.phase === 'COMBAT' ? 0xf59e0b : 0x22d3ee;
-              const alpha = this.phase === 'COMBAT' ? 0.2 : 0.1;
-              this.highlightGraphics.fillStyle(color, alpha);
-              this.highlightGraphics.fillRect(
-                gx * TILE_SIZE + 2,
-                gy * TILE_SIZE + 2,
-                TILE_SIZE - 4,
-                TILE_SIZE - 4,
-              );
-            }
+      for (let gy = 0; gy < GRID_ROWS; gy++) {
+        for (let gx = 0; gx < GRID_COLS; gx++) {
+          const dist = manhattanDist(selectedUnit.data.gx, selectedUnit.data.gy, gx, gy);
+          if (dist === 0 || !this.isValidUnitTile(gx, gy)) continue;
+
+          if (dist <= moveRange) {
+            this.highlightGraphics.fillStyle(0x22d3ee, 0.22);
+            this.highlightGraphics.fillRect(
+              gx * TILE_SIZE + 2,
+              gy * TILE_SIZE + 2,
+              TILE_SIZE - 4,
+              TILE_SIZE - 4,
+            );
+          } else if (dist <= moveRange * 2) {
+            const color = this.phase === 'COMBAT' ? 0xf59e0b : 0x22d3ee;
+            const alpha = this.phase === 'COMBAT' ? 0.2 : 0.1;
+            this.highlightGraphics.fillStyle(color, alpha);
+            this.highlightGraphics.fillRect(
+              gx * TILE_SIZE + 2,
+              gy * TILE_SIZE + 2,
+              TILE_SIZE - 4,
+              TILE_SIZE - 4,
+            );
           }
+        }
+      }
+
+      const selectedSpec = POKEMON_SPECIES[selectedUnit.data.speciesId];
+      if (selectedSpec) {
+        this.drawAttackRangePerimeter(
+          selectedUnit.data.gx,
+          selectedUnit.data.gy,
+          selectedSpec.range,
+          0.95,
+          2.2,
+        );
+      }
+
+      // Projected attack range + AP badge when hovering a valid movement destination
+      if (this.hoverTile && this.selectedTool === null && !this.aimingUltUnitUid) {
+        const { gx: hx, gy: hy } = this.hoverTile;
+        const dist = manhattanDist(selectedUnit.data.gx, selectedUnit.data.gy, hx, hy);
+        const isValidDest =
+          dist > 0 &&
+          this.isValidUnitTile(hx, hy) &&
+          (this.phase === 'PREP' || dist <= moveRange * 2);
+
+        if (isValidDest) {
+          const apCost = this.phase === 'PREP' ? 0 : dist <= moveRange ? 1 : 2;
+          const affordable = this.phase === 'PREP' || this.ap >= apCost;
+
+          this.highlightGraphics.lineStyle(2, affordable ? 0x67e8f9 : 0xef4444, 0.9);
+          this.highlightGraphics.strokeRect(
+            hx * TILE_SIZE + 3,
+            hy * TILE_SIZE + 3,
+            TILE_SIZE - 6,
+            TILE_SIZE - 6,
+          );
+
+          if (selectedSpec) {
+            this.drawAttackRangePerimeter(
+              hx,
+              hy,
+              selectedSpec.range,
+              affordable ? 0.65 : 0.35,
+              1.6,
+            );
+          }
+
+          const badgeColor = !affordable
+            ? '#fca5a5'
+            : apCost === 0
+              ? '#67e8f9'
+              : apCost === 1
+                ? '#22d3ee'
+                : '#fbbf24';
+          const bx = Phaser.Math.Clamp(hx * TILE_SIZE + TILE_SIZE - 4, 4, CANVAS_WIDTH - 42);
+          const by = Phaser.Math.Clamp(hy * TILE_SIZE - 6, 4, CANVAS_HEIGHT - 22);
+          this.moveCostBadge
+            .setText(`${apCost} AP`)
+            .setColor(badgeColor)
+            .setPosition(bx, by)
+            .setVisible(true);
         }
       }
     }
 
-    // Ultimate aiming circle preview
+    // Hovered unit Chebyshev attack range perimeter
+    if (this.hoveredUnitUid && !this.aimingUltUnitUid && this.hoveredUnitUid !== this.selectedUnitUid) {
+      const hoveredUnit = this.units.find((u) => u.data.uid === this.hoveredUnitUid);
+      if (hoveredUnit) {
+        const spec = POKEMON_SPECIES[hoveredUnit.data.speciesId];
+        if (spec) {
+          this.drawAttackRangePerimeter(
+            hoveredUnit.data.gx,
+            hoveredUnit.data.gy,
+            spec.range,
+            0.8,
+            1.8,
+          );
+        }
+      }
+    }
+
+    // Ultimate aiming circle preview + target reticles
     if (this.aimingUltUnitUid && this.hoverTile) {
       const cx = tileCenterX(this.hoverTile.gx);
       const cy = tileCenterY(this.hoverTile.gy);
@@ -1143,22 +1614,156 @@ export class BattleScene extends Phaser.Scene {
       this.highlightGraphics.fillCircle(cx, cy, radiusPx);
       this.highlightGraphics.lineStyle(2, 0xfbbf24, 0.9);
       this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
+
+      const caster = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
+      const isHealUlt =
+        caster !== undefined &&
+        (caster.data.speciesId === '0001' || caster.data.speciesId === '0012');
+
+      if (isHealUlt) {
+        for (const ally of this.units) {
+          if (ally.data.fainted) continue;
+          if (
+            Math.hypot(ally.data.gx - this.hoverTile.gx, ally.data.gy - this.hoverTile.gy) <=
+            ULT_RADIUS
+          ) {
+            this.drawTargetReticle(ally.sprite.x, ally.sprite.y, 0x4ade80);
+          }
+        }
+      } else {
+        for (const enemy of this.enemies) {
+          if (enemy.hp <= 0) continue;
+          if (
+            Math.hypot(enemy.gx - this.hoverTile.gx, enemy.gy - this.hoverTile.gy) <= ULT_RADIUS
+          ) {
+            this.drawTargetReticle(enemy.x, enemy.y, 0xfde047);
+          }
+        }
+      }
     } else if (this.hoverTile && this.selectedTool !== null && this.phase === 'PREP') {
       const { gx, gy } = this.hoverTile;
-      const canPlace =
-        this.selectedTool === 'move_struct' || this.selectedTool === 'sell_struct'
-          ? Boolean(this.getStructureAt(gx, gy) || this.movingStructureUid)
-          : !isNoBuildTile(gx, gy, this.tiles) &&
-            !this.getStructureAt(gx, gy) &&
-            !this.getUnitAt(gx, gy);
-      this.highlightGraphics.lineStyle(2, canPlace ? 0x4ade80 : 0xef4444, 0.9);
-      this.highlightGraphics.strokeRect(
-        gx * TILE_SIZE + 2,
-        gy * TILE_SIZE + 2,
-        TILE_SIZE - 4,
-        TILE_SIZE - 4,
-      );
+      if (this.selectedTool === 'sell_struct') {
+        const hoveredStruct = this.getStructureAt(gx, gy);
+        if (hoveredStruct) {
+          this.highlightGraphics.fillStyle(0xef4444, 0.24);
+          this.highlightGraphics.fillRect(
+            gx * TILE_SIZE + 2,
+            gy * TILE_SIZE + 2,
+            TILE_SIZE - 4,
+            TILE_SIZE - 4,
+          );
+          this.highlightGraphics.lineStyle(2.5, 0xf59e0b, 0.95);
+        } else {
+          this.highlightGraphics.lineStyle(1.5, 0x64748b, 0.55);
+        }
+        this.highlightGraphics.strokeRect(
+          gx * TILE_SIZE + 2,
+          gy * TILE_SIZE + 2,
+          TILE_SIZE - 4,
+          TILE_SIZE - 4,
+        );
+      } else if (this.selectedTool === 'move_struct') {
+        if (!this.movingStructureUid) {
+          const canPick = Boolean(this.getStructureAt(gx, gy));
+          this.highlightGraphics.lineStyle(2, canPick ? 0xfbbf24 : 0x64748b, canPick ? 0.95 : 0.55);
+        } else {
+          const canPlace = this.isValidBuildTile(gx, gy);
+          this.highlightGraphics.lineStyle(2, canPlace ? 0x4ade80 : 0xef4444, 0.9);
+          const moving = this.structures.find((s) => s.data.uid === this.movingStructureUid);
+          if (moving) {
+            this.buildGhostSprite
+              .setTexture(`tex:${moving.data.kind}`)
+              .setPosition(tileCenterX(gx), tileCenterY(gy))
+              .setAlpha(0.55)
+              .setTint(canPlace ? 0xffffff : 0xf87171)
+              .setVisible(true);
+            this.drawStructureAuraPreview(moving.data.kind, gx, gy);
+          }
+        }
+        this.highlightGraphics.strokeRect(
+          gx * TILE_SIZE + 2,
+          gy * TILE_SIZE + 2,
+          TILE_SIZE - 4,
+          TILE_SIZE - 4,
+        );
+      } else {
+        const canPlace = this.isValidBuildTile(gx, gy);
+        this.highlightGraphics.lineStyle(2, canPlace ? 0x4ade80 : 0xef4444, 0.9);
+        this.highlightGraphics.strokeRect(
+          gx * TILE_SIZE + 2,
+          gy * TILE_SIZE + 2,
+          TILE_SIZE - 4,
+          TILE_SIZE - 4,
+        );
+        this.buildGhostSprite
+          .setTexture(`tex:${this.selectedTool}`)
+          .setPosition(tileCenterX(gx), tileCenterY(gy))
+          .setAlpha(0.55)
+          .setTint(canPlace ? 0xffffff : 0xf87171)
+          .setVisible(true);
+        this.drawStructureAuraPreview(this.selectedTool, gx, gy);
+      }
     }
+  }
+
+  private refreshHoverReadout(): void {
+    if (this.selectedTool !== null || this.aimingUltUnitUid || this.movingStructureUid) {
+      this.hoverReadoutContainer.setVisible(false);
+      return;
+    }
+
+    let label = '';
+    if (this.hoveredEnemyUid) {
+      const enemy = this.enemies.find((e) => e.uid === this.hoveredEnemyUid && e.hp > 0);
+      if (enemy) {
+        const spec = ENEMY_SPECIES[enemy.speciesId];
+        if (spec) {
+          const trait =
+            spec.movementType === 'fly'
+              ? 'Fly'
+              : spec.movementType === 'burrow'
+                ? 'Burrow'
+                : spec.wallDmgMult > 1
+                  ? 'Wall-Breaker'
+                  : spec.roleLabel;
+          label = `${spec.name}  HP ${Math.ceil(enemy.hp)}/${enemy.maxHp}  [${trait}]`;
+        }
+      }
+    } else if (this.hoveredUnitUid) {
+      const unit = this.units.find((u) => u.data.uid === this.hoveredUnitUid);
+      if (unit) {
+        const spec = POKEMON_SPECIES[unit.data.speciesId];
+        if (spec) {
+          const trait = unit.data.fainted ? 'Fainted' : `${spec.pokeClass} · Rng ${spec.range}`;
+          label = `${spec.name}  HP ${Math.ceil(unit.data.hp)}/${unit.data.maxHp}  [${trait}]`;
+        }
+      }
+    } else if (this.hoveredStructUid) {
+      const struct = this.structures.find((s) => s.data.uid === this.hoveredStructUid);
+      if (struct) {
+        const spec = STRUCTURE_SPECS[struct.data.kind];
+        if (spec) {
+          const trait = struct.data.ruined
+            ? 'Ruined'
+            : spec.blocksGround
+              ? 'Blocks Ground'
+              : spec.consumable
+                ? 'Trap'
+                : 'Support';
+          label = `${spec.name}  HP ${Math.ceil(struct.data.hp)}/${struct.data.maxHp}  [${trait}]`;
+        }
+      }
+    }
+
+    if (!label) {
+      this.hoverReadoutContainer.setVisible(false);
+      return;
+    }
+
+    this.hoverReadoutText.setText(label);
+    const bounds = this.hoverReadoutText.getBounds();
+    this.hoverReadoutBg.setSize(Math.max(120, Math.ceil(bounds.width) + 16), 24);
+    this.hoverReadoutContainer.setVisible(true);
   }
 
   // ---------------------------------------------------------------------------
@@ -1845,11 +2450,15 @@ export class BattleScene extends Phaser.Scene {
       this.addUnitUlt(attacker, 15);
     }
 
-    this.spawnFloatingText(enemy.x, enemy.y - 10, `+${bounty}G`, '#facc15');
+    this.spawnFloatingText(enemy.x, enemy.y - 10, `+₽${bounty}`, '#facc15');
     enemy.sprite.destroy();
     enemy.hpBarBg.destroy();
     enemy.hpBarFill.destroy();
     this.enemies = this.enemies.filter((e) => e.uid !== enemy.uid);
+    if (this.hoveredEnemyUid === enemy.uid) {
+      this.hoveredEnemyUid = null;
+      this.refreshHoverReadout();
+    }
     this.emitSnapshot();
   }
 
