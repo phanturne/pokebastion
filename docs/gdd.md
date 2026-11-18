@@ -796,19 +796,17 @@ This section tracks what is **currently playable in the repository** versus the 
 
 - **Battlefield & Grid:** `28×18` square grid (`32px` tiles, `896×576` logical canvas) themed as an Ekat Route-224 forest clearing with a `2×2` central Pokémon Center core (`1000 HP`) and randomized multi-side spawn portals (`north`, `south`, `west`, `east`) rolled each wave.
 - **Pathfinding & Live Previews:** 8-directional A* (`src/engine/pathfinding.ts`) supporting `ground`, `burrow` (wall-bypassing), and `fly` (wall- and water-bypassing) movement, nearest-wall fallback when all routes are sealed, 2-tile border + portal no-build buffers, and live dashed path previews during `PREP` (including speculative hover previews).
-- **Playable Roster (10 Species):**
-  - _Initial Active (4):_ Pikachu (`Blaster`), Charmander (`Blaster`), Bulbasaur (`Support` — +10% ATK aura), Snorlax (`Defender`).
-  - _Initial Reserve (2):_ Squirtle (`Defender`), Geodude (`Defender`).
-  - _Recruitable via Rewards (4):_ Gengar (`Specialist`), Butterfree (`Support`), Eevee (`Brawler`), Lucario (`Brawler`).
-- **Enemy Roster (4 Species):** Rattata (swarm), Diglett (`burrow`), Zubat (`fly`), Geodude (heavy wall-breaker), across a **3-wave** run (`WAVE_DEFINITIONS`).
+- **Playable Roster (10 Species) & 10-Point Starter Draft:**
+  - Pre-game `DRAFT` phase with a `10`-point budget (`Squirtle`, `Charmander`, and `Bulbasaur` unlocked for everyone at `3 pts`; remaining species cost `2–4 pts`). Unpicked species are recruited via between-wave rewards.
+  - **3-Option Branching Specializations:** Each Pokémon has 3 distinct specialization/evolution branches, offered via post-wave Specialization rewards.
+  - **Held Items (3 Slots per Pokémon):** `Bloodthirsty Edge`, `Storm Conductor`, and `Guardian Charm` purchasable in `PREP` and equippable/swappable from the unit popover next to the clicked Pokémon.
+- **Enemy Roster (10 Species across 10 Waves):** Rattata, Raticate, Diglett (`burrow`), Dugtrio (`burrow`), Zubat (`fly`), Golbat (`fly`), Crobat (`fly`), Geodude, Graveler, and Golem across `WAVE_DEFINITIONS` (Waves 1–10).
 - **Structures & Economy:** `wood_wall` (`₽20`), `stone_wall` (`₽50`), `berry_bush` (`₽70`, heals nearby units), and `barrel` (`₽30`, consumable `120`-damage AoE blast), with free `PREP` relocation, `70%` sell refund, ruined state, and proportional repair (`50%` base rate).
 - **Real-Time Combat & AP:** Shared AP pool (`8` start, `10` max, `+3` per wave, `+1` every `6` kills or `4` with `Temporal Gear`), two-ring movement (`1 AP` / `2 AP` in combat, `0 AP` in prep), manual & auto-cast ultimates, `1×`/`2×` speed toggle, and unit heal (`₽15`) / revive (`₽35`).
 - **Roguelike Rewards:** 3-choice post-wave draft offering 1 unrecruited Pokémon (when available) plus upgrades (`Thick Hide`, `Sharp Claws`, `Swift Boots`, `Quick Charge`) and global artifacts (`Fortification Core`, `Arcane Conduit`, `Temporal Gear`, `Commander's Insignia`).
 
 ## Not Yet Implemented (Planned in GDD)
 
-- 10-point starter draft (currently uses fixed 4 active + 2 reserve starters).
-- Held items (3 slots per Pokémon) and preparation consumable shop.
-- Branching evolutions, multi-tier linear structure upgrades, Type Shrines, and Resource Collectors.
+- Multi-tier linear structure upgrades, Type Shrines, and Resource Collectors.
 - Multi-encounter runs, elite battles, boss encounters, and map modifiers.
 - Permanent meta-progression (Egg hatching, Mastery Points, Shiny variants) and post-clear Challenge Modes.
