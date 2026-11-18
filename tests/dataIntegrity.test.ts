@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  BGM_ASSETS,
+  getSpeciesAttackSfx,
+  getSpeciesUltSfx,
+  SFX_ASSETS,
+} from '../src/audio/sfx';
+import {
   ENEMY_SPECIES,
   HELD_ITEMS,
   INITIAL_ACTIVE_IDS,
@@ -86,5 +92,19 @@ describe('Data & Asset Manifest Integrity', () => {
     expect(Object.keys(HELD_ITEMS)).toHaveLength(3);
     expect(Object.keys(STRUCTURE_SPECS)).toHaveLength(4);
     expect(REWARD_POOL.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('has all SFX and BGM assets on disk and valid species SFX mappings', () => {
+    const publicRoot = path.resolve(__dirname, '../public');
+    for (const relPath of [
+      ...Object.values(SFX_ASSETS),
+      ...Object.values(BGM_ASSETS),
+    ]) {
+      expect(fs.existsSync(path.join(publicRoot, relPath))).toBe(true);
+    }
+    for (const sp of Object.values(POKEMON_SPECIES)) {
+      expect(SFX_ASSETS[getSpeciesAttackSfx(sp.id)]).toBeDefined();
+      expect(SFX_ASSETS[getSpeciesUltSfx(sp.id)]).toBeDefined();
+    }
   });
 });

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { BGM_ASSETS, SFX_ASSETS } from '../audio/sfx';
 
 interface VfxManifestEntry {
   path: string;
@@ -56,6 +57,13 @@ export class BootScene extends Phaser.Scene {
     this.load.image('deco:tallgrass', 'assets/structures/deco_tall_grass.png');
     this.load.json('vfx-manifest', 'assets/vfx/manifest.json');
     this.load.json('poke-manifest', 'assets/pokemon/manifest.json');
+
+    for (const [key, path] of Object.entries(SFX_ASSETS)) {
+      this.load.audio(key, path);
+    }
+    for (const [key, path] of Object.entries(BGM_ASSETS)) {
+      this.load.audio(key, path);
+    }
   }
 
   create(): void {

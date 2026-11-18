@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
 import {
+  getSpeciesAttackSfx,
+  getSpeciesUltSfx,
+  SfxKey,
+  SfxPlayer,
+} from '../audio/sfx';
+import {
   ENEMY_SPECIES,
   HELD_ITEMS,
   POKEMON_SPECIES,
@@ -220,6 +226,7 @@ export class BattleScene extends Phaser.Scene {
   private hoverReadoutBg!: Phaser.GameObjects.Rectangle;
   private hoverReadoutText!: Phaser.GameObjects.Text;
   private transientVfx: Phaser.GameObjects.GameObject[] = [];
+  private sfx!: SfxPlayer;
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -228,6 +235,7 @@ export class BattleScene extends Phaser.Scene {
   create(): void {
     (window as unknown as { __battleScene?: BattleScene }).__battleScene = this;
     this.registry.set('battleScene', this);
+    this.sfx = new SfxPlayer(this);
 
     this.tiles = createBaseGrid();
     this.renderTerrain();
@@ -362,6 +370,7 @@ export class BattleScene extends Phaser.Scene {
       maxAp: this.maxAp,
       kills: this.kills,
       speedMult: this.speedMult,
+      muted: this.sfx?.isMuted() ?? false,
       selectedTool: this.selectedTool,
       selectedUnitUid: this.selectedUnitUid,
       selectedStructureUid: this.selectedStructureUid,
@@ -469,6 +478,7 @@ export class BattleScene extends Phaser.Scene {
     this.buildSpawnQueue();
     this.pathPreviewGraphics.clear();
     this.refreshHighlights();
+    this.sfx.play('wave_start', 0);
 
     const waveDef = WAVE_DEFINITIONS[this.wave - 1];
     this.setStatus(
@@ -478,7 +488,19 @@ export class BattleScene extends Phaser.Scene {
 
   public toggleSpeed(): void {
     this.speedMult = this.speedMult === 1 ? 2 : 1;
+    this.sfx.play('ui_click', 0);
     this.emitSnapshot();
+  }
+
+  public toggleMute(): void {
+    this.sfx.toggleMute();
+    this.emitSnapshot();
+  }
+
+  public playUiSfx(
+    key: Extract<SfxKey, 'ui_click' | 'ui_confirm' | 'ui_select' | 'coin'>,
+  ): void {
+    this.sfx.play(key, 40);
   }
 
   public toggleAutoUlt(uid: string): void {
@@ -545,6 +567,7 @@ export class BattleScene extends Phaser.Scene {
     this.invalidateEnemyPaths();
     this.refreshPathPreview();
     this.refreshHoverReadout();
+    this.sfx.play('build', 60);
     this.setStatus(`Repaired ${spec.name} (-₽${cost}).`);
   }
 
@@ -587,6 +610,7 @@ export class BattleScene extends Phaser.Scene {
       this.refreshPathPreview();
       this.refreshHighlights();
       this.refreshHoverReadout();
+      this.sfx.play('build', 60);
       this.setStatus(
         `Repaired ${repairedCount} structure${repairedCount === 1 ? '' : 's'} (-₽${totalCost}).`,
       );
@@ -1676,6 +1700,7 @@ export class BattleScene extends Phaser.Scene {
     this.updateStructureBar(entity);
     this.refreshPathPreview();
     this.refreshHighlights();
+    this.sfx.play('build', 60);
     this.setStatus(`Built ${spec.name} (-₽${spec.cost}).`);
   }
 
@@ -1687,6 +1712,7 @@ export class BattleScene extends Phaser.Scene {
     this.refreshPathPreview();
     this.refreshHighlights();
     this.refreshHoverReadout();
+    this.sfx.play('coin', 40);
     this.setStatus(`Sold ${spec.name} (+₽${refund}).`);
   }
 
@@ -2726,6 +2752,7 @@ export class BattleScene extends Phaser.Scene {
 
     const baseCharge = 15 * (unit.data.speciesId === '0025' ? 1.1 : 1);
     this.addUnitUlt(unit, baseCharge);
+    this.sfx.play(getSpeciesAttackSfx(unit.data.speciesId), 85);
 
     const applyHit = () => {
       if (target.hp > 0) {
@@ -2864,6 +2891,7 @@ export class BattleScene extends Phaser.Scene {
     const tx = tileCenterX(gx);
     const ty = tileCenterY(gy);
     this.spawnOneShotVfx(spec.ultVfx, tx, ty, 1.15);
+    this.sfx.play(getSpeciesUltSfx(unit.data.speciesId), 100);
 
     const atk = this.getUnitAtk(unit);
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
@@ -3305,6 +3333,7 @@ export class BattleScene extends Phaser.Scene {
         struct.sprite.setTexture('tex:ruined');
         this.updateStructureBar(struct);
         this.invalidateEnemyPaths();
+        this.sfx.play('crumble', 120);
       }
     } else {
       this.updateStructureBar(struct);
@@ -3348,6 +3377,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.gold += bounty;
     this.kills += 1;
+    this.sfx.play('faint', 130);
 
     const apInterval = this.artifacts.includes('temporal_gear') ? 4 : 6;
     if (this.kills % apInterval === 0 && this.ap < this.maxAp) {
@@ -3499,6 +3529,7 @@ export class BattleScene extends Phaser.Scene {
     this.removeStructureEntity(barrel);
     this.spawnOneShotVfx('explosions/big-explosion', cx, cy, 1.1);
     this.cameras.main.shake(180, 0.008);
+    this.sfx.play('crumble', 60);
 
     for (const enemy of [...this.enemies]) {
       if (Math.hypot(enemy.gx - bx, enemy.gy - by) <= BARREL_RADIUS) {
@@ -3517,6 +3548,7 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.wave >= this.maxWaves) {
       this.phase = 'VICTORY';
+      this.sfx.play('wave_clear', 0);
       this.setStatus('Victory! The Bastion Core survived all 3 waves.');
       return;
     }
@@ -3524,11 +3556,13 @@ export class BattleScene extends Phaser.Scene {
     this.rewardChoices = this.generateRewardChoices();
     this.phase = 'REWARD';
     this.refreshHighlights();
+    this.sfx.play('wave_clear', 0);
     this.setStatus(`Wave ${this.wave} cleared! +3 AP. Choose a reward.`);
   }
 
   private handleDefeat(): void {
     this.phase = 'DEFEAT';
+    this.sfx.play('faint', 0);
     this.slowMo = false;
     this.aimingUltUnitUid = null;
     this.selectedUnitUid = null;
@@ -3846,6 +3880,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private emitSnapshot(): void {
+    this.sfx?.syncPhaseBgm(this.phase);
     this.game.events.emit('snapshot', this.getSnapshot());
   }
 }

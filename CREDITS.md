@@ -14,3 +14,7 @@ PokéBastion TD Prototype uses the following community & open-licensed assets:
    - Author: Nerijs
    - License: CC0 1.0 Universal
    - Source: https://nerijs.itch.io/pvfx-foundry/devlog/1750877/pvfx-foundry-10-101-new-effects-rebuilt-for-quality
+
+4. **Sound Effects & Background Music — Tuxemon & Kelvin Shadewing**
+   - Source: https://github.com/Tuxemon/Tuxemon (`mods/tuxemon/sounds`, `mods/tuxemon/music/JRPGCollection`)
+   - Includes sounds from Kelvin Shadewing's Soundpack Vol. 1 by Nick "Kelvin Shadewing" Kovacs (http://www.kelvinshadewing.net), Tuxemon community contributors (NenadSimic, broumbroum, etc.), and JRPGCollection BGM loops (`JRPG_fields_loop.ogg`, `JRPG_battle_loop.ogg`).

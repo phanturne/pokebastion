@@ -148,6 +148,7 @@ export interface GameSnapshot {
   maxAp: number;
   kills: number;
   speedMult: 1 | 2;
+  muted: boolean;
   selectedTool: StructureKind | 'move_struct' | 'sell_struct' | null;
   selectedUnitUid: string | null;
   selectedStructureUid: string | null;
