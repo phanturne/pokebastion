@@ -6,6 +6,7 @@ import {
   createBaseGrid,
   findNearestBlockingWall,
   findPath,
+  findUnitPath,
   isNoBuildTile,
   isPortalBufferTile,
   rollWavePortals,
@@ -230,5 +231,36 @@ describe('A* Pathfinding & Grid Rules', () => {
     const w2 = rollWavePortals(2, grid, [], () => 0.25);
     expect(w1.every((p) => p.cells.length === 2)).toBe(true);
     expect(w2.every((p) => p.cells.length === 3)).toBe(true);
+  });
+
+  it('finds unit walking paths around structures/core and returns null when walled off', () => {
+    const grid = createBaseGrid();
+    const blocked = new Set<string>(['6,7', '6,8', '6,9']);
+    const path = findUnitPath(
+      { gx: 5, gy: 8 },
+      { gx: 7, gy: 8 },
+      grid,
+      blocked,
+    );
+    expect(path).not.toBeNull();
+    expect(path![0]).toEqual({ gx: 5, gy: 8 });
+    expect(path![path!.length - 1]).toEqual({ gx: 7, gy: 8 });
+    expect(path!.some((p) => blocked.has(`${p.gx},${p.gy}`))).toBe(false);
+    expect(path!.some((p) => grid[p.gy][p.gx] === 'core')).toBe(false);
+
+    // Completely enclosed destination returns null
+    const enclosed = new Set<string>([
+      '6,7',
+      '7,7',
+      '8,7',
+      '6,8',
+      '8,8',
+      '6,9',
+      '7,9',
+      '8,9',
+    ]);
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 7, gy: 8 }, grid, enclosed),
+    ).toBeNull();
   });
 });

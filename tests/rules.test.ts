@@ -25,19 +25,15 @@ import {
 } from '../src/engine/rules';
 
 describe('Game Rules, AP Movement & Economy', () => {
-  it('computes two-ring AP movement costs during COMBAT and 0 AP during PREP', () => {
+  it('computes 1 AP map-wide movement during COMBAT and 0 AP during PREP', () => {
     expect(chebyshevDist(2, 3, 4, 5)).toBe(2);
     // Same tile is invalid (null)
     expect(getMovementCost(2, 3, 2, 3, 2, 'COMBAT')).toBeNull();
     // Prep is free
     expect(getMovementCost(0, 0, 10, 8, 2, 'PREP')).toBe(0);
-    // Standard ring (1..moveRange) = 1 AP
+    // Any other tile during COMBAT costs 1 AP regardless of distance
     expect(getMovementCost(5, 5, 7, 6, 2, 'COMBAT')).toBe(1);
-    // Extended ring (moveRange+1..2*moveRange) = 2 AP
-    expect(getMovementCost(5, 5, 8, 5, 2, 'COMBAT')).toBe(2);
-    expect(getMovementCost(5, 5, 9, 5, 2, 'COMBAT')).toBe(2);
-    // Out of range (> 2*moveRange) = null
-    expect(getMovementCost(5, 5, 10, 5, 2, 'COMBAT')).toBeNull();
+    expect(getMovementCost(5, 5, 25, 15, 1, 'COMBAT')).toBe(1);
   });
 
   it('applies upgrades and artifacts to unit & structure stats', () => {

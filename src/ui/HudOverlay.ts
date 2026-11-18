@@ -443,7 +443,7 @@ export class HudOverlay {
           <span class="stat-label">Gold</span>
           <span class="stat-val gold">₽${snap.gold}</span>
         </span>
-        <span class="stat-pill" title="Action Points for combat movement (1 AP standard ring, 2 AP extended; +3 per wave)">
+        <span class="stat-pill" title="Action Points for combat movement (1 AP anywhere on the map; +3 per wave)">
           <span class="stat-label">AP</span>
           <span class="stat-val ap">${snap.ap} / ${snap.maxAp}</span>
         </span>

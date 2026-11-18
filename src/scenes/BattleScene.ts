@@ -18,6 +18,7 @@ import {
   createBaseGrid,
   findNearestBlockingWall,
   findPath,
+  findUnitPath,
   GridPoint,
   isNoBuildTile,
   rollWavePortals,
@@ -86,6 +87,8 @@ interface UnitEntity {
   ultBarFill: Phaser.GameObjects.Rectangle;
   stationaryMs: number;
   isAttackAnimPlaying: boolean;
+  movePath: GridPoint[];
+  moveTarget: GridPoint | null;
 }
 
 interface StructureEntity {
@@ -1611,23 +1614,38 @@ export class BattleScene extends Phaser.Scene {
     if (this.selectedUnitUid) {
       const unit = this.units.find((u) => u.data.uid === this.selectedUnitUid);
       if (unit && !unit.data.fainted) {
-        const dist = manhattanDist(unit.data.gx, unit.data.gy, gx, gy);
-        const moveRange = this.getUnitMoveRange(unit);
-        const apCost =
-          dist > 0 && dist <= moveRange ? 1 : dist <= moveRange * 2 ? 2 : 0;
+        if (unit.moveTarget?.gx === gx && unit.moveTarget?.gy === gy) {
+          this.selectUnit(null);
+          return;
+        }
+        const isDifferentTile = unit.data.gx !== gx || unit.data.gy !== gy;
+        const apCost = 1;
 
-        if (apCost > 0 && this.isValidUnitTile(gx, gy)) {
+        if (isDifferentTile && this.isValidUnitTile(gx, gy)) {
+          const path = findUnitPath(
+            { gx: unit.data.gx, gy: unit.data.gy },
+            { gx, gy },
+            this.tiles,
+            this.getBlockedStructureKeys(),
+          );
+          if (!path || path.length < 2) {
+            this.setStatus('No path to that tile.');
+            return;
+          }
           if (this.ap < apCost) {
             this.setStatus(`Need ${apCost} AP to move there.`);
             return;
           }
           this.ap -= apCost;
-          this.moveUnitToTile(unit, gx, gy, true);
+          unit.movePath = path.slice(1);
+          unit.moveTarget = { gx, gy };
+          unit.stationaryMs = 0;
+          this.playUnitAnim(unit, 'Walk');
           this.selectedUnitUid = null;
           this.slowMo = false;
           this.refreshHighlights();
           this.setStatus(
-            `${POKEMON_SPECIES[unit.data.speciesId].name} dashed (-${apCost} AP).`,
+            `${POKEMON_SPECIES[unit.data.speciesId].name} moving (-${apCost} AP).`,
           );
           return;
         }
@@ -2186,7 +2204,6 @@ export class BattleScene extends Phaser.Scene {
       : undefined;
 
     if (selectedUnit && !selectedUnit.data.fainted) {
-      const moveRange = this.getUnitMoveRange(selectedUnit);
       this.highlightGraphics.lineStyle(2, 0x22d3ee, 1);
       this.highlightGraphics.strokeRect(
         selectedUnit.data.gx * TILE_SIZE + 2,
@@ -2197,33 +2214,20 @@ export class BattleScene extends Phaser.Scene {
 
       for (let gy = 0; gy < GRID_ROWS; gy++) {
         for (let gx = 0; gx < GRID_COLS; gx++) {
-          const dist = manhattanDist(
-            selectedUnit.data.gx,
-            selectedUnit.data.gy,
-            gx,
-            gy,
-          );
-          if (dist === 0 || !this.isValidUnitTile(gx, gy)) continue;
-
-          if (dist <= moveRange) {
-            this.highlightGraphics.fillStyle(0x22d3ee, 0.22);
-            this.highlightGraphics.fillRect(
-              gx * TILE_SIZE + 2,
-              gy * TILE_SIZE + 2,
-              TILE_SIZE - 4,
-              TILE_SIZE - 4,
-            );
-          } else if (dist <= moveRange * 2) {
-            const color = this.phase === 'COMBAT' ? 0xf59e0b : 0x22d3ee;
-            const alpha = this.phase === 'COMBAT' ? 0.2 : 0.1;
-            this.highlightGraphics.fillStyle(color, alpha);
-            this.highlightGraphics.fillRect(
-              gx * TILE_SIZE + 2,
-              gy * TILE_SIZE + 2,
-              TILE_SIZE - 4,
-              TILE_SIZE - 4,
-            );
+          if (
+            (gx === selectedUnit.data.gx && gy === selectedUnit.data.gy) ||
+            !this.isValidUnitTile(gx, gy)
+          ) {
+            continue;
           }
+
+          this.highlightGraphics.fillStyle(0x22d3ee, 0.12);
+          this.highlightGraphics.fillRect(
+            gx * TILE_SIZE + 2,
+            gy * TILE_SIZE + 2,
+            TILE_SIZE - 4,
+            TILE_SIZE - 4,
+          );
         }
       }
 
@@ -2245,19 +2249,12 @@ export class BattleScene extends Phaser.Scene {
         !this.aimingUltUnitUid
       ) {
         const { gx: hx, gy: hy } = this.hoverTile;
-        const dist = manhattanDist(
-          selectedUnit.data.gx,
-          selectedUnit.data.gy,
-          hx,
-          hy,
-        );
         const isValidDest =
-          dist > 0 &&
-          this.isValidUnitTile(hx, hy) &&
-          (this.phase === 'PREP' || dist <= moveRange * 2);
+          (hx !== selectedUnit.data.gx || hy !== selectedUnit.data.gy) &&
+          this.isValidUnitTile(hx, hy);
 
         if (isValidDest) {
-          const apCost = this.phase === 'PREP' ? 0 : dist <= moveRange ? 1 : 2;
+          const apCost = this.phase === 'PREP' ? 0 : 1;
           const affordable = this.phase === 'PREP' || this.ap >= apCost;
 
           this.highlightGraphics.lineStyle(
@@ -2580,6 +2577,8 @@ export class BattleScene extends Phaser.Scene {
       ultBarFill,
       stationaryMs: 1000,
       isAttackAnimPlaying: false,
+      movePath: [],
+      moveTarget: null,
     };
     this.units.push(entity);
     this.playUnitAnim(entity, 'Idle');
@@ -2593,6 +2592,9 @@ export class BattleScene extends Phaser.Scene {
     gy: number,
     animateDash: boolean,
   ): void {
+    this.tweens.killTweensOf(unit.sprite);
+    unit.movePath = [];
+    unit.moveTarget = null;
     const dx = gx - unit.data.gx;
     const dy = gy - unit.data.gy;
     unit.data.facingDir = vectorToPmdDir(dx, dy, unit.data.facingDir);
@@ -2676,11 +2678,17 @@ export class BattleScene extends Phaser.Scene {
     for (const unit of this.units) {
       if (unit.data.fainted) continue;
 
-      unit.stationaryMs += simDtMs;
       unit.data.attackCooldownMs = Math.max(
         0,
         unit.data.attackCooldownMs - simDtMs,
       );
+
+      if (unit.movePath.length > 0) {
+        this.stepWalkingUnit(unit, simDtMs);
+        continue;
+      }
+
+      unit.stationaryMs += simDtMs;
 
       // Auto-ult check
       if (unit.data.autoUlt && unit.data.ult >= unit.data.ultMax) {
@@ -3282,6 +3290,8 @@ export class BattleScene extends Phaser.Scene {
 
     if (unit.data.hp <= 0) {
       unit.data.fainted = true;
+      unit.movePath = [];
+      unit.moveTarget = null;
       unit.sprite.setAlpha(0.35);
       unit.sprite.setTint(0x64748b);
       unit.sprite.anims.stop();
@@ -3539,6 +3549,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handleWaveComplete(): void {
+    this.stopAllUnitMovement();
     this.slowMo = false;
     this.aimingUltUnitUid = null;
     this.selectedUnitUid = null;
@@ -3561,6 +3572,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handleDefeat(): void {
+    this.stopAllUnitMovement();
     this.phase = 'DEFEAT';
     this.sfx.play('faint', 0);
     this.slowMo = false;
@@ -3712,12 +3724,6 @@ export class BattleScene extends Phaser.Scene {
       : baseMaxHp;
   }
 
-  private getUnitMoveRange(unit: UnitEntity): number {
-    const base = POKEMON_SPECIES[unit.data.speciesId].moveRange;
-    const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
-    return getEffectiveMoveRange(base, this.upgrades, branch);
-  }
-
   private getUnitRange(unit: UnitEntity): number {
     return getEffectiveRange(unit.data.speciesId, unit.data.branchId);
   }
@@ -3808,11 +3814,97 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
+  private stepWalkingUnit(unit: UnitEntity, simDtMs: number): void {
+    const baseMove = POKEMON_SPECIES[unit.data.speciesId].moveRange;
+    const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
+    const moveRange = getEffectiveMoveRange(baseMove, this.upgrades, branch);
+    const speedPxPerSec = (2.5 + moveRange * 1.5) * TILE_SIZE;
+    let remainingPx = speedPxPerSec * (simDtMs / 1000);
+
+    while (remainingPx > 0 && unit.movePath.length > 0) {
+      const next = unit.movePath[0];
+      const tx = tileCenterX(next.gx);
+      const ty = tileCenterY(next.gy);
+      const dx = tx - unit.sprite.x;
+      const dy = ty - unit.sprite.y;
+      const dist = Math.hypot(dx, dy);
+
+      unit.data.facingDir = vectorToPmdDir(dx, dy, unit.data.facingDir);
+
+      if (dist <= remainingPx) {
+        unit.sprite.setPosition(tx, ty);
+        unit.data.gx = next.gx;
+        unit.data.gy = next.gy;
+        unit.movePath.shift();
+        remainingPx -= dist;
+      } else {
+        const ratio = remainingPx / dist;
+        unit.sprite.setPosition(
+          unit.sprite.x + dx * ratio,
+          unit.sprite.y + dy * ratio,
+        );
+        remainingPx = 0;
+      }
+    }
+
+    unit.stationaryMs = 0;
+    unit.sprite.setDepth(4 + (unit.sprite.y / TILE_SIZE) * 0.1 + 0.04);
+    this.syncUnitBarPositions(unit);
+
+    if (unit.movePath.length === 0) {
+      unit.moveTarget = null;
+      unit.data.facingDir = 0;
+      if (!unit.isAttackAnimPlaying) {
+        this.playUnitAnim(unit, 'Idle');
+      }
+      if (this.selectedUnitUid === unit.data.uid) {
+        this.refreshHighlights();
+      }
+    } else {
+      this.playUnitAnim(unit, 'Walk');
+    }
+  }
+
+  private stopAllUnitMovement(): void {
+    for (const unit of this.units) {
+      if (unit.movePath.length === 0 && !unit.moveTarget) continue;
+      unit.movePath = [];
+      unit.moveTarget = null;
+      const tx = tileCenterX(unit.data.gx);
+      const ty = tileCenterY(unit.data.gy);
+      unit.sprite.setPosition(tx, ty);
+      unit.sprite.setDepth(4 + unit.data.gy * 0.1 + 0.04);
+      this.syncUnitBarPositions(unit);
+      unit.data.facingDir = 0;
+      if (!unit.data.fainted) {
+        this.playUnitAnim(unit, 'Idle');
+      }
+    }
+  }
+
+  private getBlockedStructureKeys(): Set<string> {
+    const blocked = new Set<string>();
+    for (const s of this.structures) {
+      if (!s.data.ruined) {
+        blocked.add(`${s.data.gx},${s.data.gy}`);
+      }
+    }
+    return blocked;
+  }
+
   private isValidUnitTile(gx: number, gy: number): boolean {
     if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return false;
     const tile = this.tiles[gy][gx];
     if (tile === 'water' || tile === 'core' || tile === 'tree') return false;
     if (this.getUnitAt(gx, gy)) return false;
+    if (
+      this.units.some(
+        (u) =>
+          !u.data.fainted && u.moveTarget?.gx === gx && u.moveTarget?.gy === gy,
+      )
+    ) {
+      return false;
+    }
     const struct = this.getStructureAt(gx, gy);
     if (struct && !struct.data.ruined) return false;
     return true;

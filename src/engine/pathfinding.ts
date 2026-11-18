@@ -220,31 +220,31 @@ function isPassable(
   return true;
 }
 
-/**
- * 4-directional A* from `start` to the nearest Bastion Core cell.
- * Returns the full path (including `start` and core tile), or `null` if blocked.
- */
-export function findPath(
-  start: GridPoint,
+function isUnitPassable(
+  gx: number,
+  gy: number,
   tiles: TileKind[][],
-  blockedWalls: Set<string>,
-  movementType: MovementType,
+  blockedStructures: Set<string>,
+): boolean {
+  if (!inBounds(gx, gy)) return false;
+  const tile = tiles[gy][gx];
+  if (tile === 'water' || tile === 'tree' || tile === 'core') return false;
+  if (blockedStructures.has(key(gx, gy))) return false;
+  return true;
+}
+
+function runAStar(
+  start: GridPoint,
+  canStep: (gx: number, gy: number) => boolean,
+  isGoal: (gx: number, gy: number) => boolean,
+  heuristic: (gx: number, gy: number) => number,
+  refPoint: GridPoint,
 ): GridPoint[] | null {
   if (!inBounds(start.gx, start.gy)) return null;
-  if (isCoreCell(start.gx, start.gy)) return [{ gx: start.gx, gy: start.gy }];
+  if (isGoal(start.gx, start.gy)) return [{ gx: start.gx, gy: start.gy }];
 
-  // Nearest core cell to start, used only as a tiny tie-breaker for straight-ish paths
-  let refCore = CORE_CELLS[0];
-  let refDist = Infinity;
-  for (const c of CORE_CELLS) {
-    const d = Math.abs(start.gx - c.gx) + Math.abs(start.gy - c.gy);
-    if (d < refDist) {
-      refDist = d;
-      refCore = c;
-    }
-  }
-  const dxStart = start.gx - refCore.gx;
-  const dyStart = start.gy - refCore.gy;
+  const dxStart = start.gx - refPoint.gx;
+  const dyStart = start.gy - refPoint.gy;
 
   const totalCells = GRID_COLS * GRID_ROWS;
   const gScore = new Float64Array(totalCells).fill(Infinity);
@@ -256,12 +256,11 @@ export function findPath(
   const startIdx = idx(start.gx, start.gy);
 
   gScore[startIdx] = 0;
-  fScore[startIdx] = minCoreDist(start.gx, start.gy);
+  fScore[startIdx] = heuristic(start.gx, start.gy);
 
   const open: number[] = [startIdx];
 
   while (open.length > 0) {
-    // Grid has at most 216 cells, so linear scan is fast and allocation-free.
     let bestPos = 0;
     for (let i = 1; i < open.length; i++) {
       if (fScore[open[i]] < fScore[open[bestPos]]) {
@@ -277,7 +276,7 @@ export function findPath(
     const cx = current % GRID_COLS;
     const cy = Math.floor(current / GRID_COLS);
 
-    if (isCoreCell(cx, cy)) {
+    if (isGoal(cx, cy)) {
       const path: GridPoint[] = [];
       let cur = current;
       while (cur !== -1) {
@@ -291,13 +290,10 @@ export function findPath(
     for (const d of DIRS_8) {
       const nx = cx + d.gx;
       const ny = cy + d.gy;
-      if (!isPassable(nx, ny, tiles, blockedWalls, movementType)) continue;
-      // Prevent diagonal corner-cutting through solid walls/trees/water
+      if (!canStep(nx, ny)) continue;
+      // Prevent diagonal corner-cutting through solid obstacles
       if (d.gx !== 0 && d.gy !== 0) {
-        if (
-          !isPassable(cx + d.gx, cy, tiles, blockedWalls, movementType) ||
-          !isPassable(cx, cy + d.gy, tiles, blockedWalls, movementType)
-        ) {
+        if (!canStep(cx + d.gx, cy) || !canStep(cx, cy + d.gy)) {
           continue;
         }
       }
@@ -309,16 +305,67 @@ export function findPath(
       if (nextG < gScore[nIdx]) {
         cameFrom[nIdx] = current;
         gScore[nIdx] = nextG;
-        const dx1 = nx - refCore.gx;
-        const dy1 = ny - refCore.gy;
+        const dx1 = nx - refPoint.gx;
+        const dy1 = ny - refPoint.gy;
         const cross = Math.abs(dx1 * dyStart - dxStart * dy1);
-        fScore[nIdx] = nextG + minCoreDist(nx, ny) + cross * 0.0001;
+        fScore[nIdx] = nextG + heuristic(nx, ny) + cross * 0.0001;
         open.push(nIdx);
       }
     }
   }
 
   return null;
+}
+
+/**
+ * 8-directional A* from `start` to the nearest Bastion Core cell.
+ * Returns the full path (including `start` and core tile), or `null` if blocked.
+ */
+export function findPath(
+  start: GridPoint,
+  tiles: TileKind[][],
+  blockedWalls: Set<string>,
+  movementType: MovementType,
+): GridPoint[] | null {
+  let refCore = CORE_CELLS[0];
+  let refDist = Infinity;
+  for (const c of CORE_CELLS) {
+    const d = Math.abs(start.gx - c.gx) + Math.abs(start.gy - c.gy);
+    if (d < refDist) {
+      refDist = d;
+      refCore = c;
+    }
+  }
+
+  return runAStar(
+    start,
+    (gx, gy) => isPassable(gx, gy, tiles, blockedWalls, movementType),
+    isCoreCell,
+    minCoreDist,
+    refCore,
+  );
+}
+
+/**
+ * 8-directional A* for a player Pokémon walking from `start` to `target`.
+ * Avoids water, trees, core tiles, and active structures; allies can be walked through.
+ */
+export function findUnitPath(
+  start: GridPoint,
+  target: GridPoint,
+  tiles: TileKind[][],
+  blockedStructures: Set<string>,
+): GridPoint[] | null {
+  if (!isUnitPassable(target.gx, target.gy, tiles, blockedStructures)) {
+    return null;
+  }
+  return runAStar(
+    start,
+    (gx, gy) => isUnitPassable(gx, gy, tiles, blockedStructures),
+    (gx, gy) => gx === target.gx && gy === target.gy,
+    (gx, gy) => Math.hypot(gx - target.gx, gy - target.gy),
+    target,
+  );
 }
 
 /**
