@@ -160,12 +160,31 @@ const TREE_TILES: readonly GridPoint[] = [
   { gx: GRID_COLS - 11, gy: GRID_ROWS - 4 },
 ];
 
-function key(gx: number, gy: number): string {
-  return `${gx},${gy}`;
+export function inBounds(gx: number, gy: number): boolean {
+  return gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS;
 }
 
-function inBounds(gx: number, gy: number): boolean {
-  return gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS;
+function toBlockedMask(blocked: Set<string>): Uint8Array {
+  const mask = new Uint8Array(GRID_COLS * GRID_ROWS);
+  for (const s of blocked) {
+    const comma = s.indexOf(',');
+    if (comma === -1) continue;
+    const gx = Number(s.slice(0, comma));
+    const gy = Number(s.slice(comma + 1));
+    if (Number.isInteger(gx) && Number.isInteger(gy) && inBounds(gx, gy)) {
+      mask[gy * GRID_COLS + gx] = 1;
+    }
+  }
+  return mask;
+}
+
+function isBorderTile(gx: number, gy: number): boolean {
+  return (
+    gx < BORDER_NO_BUILD_DEPTH ||
+    gx >= GRID_COLS - BORDER_NO_BUILD_DEPTH ||
+    gy < BORDER_NO_BUILD_DEPTH ||
+    gy >= GRID_ROWS - BORDER_NO_BUILD_DEPTH
+  );
 }
 
 function isCoreCell(gx: number, gy: number): boolean {
@@ -210,13 +229,15 @@ function isPassable(
   gx: number,
   gy: number,
   tiles: TileKind[][],
-  blockedWalls: Set<string>,
+  blockedMask: Uint8Array,
   movementType: MovementType,
 ): boolean {
   if (!inBounds(gx, gy)) return false;
   if (movementType === 'fly') return true;
   if (tiles[gy][gx] === 'water' || tiles[gy][gx] === 'tree') return false;
-  if (movementType === 'ground' && blockedWalls.has(key(gx, gy))) return false;
+  if (movementType === 'ground' && blockedMask[gy * GRID_COLS + gx] !== 0) {
+    return false;
+  }
   return true;
 }
 
@@ -224,20 +245,12 @@ function isUnitPassable(
   gx: number,
   gy: number,
   tiles: TileKind[][],
-  blockedStructures: Set<string>,
+  blockedMask: Uint8Array,
 ): boolean {
-  if (!inBounds(gx, gy)) return false;
-  if (
-    gx < BORDER_NO_BUILD_DEPTH ||
-    gx >= GRID_COLS - BORDER_NO_BUILD_DEPTH ||
-    gy < BORDER_NO_BUILD_DEPTH ||
-    gy >= GRID_ROWS - BORDER_NO_BUILD_DEPTH
-  ) {
-    return false;
-  }
+  if (!inBounds(gx, gy) || isBorderTile(gx, gy)) return false;
   const tile = tiles[gy][gx];
   if (tile === 'water' || tile === 'tree' || tile === 'core') return false;
-  if (blockedStructures.has(key(gx, gy))) return false;
+  if (blockedMask[gy * GRID_COLS + gx] !== 0) return false;
   return true;
 }
 
@@ -260,35 +273,60 @@ function runAStar(
   const cameFrom = new Int32Array(totalCells).fill(-1);
   const closed = new Uint8Array(totalCells);
 
-  const idx = (gx: number, gy: number) => gy * GRID_COLS + gx;
-  const startIdx = idx(start.gx, start.gy);
+  const startIdx = start.gy * GRID_COLS + start.gx;
 
   gScore[startIdx] = 0;
   fScore[startIdx] = heuristic(start.gx, start.gy);
 
-  const open: number[] = [startIdx];
-
-  while (open.length > 0) {
-    let bestPos = 0;
-    for (let i = 1; i < open.length; i++) {
-      if (fScore[open[i]] < fScore[open[bestPos]]) {
-        bestPos = i;
+  const heap: number[] = [startIdx];
+  const push = (node: number): void => {
+    heap.push(node);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (fScore[heap[i]] >= fScore[heap[p]]) break;
+      const tmp = heap[i];
+      heap[i] = heap[p];
+      heap[p] = tmp;
+      i = p;
+    }
+  };
+  const pop = (): number => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let i = 0;
+      const n = heap.length;
+      while (true) {
+        const l = (i << 1) + 1;
+        if (l >= n) break;
+        const r = l + 1;
+        const best = r < n && fScore[heap[r]] < fScore[heap[l]] ? r : l;
+        if (fScore[heap[best]] >= fScore[heap[i]]) break;
+        const tmp = heap[i];
+        heap[i] = heap[best];
+        heap[best] = tmp;
+        i = best;
       }
     }
-    const current = open[bestPos];
-    open.splice(bestPos, 1);
+    return top;
+  };
+
+  while (heap.length > 0) {
+    const current = pop();
 
     if (closed[current]) continue;
     closed[current] = 1;
 
     const cx = current % GRID_COLS;
-    const cy = Math.floor(current / GRID_COLS);
+    const cy = (current / GRID_COLS) | 0;
 
     if (isGoal(cx, cy)) {
       const path: GridPoint[] = [];
       let cur = current;
       while (cur !== -1) {
-        path.push({ gx: cur % GRID_COLS, gy: Math.floor(cur / GRID_COLS) });
+        path.push({ gx: cur % GRID_COLS, gy: (cur / GRID_COLS) | 0 });
         cur = cameFrom[cur];
       }
       path.reverse();
@@ -306,7 +344,7 @@ function runAStar(
         }
       }
 
-      const nIdx = idx(nx, ny);
+      const nIdx = ny * GRID_COLS + nx;
       if (closed[nIdx]) continue;
 
       const nextG = gScore[current] + d.cost;
@@ -317,7 +355,7 @@ function runAStar(
         const dy1 = ny - refPoint.gy;
         const cross = Math.abs(dx1 * dyStart - dxStart * dy1);
         fScore[nIdx] = nextG + heuristic(nx, ny) + cross * 0.0001;
-        open.push(nIdx);
+        push(nIdx);
       }
     }
   }
@@ -345,9 +383,12 @@ export function findPath(
     }
   }
 
+  const blockedMask =
+    movementType === 'ground' ? toBlockedMask(blockedWalls) : new Uint8Array(0);
+
   return runAStar(
     start,
-    (gx, gy) => isPassable(gx, gy, tiles, blockedWalls, movementType),
+    (gx, gy) => isPassable(gx, gy, tiles, blockedMask, movementType),
     isCoreCell,
     minCoreDist,
     refCore,
@@ -364,16 +405,57 @@ export function findUnitPath(
   tiles: TileKind[][],
   blockedStructures: Set<string>,
 ): GridPoint[] | null {
-  if (!isUnitPassable(target.gx, target.gy, tiles, blockedStructures)) {
+  const blockedMask = toBlockedMask(blockedStructures);
+  if (!isUnitPassable(target.gx, target.gy, tiles, blockedMask)) {
     return null;
   }
   return runAStar(
     start,
-    (gx, gy) => isUnitPassable(gx, gy, tiles, blockedStructures),
+    (gx, gy) => isUnitPassable(gx, gy, tiles, blockedMask),
     (gx, gy) => gx === target.gx && gy === target.gy,
     (gx, gy) => Math.hypot(gx - target.gx, gy - target.gy),
     target,
   );
+}
+
+function bfs4(
+  seeds: readonly GridPoint[],
+  tiles: TileKind[][],
+  onVisit?: (idx: number, dist: number) => 'enqueue' | 'skip' | 'stop',
+): Int32Array {
+  const dist = new Int32Array(GRID_COLS * GRID_ROWS).fill(-1);
+  const queue: number[] = [];
+  for (const s of seeds) {
+    const sIdx = s.gy * GRID_COLS + s.gx;
+    if (dist[sIdx] === -1) {
+      dist[sIdx] = 0;
+      queue.push(sIdx);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head];
+    const cx = cur % GRID_COLS;
+    const cy = (cur / GRID_COLS) | 0;
+    const nextDist = dist[cur] + 1;
+    for (const d of DIRS) {
+      const nx = cx + d.gx;
+      const ny = cy + d.gy;
+      if (
+        !inBounds(nx, ny) ||
+        tiles[ny][nx] === 'water' ||
+        tiles[ny][nx] === 'tree'
+      ) {
+        continue;
+      }
+      const nIdx = ny * GRID_COLS + nx;
+      if (dist[nIdx] !== -1) continue;
+      dist[nIdx] = nextDist;
+      const action = onVisit ? onVisit(nIdx, nextDist) : 'enqueue';
+      if (action === 'stop') return dist;
+      if (action === 'enqueue') queue.push(nIdx);
+    }
+  }
+  return dist;
 }
 
 /**
@@ -387,118 +469,55 @@ export function findNearestBlockingWall(
 ): GridStructure | null {
   if (!inBounds(start.gx, start.gy)) return null;
 
-  const wallMap = new Map<string, GridStructure>();
+  const wallMap = new Map<number, GridStructure>();
   for (const s of structures) {
     if (!s.ruined && s.hp > 0 && STRUCTURE_SPECS[s.kind].blocksGround) {
-      wallMap.set(key(s.gx, s.gy), s);
+      wallMap.set(s.gy * GRID_COLS + s.gx, s);
     }
   }
   if (wallMap.size === 0) return null;
 
-  const startWall = wallMap.get(key(start.gx, start.gy));
+  const startWall = wallMap.get(start.gy * GRID_COLS + start.gx);
   if (startWall) return startWall;
 
-  // 1. BFS from CORE_CELLS ignoring walls (respecting water) to get distance-to-core per tile.
+  // 1. BFS from CORE_CELLS ignoring walls (respecting water/trees) to get distance-to-core per tile.
   const INF = 1_000_000;
-  const distToCore = Array.from({ length: GRID_ROWS }, () =>
-    new Int32Array(GRID_COLS).fill(INF),
-  );
-  const coreQueue: GridPoint[] = [];
-  for (const c of CORE_CELLS) {
-    distToCore[c.gy][c.gx] = 0;
-    coreQueue.push(c);
-  }
-  for (let head = 0; head < coreQueue.length; head++) {
-    const cur = coreQueue[head];
-    const nextDist = distToCore[cur.gy][cur.gx] + 1;
-    for (const d of DIRS) {
-      const nx = cur.gx + d.gx;
-      const ny = cur.gy + d.gy;
-      if (
-        !inBounds(nx, ny) ||
-        tiles[ny][nx] === 'water' ||
-        tiles[ny][nx] === 'tree'
-      )
-        continue;
-      if (nextDist < distToCore[ny][nx]) {
-        distToCore[ny][nx] = nextDist;
-        coreQueue.push({ gx: nx, gy: ny });
+  const distToCore = bfs4(CORE_CELLS, tiles);
+
+  // 2. BFS from `start` through open tiles to track the best directly reachable blocking wall.
+  let bestWall: GridStructure | null = null;
+  let bestTotal = Infinity;
+  let bestDist = Infinity;
+
+  bfs4([start], tiles, (nIdx, nextDist) => {
+    const wall = wallMap.get(nIdx);
+    if (wall) {
+      const dCore = distToCore[nIdx] === -1 ? INF : distToCore[nIdx];
+      const total = nextDist + dCore;
+      if (total < bestTotal || (total === bestTotal && nextDist < bestDist)) {
+        bestTotal = total;
+        bestDist = nextDist;
+        bestWall = wall;
       }
+      return 'skip';
     }
-  }
+    return 'enqueue';
+  });
 
-  // 2. BFS from `start` through open tiles to collect all directly reachable blocking walls.
-  const distFromStart = Array.from({ length: GRID_ROWS }, () =>
-    new Int32Array(GRID_COLS).fill(-1),
-  );
-  distFromStart[start.gy][start.gx] = 0;
-  const queue: GridPoint[] = [{ gx: start.gx, gy: start.gy }];
-  const candidates: Array<{
-    structure: GridStructure;
-    dist: number;
-    total: number;
-  }> = [];
+  if (bestWall) return bestWall;
 
-  for (let head = 0; head < queue.length; head++) {
-    const cur = queue[head];
-    const nextDist = distFromStart[cur.gy][cur.gx] + 1;
-    for (const d of DIRS) {
-      const nx = cur.gx + d.gx;
-      const ny = cur.gy + d.gy;
-      if (
-        !inBounds(nx, ny) ||
-        tiles[ny][nx] === 'water' ||
-        tiles[ny][nx] === 'tree'
-      )
-        continue;
-      if (distFromStart[ny][nx] !== -1) continue;
-
-      distFromStart[ny][nx] = nextDist;
-      const wall = wallMap.get(key(nx, ny));
-      if (wall) {
-        candidates.push({
-          structure: wall,
-          dist: nextDist,
-          total: nextDist + distToCore[ny][nx],
-        });
-      } else {
-        queue.push({ gx: nx, gy: ny });
-      }
+  // 3. Fallback if no candidate found via open BFS: pick nearest standing wall along a wall-ignoring BFS from start.
+  let fallbackWall: GridStructure | null = null;
+  bfs4([start], tiles, (nIdx) => {
+    const wall = wallMap.get(nIdx);
+    if (wall) {
+      fallbackWall = wall;
+      return 'stop';
     }
-  }
+    return 'enqueue';
+  });
 
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => a.total - b.total || a.dist - b.dist);
-    return candidates[0].structure;
-  }
-
-  // Fallback if no candidate found via open BFS: pick nearest standing wall along a wall-ignoring BFS from start.
-  const fallbackDist = Array.from({ length: GRID_ROWS }, () =>
-    new Int32Array(GRID_COLS).fill(-1),
-  );
-  fallbackDist[start.gy][start.gx] = 0;
-  const fq: GridPoint[] = [{ gx: start.gx, gy: start.gy }];
-  for (let head = 0; head < fq.length; head++) {
-    const cur = fq[head];
-    const nextDist = fallbackDist[cur.gy][cur.gx] + 1;
-    for (const d of DIRS) {
-      const nx = cur.gx + d.gx;
-      const ny = cur.gy + d.gy;
-      if (
-        !inBounds(nx, ny) ||
-        tiles[ny][nx] === 'water' ||
-        tiles[ny][nx] === 'tree'
-      )
-        continue;
-      if (fallbackDist[ny][nx] !== -1) continue;
-      const wall = wallMap.get(key(nx, ny));
-      if (wall) return wall;
-      fallbackDist[ny][nx] = nextDist;
-      fq.push({ gx: nx, gy: ny });
-    }
-  }
-
-  return null;
+  return fallbackWall;
 }
 
 export function isPortalBufferTile(
@@ -524,9 +543,12 @@ export function rollWavePortals(
   structures: readonly GridStructure[],
   rng: () => number = Math.random,
 ): SpawnPortal[] {
-  const occupied = new Set(
-    structures.filter((s) => !s.ruined).map((s) => key(s.gx, s.gy)),
-  );
+  const occupied = new Uint8Array(GRID_COLS * GRID_ROWS);
+  for (const s of structures) {
+    if (!s.ruined && inBounds(s.gx, s.gy)) {
+      occupied[s.gy * GRID_COLS + s.gx] = 1;
+    }
+  }
   const isOpenBorder = (gx: number, gy: number) => {
     if (!inBounds(gx, gy)) return false;
     const t = tiles[gy][gx];
@@ -534,7 +556,7 @@ export function rollWavePortals(
       t !== 'tree' &&
       t !== 'water' &&
       t !== 'core' &&
-      !occupied.has(key(gx, gy))
+      occupied[gy * GRID_COLS + gx] === 0
     );
   };
 
@@ -612,15 +634,7 @@ export function isNoBuildTile(
   tiles: TileKind[][],
   portals?: readonly SpawnPortal[],
 ): boolean {
-  if (!inBounds(gx, gy)) return true;
-  if (
-    gx < BORDER_NO_BUILD_DEPTH ||
-    gx >= GRID_COLS - BORDER_NO_BUILD_DEPTH ||
-    gy < BORDER_NO_BUILD_DEPTH ||
-    gy >= GRID_ROWS - BORDER_NO_BUILD_DEPTH
-  ) {
-    return true;
-  }
+  if (!inBounds(gx, gy) || isBorderTile(gx, gy)) return true;
   const tile = tiles[gy][gx];
   if (
     tile === 'core' ||

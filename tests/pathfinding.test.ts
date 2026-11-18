@@ -269,4 +269,91 @@ describe('A* Pathfinding & Grid Rules', () => {
       findUnitPath({ gx: 5, gy: 8 }, { gx: 5, gy: 1 }, grid, new Set()),
     ).toBeNull();
   });
+
+  it('handles findNearestBlockingWall startWall, tie-breaking, and unreachable water-island cases', () => {
+    const grid = createBaseGrid();
+    const startWall = makeWall('w_start', 5, 8);
+    expect(
+      findNearestBlockingWall({ gx: 5, gy: 8 }, grid, [
+        startWall,
+        makeWall('w_other', 6, 8),
+      ]),
+    ).toBe(startWall);
+
+    // Tie-breaking: w_near (dist 1, total 1+7=8) beats w_far (dist 2, total 2+6=8)
+    // Start at (5,8), Core is at (13..14, 8..9): (6,8) has dist 1 + distToCore 7 = 8; (7,8) if reachable would be 2+6=8,
+    // so place w_near at (6,8) and w_detour at (4,8) (dist 1 + distToCore 9 = 10) or two walls at equal total:
+    // Start at (5,8): (6,8) has dist=1, dCore=7 (total=8). (5,7) has dist=1, dCore=8 (total=9).
+    // If we start at (6,8) and place walls at (7,8) [dist=1, dCore=6, total=7] and (6,7) [dist=1, dCore=7, total=8]:
+    const wCloser = makeWall('w_closer', 7, 8);
+    const wSide = makeWall('w_side', 6, 7);
+    expect(
+      findNearestBlockingWall({ gx: 6, gy: 8 }, grid, [wSide, wCloser]),
+    ).toBe(wCloser);
+
+    // Unreachable wall when start is sealed off by water returns null
+    const waterGrid = createBaseGrid();
+    waterGrid[7][5] = 'water';
+    waterGrid[9][5] = 'water';
+    waterGrid[8][4] = 'water';
+    waterGrid[8][6] = 'water';
+    expect(
+      findNearestBlockingWall({ gx: 5, gy: 8 }, waterGrid, [
+        makeWall('w_far', 10, 8),
+      ]),
+    ).toBeNull();
+  });
+
+  it('avoids standing structures in rollWavePortals and falls back when all borders are blocked', () => {
+    const grid = createBaseGrid();
+    const blocker: GridStructure = makeWall('w_border', 0, 8);
+    const portals = rollWavePortals(1, grid, [blocker], () => 0.5);
+    for (const p of portals) {
+      expect(p.cells.some((c) => c.gx === 0 && c.gy === 8)).toBe(false);
+    }
+
+    // Block all border tiles with trees so no candidate groups exist -> falls back to SPAWN_WEST
+    const blockedGrid = createBaseGrid();
+    for (let x = 0; x < blockedGrid[0].length; x++) {
+      blockedGrid[0][x] = 'tree';
+      blockedGrid[blockedGrid.length - 1][x] = 'tree';
+    }
+    for (let y = 0; y < blockedGrid.length; y++) {
+      blockedGrid[y][0] = 'tree';
+      blockedGrid[y][blockedGrid[0].length - 1] = 'tree';
+    }
+    const fallback = rollWavePortals(3, blockedGrid, [], () => 0.5);
+    expect(fallback).toEqual([
+      {
+        id: 'portal_3_west',
+        side: 'west',
+        cells: SPAWN_WEST.slice(0, 2),
+      },
+    ]);
+  });
+
+  it('handles findUnitPath start === target, out-of-bounds, and diagonal corner-cutting', () => {
+    const grid = createBaseGrid();
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 5, gy: 8 }, grid, new Set()),
+    ).toEqual([{ gx: 5, gy: 8 }]);
+    expect(
+      findUnitPath({ gx: -1, gy: 8 }, { gx: 5, gy: 8 }, grid, new Set()),
+    ).toBeNull();
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 99, gy: 8 }, grid, new Set()),
+    ).toBeNull();
+
+    // Diagonal corner-cutting: block (6,8) and (5,7) so unit at (5,8) cannot step diagonally to (6,7)
+    const cornerBlocked = new Set(['6,8', '5,7']);
+    const path = findUnitPath(
+      { gx: 5, gy: 8 },
+      { gx: 6, gy: 7 },
+      grid,
+      cornerBlocked,
+    );
+    expect(path).not.toBeNull();
+    // Must not go directly from (5,8) to (6,7) in 1 step
+    expect(path!.length).toBeGreaterThan(2);
+  });
 });

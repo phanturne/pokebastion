@@ -1,4 +1,4 @@
-import { CORE_CELLS, createBaseGrid } from '../engine/pathfinding';
+import { CORE_CELLS, createBaseGrid, inBounds } from '../engine/pathfinding';
 import { GRID_COLS, GRID_ROWS, MapDifficulty, TileKind } from '../types';
 
 export interface MapSpec {
@@ -58,12 +58,12 @@ export function createGridForMap(mapId: string): TileKind[][] {
   );
 
   for (const [gx, gy] of spec.waterTiles ?? []) {
-    if (gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS) {
+    if (inBounds(gx, gy)) {
       grid[gy][gx] = 'water';
     }
   }
   for (const [gx, gy] of spec.treeTiles ?? []) {
-    if (gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS) {
+    if (inBounds(gx, gy)) {
       grid[gy][gx] = 'tree';
     }
   }

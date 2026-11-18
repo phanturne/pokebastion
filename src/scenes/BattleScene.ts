@@ -1,6 +1,15 @@
 import Phaser from 'phaser';
 import { ensureSpeciesSpritesLoaded } from './BootScene';
 import {
+  CORE_HP_BAR_WIDTH,
+  PortalVisualState,
+  refreshPortalVisuals,
+  renderBastionCore,
+  renderGridAndMarkers,
+  renderTerrain,
+  TerrainRenderRefs,
+} from './terrainRenderer';
+import {
   getSpeciesAttackSfx,
   getSpeciesUltSfx,
   SfxKey,
@@ -15,6 +24,10 @@ import {
   STRUCTURE_SPECS,
   WAVE_DEFINITIONS,
 } from '../data/pokemon';
+import {
+  computeBasicAttackDamage,
+  computeEnemyAttackDamage,
+} from '../engine/combat';
 import {
   getUnlockedIds,
   isPokemonUnlocked,
@@ -134,8 +147,11 @@ interface EnemyEntity {
 interface SpawnEntry {
   spawnAtMs: number;
   speciesId: string;
-  side: 'west' | 'east';
   point: GridPoint;
+}
+
+function isHealUltSpecies(speciesId: string): boolean {
+  return speciesId === '0001' || speciesId === '0012';
 }
 
 function tileCenterX(gx: number): number {
@@ -178,9 +194,7 @@ function vectorToPmdDir(dx: number, dy: number, fallback = 0): number {
 export class BattleScene extends Phaser.Scene {
   private tiles: TileKind[][] = [];
   private selectedMapId = 'viridian_outpost';
-  private terrainLayer?: Phaser.GameObjects.Group;
-  private arenaGroundRT?: Phaser.GameObjects.RenderTexture;
-  private borderBakedImg?: Phaser.GameObjects.Image;
+  private terrainRefs: TerrainRenderRefs = {};
   private phase: GamePhase = 'HOME';
   private playerSave: PlayerSave = loadPlayerSave();
   private wave = 1;
@@ -208,6 +222,11 @@ export class BattleScene extends Phaser.Scene {
   private structures: StructureEntity[] = [];
   private enemies: EnemyEntity[] = [];
   private spawnQueue: SpawnEntry[] = [];
+  private spawnQueueIndex = 0;
+  private isUpdatingEnemies = false;
+  private enemiesDirty = false;
+  private inCombatFrame = false;
+  private snapshotDirty = false;
 
   private artifacts: string[] = [];
   private upgrades: string[] = [];
@@ -242,21 +261,20 @@ export class BattleScene extends Phaser.Scene {
 
   private coreHpBarFill!: Phaser.GameObjects.Rectangle;
   private activePortals: SpawnPortal[] = [];
-  private portalGraphics!: Phaser.GameObjects.Graphics;
-  private portalMarkers: Phaser.GameObjects.Rectangle[] = [];
-  private portalTween: Phaser.Tweens.Tween | null = null;
+  private portalVisualState!: PortalVisualState;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
   private cachedPreviewPaths: Array<{ points: GridPoint[]; color: number }> =
     [];
   private cachedBlockingWalls: GridPoint[] = [];
-  private pathDashOffset = 0;
   private buildGhostSprite!: Phaser.GameObjects.Image;
   private moveCostBadge!: Phaser.GameObjects.Text;
   private ultCasterRing!: Phaser.GameObjects.Arc;
   private hoverReadoutContainer!: Phaser.GameObjects.Container;
   private hoverReadoutBg!: Phaser.GameObjects.Rectangle;
   private hoverReadoutText!: Phaser.GameObjects.Text;
+  private lastHoverReadoutText = '';
+  private lastHoverReadoutVisible = false;
   private transientVfx: Phaser.GameObjects.GameObject[] = [];
   private sfx!: SfxPlayer;
 
@@ -269,11 +287,15 @@ export class BattleScene extends Phaser.Scene {
     this.registry.set('battleScene', this);
     this.sfx = new SfxPlayer(this);
 
-    this.terrainLayer = this.add.group();
+    this.terrainRefs = { terrainLayer: this.add.group() };
     this.tiles = createGridForMap(this.selectedMapId);
     this.renderTerrain();
-    this.renderGridAndMarkers();
-    this.renderBastionCore();
+    this.portalVisualState = {
+      portalGraphics: renderGridAndMarkers(this),
+      portalMarkers: [],
+      portalTween: null,
+    };
+    this.coreHpBarFill = renderBastionCore(this);
 
     this.highlightGraphics = this.add.graphics().setDepth(2);
     this.pathPreviewGraphics = this.add.graphics().setDepth(3);
@@ -432,20 +454,20 @@ export class BattleScene extends Phaser.Scene {
       this.ultCasterRing.setVisible(false);
     }
 
-    if (this.phase === 'PREP' && this.cachedPreviewPaths.length > 0) {
-      this.pathDashOffset = (this.pathDashOffset + clampedDelta * 0.028) % 14;
-      this.renderPreviewPaths();
-    }
-
     if (this.phase !== 'COMBAT') return;
 
     const simDtMs = clampedDelta * timeScale;
     this.waveElapsedMs += simDtMs;
 
-    this.processSpawnQueue();
-    this.updateBerryBushes(simDtMs);
-    this.updateEnemies(simDtMs);
-    this.updateUnits(simDtMs);
+    this.inCombatFrame = true;
+    try {
+      this.processSpawnQueue();
+      this.updateBerryBushes(simDtMs);
+      this.updateEnemies(simDtMs);
+      this.updateUnits(simDtMs);
+    } finally {
+      this.inCombatFrame = false;
+    }
 
     if (this.lastPointerX >= 0 && this.lastPointerY >= 0) {
       const hoverChanged = this.updateHoverTargets(
@@ -463,8 +485,16 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (this.spawnQueue.length === 0 && this.enemies.length === 0) {
+    if (
+      this.spawnQueueIndex >= this.spawnQueue.length &&
+      this.enemies.length === 0
+    ) {
       this.handleWaveComplete();
+      return;
+    }
+
+    if (this.snapshotDirty) {
+      this.emitSnapshot();
     }
   }
 
@@ -652,6 +682,14 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
+  private repairSingleStructure(entity: StructureEntity, cost: number): void {
+    this.gold -= cost;
+    entity.data.hp = entity.data.maxHp;
+    entity.data.ruined = false;
+    entity.sprite.setTexture(`tex:${entity.data.kind}`);
+    this.updateStructureBar(entity);
+  }
+
   public repairStructure(uid: string): void {
     const entity = this.structures.find((s) => s.data.uid === uid);
     if (!entity) return;
@@ -675,11 +713,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    this.gold -= cost;
-    entity.data.hp = entity.data.maxHp;
-    entity.data.ruined = false;
-    entity.sprite.setTexture(`tex:${entity.data.kind}`);
-    this.updateStructureBar(entity);
+    this.repairSingleStructure(entity, cost);
     this.invalidateEnemyPaths();
     this.refreshPathPreview();
     this.refreshHoverReadout();
@@ -712,11 +746,7 @@ export class BattleScene extends Phaser.Scene {
       );
       if (this.gold < cost) break;
 
-      this.gold -= cost;
-      entity.data.hp = entity.data.maxHp;
-      entity.data.ruined = false;
-      entity.sprite.setTexture(`tex:${entity.data.kind}`);
-      this.updateStructureBar(entity);
+      this.repairSingleStructure(entity, cost);
       repairedCount += 1;
       totalCost += cost;
     }
@@ -891,17 +921,8 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  public pickBranchReward(branchId: string): void {
-    if (this.phase !== 'REWARD' || !this.pendingBranchUnitUid) return;
-    const unit = this.units.find(
-      (u) => u.data.uid === this.pendingBranchUnitUid,
-    );
-    if (!unit) return;
-    const branch = getBranchSpec(unit.data.speciesId, branchId);
-    if (!branch) return;
-
+  private recalcUnitMaxHp(unit: UnitEntity): void {
     const prevMax = unit.data.maxHp;
-    unit.data.branchId = branch.id;
     unit.data.maxHp = this.computeUnitMaxHp(
       unit.data.speciesId,
       unit.data.branchId,
@@ -912,9 +933,25 @@ export class BattleScene extends Phaser.Scene {
         unit.data.maxHp,
         unit.data.hp + Math.max(0, unit.data.maxHp - prevMax),
       );
+      if (unit.data.maxHp < prevMax && unit.data.hp <= 0) {
+        unit.data.hp = 1;
+      }
     }
-    unit.sprite.setScale(1.12);
     this.updateUnitBars(unit);
+  }
+
+  public pickBranchReward(branchId: string): void {
+    if (this.phase !== 'REWARD' || !this.pendingBranchUnitUid) return;
+    const unit = this.units.find(
+      (u) => u.data.uid === this.pendingBranchUnitUid,
+    );
+    if (!unit) return;
+    const branch = getBranchSpec(unit.data.speciesId, branchId);
+    if (!branch) return;
+
+    unit.data.branchId = branch.id;
+    this.recalcUnitMaxHp(unit);
+    unit.sprite.setScale(1.12);
     this.pendingBranchUnitUid = null;
     this.advanceToNextPrep(
       `${POKEMON_SPECIES[unit.data.speciesId].name} specialized into ${branch.name}!`,
@@ -987,21 +1024,9 @@ export class BattleScene extends Phaser.Scene {
     const invIdx = this.heldItemInventory.indexOf(itemId);
     if (invIdx === -1) return;
 
-    const prevMax = unit.data.maxHp;
     this.heldItemInventory.splice(invIdx, 1);
     unit.data.heldItems.push(itemId);
-    unit.data.maxHp = this.computeUnitMaxHp(
-      unit.data.speciesId,
-      unit.data.branchId,
-      unit.data.heldItems,
-    );
-    if (!unit.data.fainted) {
-      unit.data.hp = Math.min(
-        unit.data.maxHp,
-        unit.data.hp + Math.max(0, unit.data.maxHp - prevMax),
-      );
-    }
-    this.updateUnitBars(unit);
+    this.recalcUnitMaxHp(unit);
     this.setStatus(
       `Equipped ${HELD_ITEMS[itemId]?.name ?? itemId} on ${POKEMON_SPECIES[unit.data.speciesId].name}.`,
     );
@@ -1015,21 +1040,9 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === unitUid);
     if (!unit || index < 0 || index >= unit.data.heldItems.length) return;
 
-    const prevMax = unit.data.maxHp;
     const [removed] = unit.data.heldItems.splice(index, 1);
     this.heldItemInventory.push(removed);
-    unit.data.maxHp = this.computeUnitMaxHp(
-      unit.data.speciesId,
-      unit.data.branchId,
-      unit.data.heldItems,
-    );
-    if (!unit.data.fainted) {
-      unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp);
-      if (unit.data.maxHp < prevMax && unit.data.hp <= 0) {
-        unit.data.hp = 1;
-      }
-    }
-    this.updateUnitBars(unit);
+    this.recalcUnitMaxHp(unit);
     this.setStatus(`Unequipped ${HELD_ITEMS[removed]?.name ?? removed}.`);
   }
 
@@ -1068,7 +1081,11 @@ export class BattleScene extends Phaser.Scene {
     unit.isAttackAnimPlaying = false;
     unit.sprite.setAlpha(1);
     unit.sprite.clearTint();
-    this.playUnitAnim(unit, 'Idle');
+    ensureSpeciesSpritesLoaded(this, reserveSpeciesId, () => {
+      if (unit.data.speciesId === reserveSpeciesId && !unit.data.fainted) {
+        this.playUnitAnim(unit, 'Idle');
+      }
+    });
     this.updateUnitBars(unit);
 
     this.setStatus(
@@ -1092,19 +1109,7 @@ export class BattleScene extends Phaser.Scene {
       this.upgrades.push(choice.id);
       if (choice.id === 'thick_hide') {
         for (const u of this.units) {
-          const prevMax = u.data.maxHp;
-          u.data.maxHp = this.computeUnitMaxHp(
-            u.data.speciesId,
-            u.data.branchId,
-            u.data.heldItems,
-          );
-          if (!u.data.fainted) {
-            u.data.hp = Math.min(
-              u.data.maxHp,
-              u.data.hp + (u.data.maxHp - prevMax),
-            );
-          }
-          this.updateUnitBars(u);
+          this.recalcUnitMaxHp(u);
         }
       }
     } else if (choice.kind === 'artifact') {
@@ -1161,477 +1166,11 @@ export class BattleScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private renderTerrain(): void {
-    this.terrainLayer?.clear(true, true);
-    this.arenaGroundRT?.destroy();
-    this.borderBakedImg?.destroy();
-
-    const borderPad = 14;
-    const borderPx = borderPad * TILE_SIZE;
-    const worldW = CANVAS_WIDTH + borderPx * 2;
-    const worldH = CANVAS_HEIGHT + borderPx * 2;
-
-    this.arenaGroundRT = this.add
-      .renderTexture(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-      .setOrigin(0, 0)
-      .setDepth(0);
-
-    // Bake border grass + trees once into a half-res pre-blurred CanvasTexture
-    // (eliminates ~150+ tree display objects and WebGL postFX FBO allocations)
-    const bakeBorder = !this.textures.exists('border-baked');
-    const borderScale = 2;
-    const bw = Math.ceil(worldW / borderScale);
-    const bh = Math.ceil(worldH / borderScale);
-    let borderOff: HTMLCanvasElement | null = null;
-    let bctx: CanvasRenderingContext2D | null = null;
-    if (bakeBorder) {
-      borderOff = document.createElement('canvas');
-      borderOff.width = bw;
-      borderOff.height = bh;
-      bctx = borderOff.getContext('2d');
-    }
-
-    const drawToBorder = (
-      texKey: string,
-      frame: number | undefined,
-      cx: number,
-      cy: number,
-      scale = 1,
-      originX = 0.5,
-      originY = 0.5,
-    ) => {
-      if (!bctx) return;
-      const tex = this.textures.get(texKey);
-      const fr = frame !== undefined ? tex.get(frame) : tex.get();
-      const src = tex.getSourceImage() as CanvasImageSource;
-      const dw = (fr.width * scale) / borderScale;
-      const dh = (fr.height * scale) / borderScale;
-      const dx = (cx + borderPx) / borderScale - dw * originX;
-      const dy = (cy + borderPx) / borderScale - dh * originY;
-      bctx.drawImage(
-        src,
-        fr.cutX,
-        fr.cutY,
-        fr.cutWidth,
-        fr.cutHeight,
-        dx,
-        dy,
-        dw,
-        dh,
-      );
-    };
-
-    const stamp = this.make.image({ key: 'ekat-route224', add: false });
-
-    const addTerrain = (img: Phaser.GameObjects.Image) => {
-      this.terrainLayer?.add(img);
-      return img;
-    };
-    const subSize = TILE_SIZE / 2; // 24px sub-tiles (16px * 1.5x) to match PMD sprite pixel density
-    const tileAt = (gx: number, gy: number) =>
-      gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS
-        ? this.tiles[gy][gx]
-        : 'grass';
-
-    for (let gy = -borderPad; gy < GRID_ROWS + borderPad; gy++) {
-      for (let gx = -borderPad; gx < GRID_COLS + borderPad; gx++) {
-        const inArena = gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS;
-        const tile = inArena ? this.tiles[gy][gx] : 'grass';
-        for (let sy = 0; sy < 2; sy++) {
-          for (let sx = 0; sx < 2; sx++) {
-            const dx = sx === 0 ? -1 : 1;
-            const dy = sy === 0 ? -1 : 1;
-            let frame: number;
-
-            if (tile === 'water') {
-              const sameH = tileAt(gx + dx, gy) === 'water';
-              const sameV = tileAt(gx, gy + dy) === 'water';
-              const col = !sameH ? (sx === 0 ? 5 : 7) : 6;
-              const row = !sameV ? (sy === 0 ? 6 : 8) : 7;
-              frame = row * 8 + col;
-            } else if (tile === 'core') {
-              frame = 0; // clean meadow grass underneath the transparent Pokémon Center
-            } else if (tile === 'dirt' || tile === 'spawn') {
-              const isPath = (x: number, y: number) => {
-                const t = tileAt(x, y);
-                return t === 'dirt' || t === 'spawn' || t === 'core';
-              };
-              const sameH = isPath(gx + dx, gy);
-              const sameV = isPath(gx, gy + dy);
-              const col = !sameH ? (sx === 0 ? 5 : 7) : 6;
-              const row = !sameV ? (sy === 0 ? 3 : 5) : 4;
-              frame = row * 8 + col;
-            } else {
-              // Clean, seamless meadow grass (0) with subtle grass tuft variation (1)
-              const subX = gx * 2 + sx;
-              const subY = gy * 2 + sy;
-              let h = Math.imul(subX ^ (subY << 5), 0x45d9f3b);
-              h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
-              h = (h ^ (h >>> 16)) >>> 0;
-              frame = h % 100 < 22 ? 1 : 0;
-            }
-
-            const wx = gx * TILE_SIZE + sx * subSize + subSize / 2;
-            const wy = gy * TILE_SIZE + sy * subSize + subSize / 2;
-            if (inArena) {
-              stamp.setTexture('ekat-route224', frame).setScale(1);
-              this.arenaGroundRT.draw(stamp, wx, wy);
-              const onArenaEdge =
-                gx === 0 ||
-                gx === GRID_COLS - 1 ||
-                gy === 0 ||
-                gy === GRID_ROWS - 1;
-              if (onArenaEdge) {
-                drawToBorder('ekat-route224', 0, wx, wy, 1, 0.5, 0.5);
-              }
-            } else {
-              drawToBorder('ekat-route224', frame, wx, wy, 1, 0.5, 0.5);
-            }
-          }
-        }
-
-        if (!inArena) {
-          let bh2 = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
-          bh2 = Math.imul(bh2 ^ (bh2 >>> 15), 0x85ebca6b);
-          const br = (bh2 >>> 0) % 100;
-          const distFromArena = Math.max(
-            gx < 0 ? -gx : gx >= GRID_COLS ? gx - GRID_COLS + 1 : 0,
-            gy < 0 ? -gy : gy >= GRID_ROWS ? gy - GRID_ROWS + 1 : 0,
-          );
-          const treeChance = distFromArena >= 2 ? 32 : 12;
-          if (br < treeChance) {
-            const isOak = (((gx + gy) % 2) + 2) % 2 === 0;
-            drawToBorder(
-              isOak ? 'tex:tree_oak' : 'tex:tree_pine',
-              undefined,
-              tileCenterX(gx),
-              tileCenterY(gy) + TILE_SIZE * 0.45,
-              1,
-              0.5,
-              1,
-            );
-          } else if (br < treeChance + 14) {
-            drawToBorder(
-              'deco:tallgrass',
-              undefined,
-              tileCenterX(gx),
-              tileCenterY(gy),
-              1.35,
-            );
-          } else if (br < treeChance + 19) {
-            drawToBorder(
-              'deco:stump',
-              undefined,
-              tileCenterX(gx),
-              tileCenterY(gy),
-              1.2,
-            );
-          } else if (br < treeChance + 24) {
-            drawToBorder(
-              'deco:sprout1',
-              undefined,
-              tileCenterX(gx),
-              tileCenterY(gy),
-              1,
-            );
-          }
-        } else if (tile === 'grass') {
-          let gh = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
-          gh = Math.imul(gh ^ (gh >>> 15), 0x85ebca6b);
-          const gr = (gh >>> 0) % 100;
-          if (gr < 4) {
-            addTerrain(
-              this.add
-                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1')
-                .setDepth(0.5),
-            );
-          } else if (gr < 7) {
-            addTerrain(
-              this.add
-                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2')
-                .setDepth(0.5),
-            );
-          } else if (gr === 7) {
-            addTerrain(
-              this.add
-                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3')
-                .setDepth(0.5),
-            );
-          } else if (gr === 8) {
-            addTerrain(
-              this.add
-                .image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles')
-                .setDepth(0.5),
-            );
-          }
-        } else if (tile === 'tree') {
-          const isOak = (gx + gy) % 2 === 0;
-          addTerrain(
-            this.add
-              .image(
-                tileCenterX(gx),
-                tileCenterY(gy) + TILE_SIZE * 0.45,
-                isOak ? 'tex:tree_oak' : 'tex:tree_pine',
-              )
-              .setOrigin(0.5, 1)
-              .setDepth(4 + gy * 0.1 + 0.02),
-          );
-        }
-      }
-    }
-
-    // Wild tall-grass clusters & tree stumps for natural route diversity
-    const tallGrassCoords: Array<[number, number]> = [
-      [3, 3],
-      [4, 3],
-      [3, 4],
-      [GRID_COLS - 4, 3],
-      [GRID_COLS - 5, 3],
-      [GRID_COLS - 4, 4],
-      [3, GRID_ROWS - 4],
-      [4, GRID_ROWS - 4],
-      [3, GRID_ROWS - 5],
-      [GRID_COLS - 4, GRID_ROWS - 4],
-      [GRID_COLS - 5, GRID_ROWS - 4],
-      [GRID_COLS - 4, GRID_ROWS - 5],
-      [11, 2],
-      [12, 2],
-      [15, 2],
-      [16, 2],
-      [11, GRID_ROWS - 3],
-      [12, GRID_ROWS - 3],
-      [15, GRID_ROWS - 3],
-      [16, GRID_ROWS - 3],
-      // Extra meadow vegetation where the old road used to be
-      [4, 8],
-      [4, 9],
-      [5, 8],
-      [GRID_COLS - 5, 8],
-      [GRID_COLS - 5, 9],
-      [GRID_COLS - 6, 9],
-      [10, 7],
-      [17, 10],
-    ];
-    for (const [gx, gy] of tallGrassCoords) {
-      if (this.tiles[gy]?.[gx] === 'grass') {
-        addTerrain(
-          this.add
-            .image(tileCenterX(gx), tileCenterY(gy), 'deco:tallgrass')
-            .setScale(1.4)
-            .setDepth(0.6),
-        );
-      }
-    }
-
-    const stumpCoords: Array<[number, number]> = [
-      [8, 2],
-      [GRID_COLS - 9, 2],
-      [9, 5],
-      [GRID_COLS - 10, 5],
-      [8, GRID_ROWS - 3],
-      [GRID_COLS - 9, GRID_ROWS - 3],
-    ];
-    for (const [gx, gy] of stumpCoords) {
-      if (this.tiles[gy]?.[gx] === 'grass') {
-        addTerrain(
-          this.add
-            .image(tileCenterX(gx), tileCenterY(gy), 'deco:stump')
-            .setScale(1.25)
-            .setDepth(0.8),
-        );
-      }
-    }
-    stamp.destroy();
-
-    if (bakeBorder && borderOff) {
-      const borderTex = this.textures.createCanvas('border-baked', bw, bh);
-      if (borderTex) {
-        const ctx = borderTex.getContext();
-        ctx.filter = 'blur(2px)';
-        ctx.drawImage(borderOff, 0, 0);
-        borderTex.refresh();
-      }
-    }
-    this.borderBakedImg = this.add
-      .image(-borderPx, -borderPx, 'border-baked')
-      .setOrigin(0, 0)
-      .setScale(borderScale)
-      .setDepth(-1);
-  }
-
-  private renderGridAndMarkers(): void {
-    const gridG = this.add.graphics().setDepth(1);
-    gridG.lineStyle(1, 0xffffff, 0.08);
-    for (let gx = 0; gx <= GRID_COLS; gx++) {
-      gridG.lineBetween(gx * TILE_SIZE, 0, gx * TILE_SIZE, CANVAS_HEIGHT);
-    }
-    for (let gy = 0; gy <= GRID_ROWS; gy++) {
-      gridG.lineBetween(0, gy * TILE_SIZE, CANVAS_WIDTH, gy * TILE_SIZE);
-    }
-
-    // Quarter-resolution blurred wilderness fog (16x less VRAM)
-    const borderPx = 14 * TILE_SIZE;
-    const worldW = CANVAS_WIDTH + borderPx * 2;
-    const worldH = CANVAS_HEIGHT + borderPx * 2;
-    const fogScale = 4;
-    const fogW = Math.ceil(worldW / fogScale);
-    const fogH = Math.ceil(worldH / fogScale);
-    if (!this.textures.exists('arena-fog')) {
-      const fogTex = this.textures.createCanvas('arena-fog', fogW, fogH);
-      if (fogTex) {
-        const ctx = fogTex.getContext();
-        const off = document.createElement('canvas');
-        off.width = fogW;
-        off.height = fogH;
-        const octx = off.getContext('2d');
-        if (octx) {
-          octx.fillStyle = 'rgba(8, 13, 22, 0.45)';
-          octx.fillRect(0, 0, fogW, fogH);
-          octx.globalCompositeOperation = 'destination-out';
-          octx.filter = 'blur(5px)';
-          octx.fillStyle = '#000';
-          octx.beginPath();
-          octx.roundRect(
-            borderPx / fogScale,
-            borderPx / fogScale,
-            CANVAS_WIDTH / fogScale,
-            CANVAS_HEIGHT / fogScale,
-            24 / fogScale,
-          );
-          octx.fill();
-          ctx.drawImage(off, 0, 0);
-          fogTex.refresh();
-        }
-      }
-    }
-    this.add
-      .image(-borderPx, -borderPx, 'arena-fog')
-      .setOrigin(0, 0)
-      .setScale(fogScale)
-      .setDepth(8);
-
-    this.portalGraphics = this.add.graphics().setDepth(1.2);
+    renderTerrain(this, this.tiles, this.terrainRefs);
   }
 
   private refreshPortalVisuals(): void {
-    if (this.portalTween) {
-      this.portalTween.stop();
-      this.portalTween = null;
-    }
-    for (const m of this.portalMarkers) m.destroy();
-    this.portalMarkers = [];
-    this.portalGraphics.clear();
-
-    for (const portal of this.activePortals) {
-      const dirX = portal.side === 'west' ? 1 : portal.side === 'east' ? -1 : 0;
-      const dirY =
-        portal.side === 'north' ? 1 : portal.side === 'south' ? -1 : 0;
-
-      for (const pt of portal.cells) {
-        const marker = this.add
-          .rectangle(
-            tileCenterX(pt.gx),
-            tileCenterY(pt.gy),
-            TILE_SIZE - 4,
-            TILE_SIZE - 4,
-            0xd946ef,
-            0.24,
-          )
-          .setStrokeStyle(1.5, 0xf43f5e, 0.85)
-          .setDepth(1.1);
-        this.portalMarkers.push(marker);
-
-        // Swirling portal ring & inward directional chevron
-        const cx = tileCenterX(pt.gx);
-        const cy = tileCenterY(pt.gy);
-        this.portalGraphics.lineStyle(1.5, 0xf0abfc, 0.75);
-        this.portalGraphics.strokeCircle(cx, cy, TILE_SIZE * 0.28);
-
-        this.portalGraphics.lineStyle(2, 0xffffff, 0.95);
-        if (dirX !== 0) {
-          this.portalGraphics.lineBetween(
-            cx - 4 * dirX,
-            cy - 5,
-            cx + 4 * dirX,
-            cy,
-          );
-          this.portalGraphics.lineBetween(
-            cx + 4 * dirX,
-            cy,
-            cx - 4 * dirX,
-            cy + 5,
-          );
-        } else {
-          this.portalGraphics.lineBetween(
-            cx - 5,
-            cy - 4 * dirY,
-            cx,
-            cy + 4 * dirY,
-          );
-          this.portalGraphics.lineBetween(
-            cx,
-            cy + 4 * dirY,
-            cx + 5,
-            cy - 4 * dirY,
-          );
-        }
-      }
-
-      // Draw 1-tile no-build buffer around this portal
-      const drawnBuffer = new Set<string>();
-      for (const pt of portal.cells) {
-        for (const [dx, dy] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
-          const bx = pt.gx + dx;
-          const by = pt.gy + dy;
-          if (bx < 0 || bx >= GRID_COLS || by < 0 || by >= GRID_ROWS) continue;
-          if (portal.cells.some((c) => c.gx === bx && c.gy === by)) continue;
-          const bKey = keyOf(bx, by);
-          if (drawnBuffer.has(bKey)) continue;
-          drawnBuffer.add(bKey);
-          const x = bx * TILE_SIZE;
-          const y = by * TILE_SIZE;
-          this.portalGraphics.lineStyle(1, 0xfb7185, 0.28);
-          this.portalGraphics.strokeRect(
-            x + 2,
-            y + 2,
-            TILE_SIZE - 4,
-            TILE_SIZE - 4,
-          );
-        }
-      }
-    }
-
-    if (this.portalMarkers.length > 0) {
-      this.portalTween = this.tweens.add({
-        targets: this.portalMarkers,
-        alpha: { from: 0.35, to: 0.9 },
-        duration: 950,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
-    }
-  }
-
-  private renderBastionCore(): void {
-    const cx = (GRID_COLS / 2) * TILE_SIZE;
-    const cy = (GRID_ROWS / 2) * TILE_SIZE;
-    this.add
-      .image(cx, cy, 'tex:core')
-      .setDisplaySize(TILE_SIZE * 2, TILE_SIZE * 2)
-      .setDepth(4 + (GRID_ROWS / 2) * 0.1);
-
-    this.add
-      .rectangle(cx, cy + TILE_SIZE + 6, 60, 6, 0x0f172a, 0.85)
-      .setDepth(7);
-    this.coreHpBarFill = this.add
-      .rectangle(cx - 29, cy + TILE_SIZE + 6, 58, 4, 0x22d3ee, 1)
-      .setOrigin(0, 0.5)
-      .setDepth(7);
+    refreshPortalVisuals(this, this.activePortals, this.portalVisualState);
   }
 
   private initNewRunState(): void {
@@ -1663,6 +1202,7 @@ export class BattleScene extends Phaser.Scene {
     this.reserveIds = [];
     this.heldItemInventory = [];
     this.spawnQueue = [];
+    this.spawnQueueIndex = 0;
     this.waveElapsedMs = 0;
     this.berryHealTimerMs = 0;
 
@@ -1704,6 +1244,7 @@ export class BattleScene extends Phaser.Scene {
     }
     this.transientVfx = [];
     this.spawnQueue = [];
+    this.spawnQueueIndex = 0;
     this.hoveredUnitUid = null;
     this.hoveredEnemyUid = null;
     this.hoveredStructUid = null;
@@ -1711,6 +1252,7 @@ export class BattleScene extends Phaser.Scene {
     this.moveCostBadge?.setVisible(false);
     this.ultCasterRing?.setVisible(false);
     this.hoverReadoutContainer?.setVisible(false);
+    this.lastHoverReadoutVisible = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -2311,7 +1853,7 @@ export class BattleScene extends Phaser.Scene {
 
         const ux = (x2 - x1) / dist;
         const uy = (y2 - y1) / dist;
-        let d = -period + (this.pathDashOffset % period);
+        let d = 0;
         while (d < dist) {
           const startD = Math.max(0, d);
           const endD = Math.min(d + dashLen, dist);
@@ -2660,11 +2202,11 @@ export class BattleScene extends Phaser.Scene {
             TILE_SIZE - 6,
           );
 
-          if (selectedSpec) {
+          if (selectedSpec && selectedUnit) {
             this.drawAttackRangePerimeter(
               hx,
               hy,
-              selectedSpec.range,
+              this.getUnitRange(selectedUnit),
               affordable ? 0.65 : 0.35,
               1.6,
             );
@@ -2749,8 +2291,7 @@ export class BattleScene extends Phaser.Scene {
         (u) => u.data.uid === this.aimingUltUnitUid,
       );
       const isHealUlt =
-        caster !== undefined &&
-        (caster.data.speciesId === '0001' || caster.data.speciesId === '0012');
+        caster !== undefined && isHealUltSpecies(caster.data.speciesId);
 
       if (isHealUlt) {
         for (const ally of this.units) {
@@ -2867,7 +2408,10 @@ export class BattleScene extends Phaser.Scene {
       this.aimingUltUnitUid ||
       this.movingStructureUid
     ) {
-      this.hoverReadoutContainer.setVisible(false);
+      if (this.lastHoverReadoutVisible) {
+        this.hoverReadoutContainer.setVisible(false);
+        this.lastHoverReadoutVisible = false;
+      }
       return;
     }
 
@@ -2921,17 +2465,26 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (!label) {
-      this.hoverReadoutContainer.setVisible(false);
+      if (this.lastHoverReadoutVisible) {
+        this.hoverReadoutContainer.setVisible(false);
+        this.lastHoverReadoutVisible = false;
+      }
       return;
     }
 
-    this.hoverReadoutText.setText(label);
-    const bounds = this.hoverReadoutText.getBounds();
-    this.hoverReadoutBg.setSize(
-      Math.max(120, Math.ceil(bounds.width) + 16),
-      24,
-    );
-    this.hoverReadoutContainer.setVisible(true);
+    if (label !== this.lastHoverReadoutText) {
+      this.lastHoverReadoutText = label;
+      this.hoverReadoutText.setText(label);
+      const bounds = this.hoverReadoutText.getBounds();
+      this.hoverReadoutBg.setSize(
+        Math.max(120, Math.ceil(bounds.width) + 16),
+        24,
+      );
+    }
+    if (!this.lastHoverReadoutVisible) {
+      this.hoverReadoutContainer.setVisible(true);
+      this.lastHoverReadoutVisible = true;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2988,7 +2541,6 @@ export class BattleScene extends Phaser.Scene {
       moveTarget: null,
     };
     this.units.push(entity);
-    this.playUnitAnim(entity, 'Idle');
     ensureSpeciesSpritesLoaded(this, speciesId, () => {
       if (sprite.scene && !data.fainted) {
         this.playUnitAnim(entity, 'Idle');
@@ -3069,6 +2621,7 @@ export class BattleScene extends Phaser.Scene {
 
     if (animName === 'Attack') {
       unit.isAttackAnimPlaying = true;
+      unit.sprite.off(Phaser.Animations.Events.ANIMATION_COMPLETE);
       unit.sprite.play(key, false);
       unit.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
         unit.isAttackAnimPlaying = false;
@@ -3144,34 +2697,24 @@ export class BattleScene extends Phaser.Scene {
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
     unit.data.hitCount += 1;
 
-    let dmg = this.getUnitAtk(unit);
-    let isCrit = false;
+    const {
+      damage: dmg,
+      isCrit,
+      ultCharge,
+      lifestealHeal,
+      chainDamage,
+    } = computeBasicAttackDamage({
+      baseAtk: this.getUnitAtk(unit),
+      speciesId: unit.data.speciesId,
+      hitCount: unit.data.hitCount,
+      branchSpecial: branch?.special,
+      heldItems: unit.data.heldItems,
+      targetHp: target.hp,
+      targetMaxHp: target.maxHp,
+      targetHasStatus: target.burnTimerMs > 0 || target.slowTimerMs > 0,
+    });
 
-    if (unit.data.speciesId === '0448' && unit.data.hitCount % 4 === 0) {
-      dmg = Math.round(dmg * 1.75);
-      isCrit = true;
-    } else if (
-      branch?.special === 'crit_boost' &&
-      unit.data.hitCount % 5 === 0
-    ) {
-      dmg = Math.round(dmg * 1.6);
-      isCrit = true;
-    }
-    if (
-      unit.data.speciesId === '0094' &&
-      (target.burnTimerMs > 0 || target.slowTimerMs > 0)
-    ) {
-      dmg = Math.round(dmg * 1.35);
-    }
-    if (
-      unit.data.heldItems.includes('bloodthirsty_edge') &&
-      target.hp < target.maxHp * 0.5
-    ) {
-      dmg = Math.round(dmg * 1.35);
-    }
-
-    const baseCharge = 15 * (unit.data.speciesId === '0025' ? 1.1 : 1);
-    this.addUnitUlt(unit, baseCharge);
+    this.addUnitUlt(unit, ultCharge);
     this.sfx.play(getSpeciesAttackSfx(unit.data.speciesId), 85);
 
     const applyHit = () => {
@@ -3202,16 +2745,15 @@ export class BattleScene extends Phaser.Scene {
         }
         this.damageEnemy(target, dmg, unit, isCrit);
 
-        if (branch?.special === 'lifesteal' && !unit.data.fainted) {
-          const heal = Math.max(1, Math.round(dmg * 0.25));
-          unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp + heal);
+        if (lifestealHeal > 0 && !unit.data.fainted) {
+          unit.data.hp = Math.min(
+            unit.data.maxHp,
+            unit.data.hp + lifestealHeal,
+          );
           this.updateUnitBars(unit);
         }
 
-        if (
-          branch?.special === 'chain_hit' ||
-          unit.data.heldItems.includes('storm_conductor')
-        ) {
+        if (chainDamage > 0) {
           const chainTarget = this.enemies.find(
             (e) =>
               e.uid !== target.uid &&
@@ -3219,12 +2761,7 @@ export class BattleScene extends Phaser.Scene {
               chebyshevDist(e.gx, e.gy, target.gx, target.gy) <= 2,
           );
           if (chainTarget) {
-            this.damageEnemy(
-              chainTarget,
-              Math.max(1, Math.round(dmg * 0.4)),
-              unit,
-              false,
-            );
+            this.damageEnemy(chainTarget, chainDamage, unit, false);
           }
         }
       }
@@ -3247,8 +2784,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private findAutoUltTarget(unit: UnitEntity): GridPoint | null {
-    const isHealUlt =
-      unit.data.speciesId === '0001' || unit.data.speciesId === '0012';
+    const isHealUlt = isHealUltSpecies(unit.data.speciesId);
 
     const unitRange = this.getUnitRange(unit);
     if (isHealUlt) {
@@ -3317,7 +2853,7 @@ export class BattleScene extends Phaser.Scene {
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
     const ultMult = branch?.ultMult ?? 1;
 
-    if (unit.data.speciesId === '0001' || unit.data.speciesId === '0012') {
+    if (isHealUltSpecies(unit.data.speciesId)) {
       const healAmount = Math.round(atk * 2.5 * ultMult);
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
@@ -3378,6 +2914,7 @@ export class BattleScene extends Phaser.Scene {
 
   private buildSpawnQueue(): void {
     this.spawnQueue = [];
+    this.spawnQueueIndex = 0;
     const waveDef = WAVE_DEFINITIONS[this.wave - 1];
     if (!waveDef) return;
 
@@ -3393,11 +2930,9 @@ export class BattleScene extends Phaser.Scene {
         const point = portal
           ? portal.cells[i % portal.cells.length]
           : { gx: 0, gy: Math.floor(GRID_ROWS / 2) };
-        const side: 'west' | 'east' = portal?.side === 'east' ? 'east' : 'west';
         this.spawnQueue.push({
           spawnAtMs: delay + i * group.intervalMs,
           speciesId: group.speciesId,
-          side,
           point,
         });
       }
@@ -3409,10 +2944,10 @@ export class BattleScene extends Phaser.Scene {
 
   private processSpawnQueue(): void {
     while (
-      this.spawnQueue.length > 0 &&
-      this.spawnQueue[0].spawnAtMs <= this.waveElapsedMs
+      this.spawnQueueIndex < this.spawnQueue.length &&
+      this.spawnQueue[this.spawnQueueIndex].spawnAtMs <= this.waveElapsedMs
     ) {
-      const next = this.spawnQueue.shift()!;
+      const next = this.spawnQueue[this.spawnQueueIndex++];
       this.spawnEnemy(next.speciesId, next.point);
     }
   }
@@ -3423,7 +2958,7 @@ export class BattleScene extends Phaser.Scene {
 
     const x = tileCenterX(point.gx);
     const y = tileCenterY(point.gy);
-    const facingDir = point.gx < 9 ? 2 : 6;
+    const facingDir = point.gx < GRID_COLS / 2 ? 2 : 6;
 
     const spriteKey = spec.spriteId ?? speciesId;
     const sprite = this.add
@@ -3471,80 +3006,96 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private updateEnemies(simDtMs: number): void {
-    for (const enemy of [...this.enemies]) {
-      if (enemy.hp <= 0) continue;
+    this.isUpdatingEnemies = true;
+    this.enemiesDirty = false;
+    try {
+      for (let i = 0; i < this.enemies.length; i++) {
+        const enemy = this.enemies[i];
+        if (enemy.hp <= 0) continue;
 
-      const spec = ENEMY_SPECIES[enemy.speciesId];
-      enemy.attackCooldownMs = Math.max(0, enemy.attackCooldownMs - simDtMs);
-      enemy.slowTimerMs = Math.max(0, enemy.slowTimerMs - simDtMs);
-      enemy.stunTimerMs = Math.max(0, enemy.stunTimerMs - simDtMs);
-      enemy.repathTimerMs -= simDtMs;
+        const spec = ENEMY_SPECIES[enemy.speciesId];
+        enemy.attackCooldownMs = Math.max(0, enemy.attackCooldownMs - simDtMs);
+        enemy.slowTimerMs = Math.max(0, enemy.slowTimerMs - simDtMs);
+        enemy.stunTimerMs = Math.max(0, enemy.stunTimerMs - simDtMs);
+        enemy.repathTimerMs -= simDtMs;
 
-      // Burn DoT
-      if (enemy.burnTimerMs > 0) {
-        enemy.burnTimerMs = Math.max(0, enemy.burnTimerMs - simDtMs);
-        enemy.burnTickMs += simDtMs;
-        if (enemy.burnTickMs >= 500) {
-          enemy.burnTickMs -= 500;
-          this.damageEnemy(enemy, Math.round(enemy.burnDps * 0.5), null, false);
-          if (enemy.hp <= 0) continue;
+        // Burn DoT
+        if (enemy.burnTimerMs > 0) {
+          enemy.burnTimerMs = Math.max(0, enemy.burnTimerMs - simDtMs);
+          enemy.burnTickMs += simDtMs;
+          if (enemy.burnTickMs >= 500) {
+            enemy.burnTickMs -= 500;
+            this.damageEnemy(
+              enemy,
+              Math.round(enemy.burnDps * 0.5),
+              null,
+              false,
+            );
+            if (enemy.hp <= 0) continue;
+          }
         }
-      }
 
-      if (enemy.stunTimerMs > 0) continue;
+        if (enemy.stunTimerMs > 0) continue;
 
-      // Barrel trap trigger for non-flying enemies
-      if (spec.movementType !== 'fly') {
-        const structHere = this.getStructureAt(enemy.gx, enemy.gy);
-        if (
-          structHere &&
-          structHere.data.kind === 'barrel' &&
-          !structHere.data.ruined
-        ) {
-          this.explodeBarrel(structHere);
-          if (enemy.hp <= 0) continue;
+        // Barrel trap trigger for non-flying enemies
+        if (spec.movementType !== 'fly') {
+          const structHere = this.getStructureAt(enemy.gx, enemy.gy);
+          if (
+            structHere &&
+            structHere.data.kind === 'barrel' &&
+            !structHere.data.ruined
+          ) {
+            this.explodeBarrel(structHere);
+            if (enemy.hp <= 0) continue;
+          }
         }
-      }
 
-      // Check adjacent attack targets: Core -> blocking unit -> blocking wall
-      const adjCore = CORE_CELLS.find(
-        (c) => manhattanDist(enemy.gx, enemy.gy, c.gx, c.gy) <= 1,
-      );
-      if (adjCore) {
-        this.enemyAttackCore(enemy, adjCore);
-        continue;
-      }
-
-      if (spec.movementType !== 'fly') {
-        const adjUnit = this.findAdjacentLivingUnit(enemy);
-        if (adjUnit) {
-          this.enemyAttackUnit(enemy, adjUnit);
-          continue;
-        }
-      }
-
-      if (spec.movementType === 'ground' && enemy.targetWallUid) {
-        const wall = this.structures.find(
-          (s) =>
-            s.data.uid === enemy.targetWallUid &&
-            !s.data.ruined &&
-            s.data.hp > 0,
+        // Check adjacent attack targets: Core -> blocking unit -> blocking wall
+        const adjCore = CORE_CELLS.find(
+          (c) => manhattanDist(enemy.gx, enemy.gy, c.gx, c.gy) <= 1,
         );
-        if (
-          wall &&
-          manhattanDist(enemy.gx, enemy.gy, wall.data.gx, wall.data.gy) <= 1
-        ) {
-          this.enemyAttackStructure(enemy, wall);
+        if (adjCore) {
+          this.enemyAttackCore(enemy, adjCore);
           continue;
         }
-      }
 
-      // Recompute path if needed
-      if (enemy.path.length === 0 || enemy.repathTimerMs <= 0) {
-        this.computeEnemyPath(enemy);
-      }
+        if (spec.movementType !== 'fly') {
+          const adjUnit = this.findAdjacentLivingUnit(enemy);
+          if (adjUnit) {
+            this.enemyAttackUnit(enemy, adjUnit);
+            continue;
+          }
+        }
 
-      this.moveEnemyAlongPath(enemy, simDtMs);
+        if (spec.movementType === 'ground' && enemy.targetWallUid) {
+          const wall = this.structures.find(
+            (s) =>
+              s.data.uid === enemy.targetWallUid &&
+              !s.data.ruined &&
+              s.data.hp > 0,
+          );
+          if (
+            wall &&
+            manhattanDist(enemy.gx, enemy.gy, wall.data.gx, wall.data.gy) <= 1
+          ) {
+            this.enemyAttackStructure(enemy, wall);
+            continue;
+          }
+        }
+
+        // Recompute path if needed
+        if (enemy.path.length === 0 || enemy.repathTimerMs <= 0) {
+          this.computeEnemyPath(enemy);
+        }
+
+        this.moveEnemyAlongPath(enemy, simDtMs);
+      }
+    } finally {
+      this.isUpdatingEnemies = false;
+      if (this.enemiesDirty) {
+        this.enemiesDirty = false;
+        this.enemies = this.enemies.filter((e) => e.hp > 0);
+      }
     }
   }
 
@@ -3675,23 +3226,23 @@ export class BattleScene extends Phaser.Scene {
     this.playEnemyAnim(enemy, 'Attack');
     this.spawnOneShotVfx(enemySpec.hitVfx, unit.sprite.x, unit.sprite.y, 0.85);
 
-    const def = this.getUnitDef(unit);
-    let dmg = Math.max(2, Math.round(enemySpec.atk * (40 / (40 + def))));
-    if (unit.data.speciesId === '0143' && unit.stationaryMs >= 500) {
-      dmg = Math.max(2, Math.round(dmg * 0.75));
-    }
-    if (
-      unit.data.heldItems.includes('guardian_charm') &&
-      this.isAdjacentToAnyStructure(unit.data.gx, unit.data.gy)
-    ) {
-      dmg = Math.max(2, Math.round(dmg * 0.75));
-    }
+    const unitBranch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
+    const { damage: dmg, reflectedThorns } = computeEnemyAttackDamage({
+      enemyAtk: enemySpec.atk,
+      unitDef: this.getUnitDef(unit),
+      unitSpeciesId: unit.data.speciesId,
+      unitStationaryMs: unit.stationaryMs,
+      unitHeldItems: unit.data.heldItems,
+      unitAdjacentToStructure: this.isAdjacentToAnyStructure(
+        unit.data.gx,
+        unit.data.gy,
+      ),
+      unitBranchSpecial: unitBranch?.special,
+    });
 
     unit.data.hp = Math.max(0, unit.data.hp - dmg);
-    const unitBranch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
-    if (unitBranch?.special === 'thorns' && enemy.hp > 0) {
-      const reflected = Math.max(2, Math.round(dmg * 0.25));
-      this.damageEnemy(enemy, reflected, unit, false);
+    if (reflectedThorns > 0 && enemy.hp > 0) {
+      this.damageEnemy(enemy, reflectedThorns, unit, false);
     }
     this.spawnFloatingText(
       unit.sprite.x,
@@ -3815,7 +3366,11 @@ export class BattleScene extends Phaser.Scene {
     enemy.sprite.destroy();
     enemy.hpBarBg.destroy();
     enemy.hpBarFill.destroy();
-    this.enemies = this.enemies.filter((e) => e.uid !== enemy.uid);
+    if (this.isUpdatingEnemies) {
+      this.enemiesDirty = true;
+    } else {
+      this.enemies = this.enemies.filter((e) => e.uid !== enemy.uid);
+    }
     if (this.hoveredEnemyUid === enemy.uid) {
       this.hoveredEnemyUid = null;
       this.refreshHoverReadout();
@@ -3869,6 +3424,7 @@ export class BattleScene extends Phaser.Scene {
     if (!this.anims.exists(key)) return;
 
     if (animName === 'Attack') {
+      enemy.sprite.off(Phaser.Animations.Events.ANIMATION_COMPLETE);
       enemy.sprite.play(key, false);
       enemy.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
         if (enemy.hp > 0 && enemy.sprite.active) {
@@ -3960,13 +3516,17 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private handleWaveComplete(): void {
+  private resetCombatControlState(): void {
     this.stopAllUnitMovement();
     this.slowMo = false;
     this.aimingUltUnitUid = null;
     this.selectedUnitUid = null;
     this.anims.globalTimeScale = 1;
     this.tweens.timeScale = 1;
+  }
+
+  private handleWaveComplete(): void {
+    this.resetCombatControlState();
     this.ap = Math.min(this.maxAp, this.ap + 3);
 
     if (this.wave >= this.maxWaves) {
@@ -3984,14 +3544,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handleDefeat(): void {
-    this.stopAllUnitMovement();
+    this.resetCombatControlState();
     this.phase = 'DEFEAT';
     this.sfx.play('faint', 0);
-    this.slowMo = false;
-    this.aimingUltUnitUid = null;
-    this.selectedUnitUid = null;
-    this.anims.globalTimeScale = 1;
-    this.tweens.timeScale = 1;
     this.refreshHighlights();
     this.setStatus('Defeat! The Bastion Core was destroyed.');
   }
@@ -4058,7 +3613,7 @@ export class BattleScene extends Phaser.Scene {
       y: ty,
       duration,
       onComplete: () => {
-        if (proj.active) proj.destroy();
+        this.removeTransientVfx(proj);
         this.spawnOneShotVfx(impactKey, tx, ty, 0.85, rotation);
         onArrive();
       },
@@ -4083,7 +3638,7 @@ export class BattleScene extends Phaser.Scene {
     this.transientVfx.push(fx);
     fx.play({ key: animKey, repeat: 0 });
     fx.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-      if (fx.active) fx.destroy();
+      this.removeTransientVfx(fx);
     });
   }
 
@@ -4113,9 +3668,15 @@ export class BattleScene extends Phaser.Scene {
       duration: 650,
       ease: 'Quad.easeOut',
       onComplete: () => {
-        if (label.active) label.destroy();
+        this.removeTransientVfx(label);
       },
     });
+  }
+
+  private removeTransientVfx(obj: Phaser.GameObjects.GameObject): void {
+    if (obj.active) obj.destroy();
+    const idx = this.transientVfx.indexOf(obj);
+    if (idx >= 0) this.transientVfx.splice(idx, 1);
   }
 
   // ---------------------------------------------------------------------------
@@ -4137,7 +3698,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private getUnitRange(unit: UnitEntity): number {
-    return getEffectiveRange(unit.data.speciesId, unit.data.branchId);
+    return getEffectiveRange(
+      unit.data.speciesId,
+      unit.data.branchId,
+      this.upgrades,
+    );
   }
 
   private getUnitAtk(unit: UnitEntity): number {
@@ -4168,6 +3733,7 @@ export class BattleScene extends Phaser.Scene {
       unit.data.speciesId,
       unit.data.branchId,
       unit.data.heldItems,
+      this.upgrades,
     );
     if (
       unit.data.speciesId === '0007' &&
@@ -4190,6 +3756,7 @@ export class BattleScene extends Phaser.Scene {
       this.artifacts,
       unit.data.branchId,
       unit.data.heldItems,
+      this.upgrades,
     );
     if (unit.data.speciesId === '0133') {
       interval = Math.round(interval / 1.2);
@@ -4229,7 +3796,12 @@ export class BattleScene extends Phaser.Scene {
   private stepWalkingUnit(unit: UnitEntity, simDtMs: number): void {
     const baseMove = POKEMON_SPECIES[unit.data.speciesId].moveRange;
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
-    const moveRange = getEffectiveMoveRange(baseMove, this.upgrades, branch);
+    const moveRange = getEffectiveMoveRange(
+      baseMove,
+      this.upgrades,
+      branch,
+      unit.data.speciesId,
+    );
     const speedPxPerSec = (2.5 + moveRange * 1.5) * TILE_SIZE;
     let remainingPx = speedPxPerSec * (simDtMs / 1000);
 
@@ -4364,7 +3936,7 @@ export class BattleScene extends Phaser.Scene {
 
   private updateCoreBar(): void {
     const ratio = Phaser.Math.Clamp(this.coreHp / this.coreMaxHp, 0, 1);
-    this.coreHpBarFill.width = 70 * ratio;
+    this.coreHpBarFill.width = CORE_HP_BAR_WIDTH * ratio;
     this.coreHpBarFill.setFillStyle(
       ratio > 0.5 ? 0x22d3ee : ratio > 0.25 ? 0xfacc15 : 0xef4444,
     );
@@ -4382,6 +3954,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private emitSnapshot(): void {
+    if (this.inCombatFrame) {
+      this.snapshotDirty = true;
+      return;
+    }
+    this.snapshotDirty = false;
     this.sfx?.syncPhaseBgm(this.phase);
     this.game.events.emit('snapshot', this.getSnapshot());
   }

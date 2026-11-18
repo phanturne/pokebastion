@@ -1,311 +1,15 @@
 import Phaser from 'phaser';
 import type { BattleScene } from '../scenes/BattleScene';
-import { CLASS_MINOR_UPGRADES } from '../data/classes';
-import { MAP_CATALOG, createGridForMap } from '../data/maps';
+import { POKEMON_SPECIES } from '../data/pokemon';
+import { GameSnapshot, MapDifficulty } from '../types';
+import { ToolId } from './hudShared';
 import {
-  HELD_ITEMS,
-  POKEMON_SPECIES,
-  REWARD_POOL,
-  STRUCTURE_SPECS,
-} from '../data/pokemon';
-import {
-  HEAL_COST,
-  MAX_ACTIVE_UNITS,
-  MAX_HELD_ITEMS,
-  REVIVE_COST,
-  doesMinorUpgradeMatchSpecies,
-  getBranchSpec,
-  getDraftCost,
-  getEffectiveAtk,
-  getEffectiveAttackIntervalMs,
-  getEffectiveDef,
-  getEffectiveMaxHp,
-  getEffectiveMoveRange,
-  getEffectiveRange,
-  getRepairCost,
-} from '../engine/rules';
-import {
-  ActiveUnit,
-  GameSnapshot,
-  GridStructure,
-  MapDifficulty,
-  PokemonBranch,
-  PokemonSpecies,
-  RewardOption,
-  StructureKind,
-} from '../types';
-
-type ToolId = StructureKind | 'move_struct' | 'sell_struct';
-
-const TOOL_SHORT_NAME: Record<ToolId, string> = {
-  wood_wall: 'Barricade',
-  stone_wall: 'Stone Wall',
-  berry_bush: 'Berry Bush',
-  barrel: 'Bomb Barrel',
-  move_struct: 'Move',
-  sell_struct: 'Sell',
-};
-
-const TOOL_ICONS: Record<ToolId, string> = {
-  wood_wall: `<img src="assets/structures/wood_wall.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
-  stone_wall: `<img src="assets/structures/stone_wall.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
-  berry_bush: `<img src="assets/structures/berry_bush.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
-  barrel: `<img src="assets/structures/barrel.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
-  move_struct: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="7" y="2" width="2" height="12" fill="#58a6ff"/>
-    <rect x="2" y="7" width="12" height="2" fill="#58a6ff"/>
-    <rect x="6" y="3" width="4" height="1" fill="#58a6ff"/>
-    <rect x="6" y="12" width="4" height="1" fill="#58a6ff"/>
-    <rect x="3" y="6" width="1" height="4" fill="#58a6ff"/>
-    <rect x="12" y="6" width="1" height="4" fill="#58a6ff"/>
-  </svg>`,
-  sell_struct: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="4" y="2" width="8" height="12" fill="#d29922"/>
-    <rect x="3" y="4" width="10" height="8" fill="#f7cc45"/>
-    <rect x="6" y="4" width="4" height="1" fill="#8b5a2b"/>
-    <rect x="6" y="5" width="1" height="7" fill="#8b5a2b"/>
-    <rect x="9" y="5" width="1" height="2" fill="#8b5a2b"/>
-    <rect x="6" y="7" width="4" height="1" fill="#8b5a2b"/>
-    <rect x="5" y="9" width="5" height="1" fill="#8b5a2b"/>
-  </svg>`,
-};
-
-const REWARD_BY_ID: Record<string, RewardOption> = Object.fromEntries(
-  REWARD_POOL.map((r) => [r.id, r]),
-);
-
-function renderPokeIcon(speciesId: string, size: 'sm' | 'lg' = 'sm'): string {
-  const px = size === 'lg' ? 40 : 28;
-  const cls = size === 'lg' ? 'poke-icon-wrap lg' : 'poke-icon-wrap';
-  return `
-    <span class="${cls}" aria-hidden="true">
-      <img src="assets/pokemon/${escapeHtml(speciesId)}/Normal.png" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" />
-    </span>
-  `;
-}
-
-interface SnowflakeAxis {
-  label: string;
-  getValue: (s: PokemonSpecies) => number;
-  format: (v: number) => string;
-}
-
-const SNOWFLAKE_AXES: SnowflakeAxis[] = [
-  { label: 'HP', getValue: (s) => s.maxHp, format: (v) => `${Math.round(v)}` },
-  { label: 'ATK', getValue: (s) => s.atk, format: (v) => `${Math.round(v)}` },
-  {
-    label: 'SPD',
-    getValue: (s) => (s.attackIntervalMs > 0 ? 1000 / s.attackIntervalMs : 0),
-    format: (v) => `${v.toFixed(2)}/s`,
-  },
-  {
-    label: 'MOV',
-    getValue: (s) => s.moveRange,
-    format: (v) => `${v}`,
-  },
-  { label: 'RNG', getValue: (s) => s.range, format: (v) => `${v}` },
-  { label: 'DEF', getValue: (s) => s.def, format: (v) => `${Math.round(v)}` },
-];
-
-function renderDraftSnowflake(sp: PokemonSpecies): string {
-  const all = Object.values(POKEMON_SPECIES);
-  const cx = 170;
-  const cy = 135;
-  const rMax = 80;
-  const normalize = (val: number, min: number, max: number): number =>
-    max <= min ? 0.625 : 0.25 + 0.75 * ((val - min) / (max - min));
-
-  const pt = (r: number, angle: number): [number, number] => [
-    cx + r * Math.cos(angle),
-    cy + r * Math.sin(angle),
-  ];
-
-  const ringPolys = [0.25, 0.5, 0.75, 1.0]
-    .map((frac) => {
-      const pts = SNOWFLAKE_AXES.map((_, i) => {
-        const [x, y] = pt(rMax * frac, -Math.PI / 2 + (i * Math.PI) / 3);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      }).join(' ');
-      return `<polygon points="${pts}" fill="none" stroke="#30363d" stroke-width="1" />`;
-    })
-    .join('');
-
-  const spokes = SNOWFLAKE_AXES.map((_, i) => {
-    const [x, y] = pt(rMax, -Math.PI / 2 + (i * Math.PI) / 3);
-    return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#30363d" stroke-width="1" />`;
-  }).join('');
-
-  const spPoints: string[] = [];
-  const spDots: string[] = [];
-  const labels: string[] = [];
-
-  SNOWFLAKE_AXES.forEach((ax, i) => {
-    const vals = all.map(ax.getValue);
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const raw = ax.getValue(sp);
-
-    const angle = -Math.PI / 2 + (i * Math.PI) / 3;
-    const cos = Math.cos(angle);
-
-    const [spX, spY] = pt(rMax * normalize(raw, min, max), angle);
-    spPoints.push(`${spX.toFixed(1)},${spY.toFixed(1)}`);
-    spDots.push(
-      `<circle cx="${spX.toFixed(1)}" cy="${spY.toFixed(1)}" r="3.2" fill="${escapeHtml(sp.color)}" stroke="#0d1117" stroke-width="1" />`,
-    );
-
-    const [lx, ly] = pt(rMax + 22, angle);
-    const anchor = Math.abs(cos) < 0.1 ? 'middle' : cos > 0 ? 'start' : 'end';
-    const labelY = i === 0 ? ly - 12 : i === 3 ? ly - 1 : ly - 4;
-    const valY = i === 0 ? ly + 4 : i === 3 ? ly + 15 : ly + 12;
-
-    labels.push(
-      `<text x="${lx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="${anchor}" fill="#8b949e" font-size="11" font-weight="700">${ax.label}</text>`,
-      `<text x="${lx.toFixed(1)}" y="${valY.toFixed(1)}" text-anchor="${anchor}" fill="#e6edf3" font-size="13" font-weight="700">${escapeHtml(ax.format(raw))}</text>`,
-    );
-  });
-
-  const color = escapeHtml(sp.color);
-  return `
-    <div class="snowflake-wrap">
-      <svg class="snowflake-svg" viewBox="0 0 340 270" role="img" aria-label="${escapeHtml(sp.name)} stat comparison radar">
-        ${ringPolys}
-        ${spokes}
-        <polygon points="${spPoints.join(' ')}" fill="${color}" fill-opacity="0.24" stroke="${color}" stroke-width="2" />
-        ${spDots.join('')}
-        ${labels.join('')}
-      </svg>
-    </div>
-  `;
-}
-
-const SPECIAL_LABELS: Record<NonNullable<PokemonBranch['special']>, string> = {
-  burn_spread: 'Burn Spread',
-  chain_hit: 'Chain Hit',
-  lifesteal: 'Lifesteal',
-  slow_hit: 'Slow Hit',
-  thorns: 'Thorns',
-  crit_boost: 'Crit Boost',
-};
-
-function formatBranchChips(b: PokemonBranch): string {
-  const chips: string[] = [];
-  if (b.atkMult) chips.push(`+${Math.round((b.atkMult - 1) * 100)}% ATK`);
-  if (b.hpMult) chips.push(`+${Math.round((b.hpMult - 1) * 100)}% HP`);
-  if (b.defBonus) chips.push(`+${b.defBonus} DEF`);
-  if (b.rangeBonus) chips.push(`+${b.rangeBonus} RNG`);
-  if (b.attackIntervalMult) {
-    chips.push(`+${Math.round((1 / b.attackIntervalMult - 1) * 100)}% SPD`);
-  }
-  if (b.moveRangeBonus) chips.push(`+${b.moveRangeBonus} MOV`);
-  if (b.ultMult) chips.push(`+${Math.round((b.ultMult - 1) * 100)}% ULT`);
-  if (b.special) chips.push(SPECIAL_LABELS[b.special]);
-  return chips
-    .map((c) => `<span class="branch-chip">${escapeHtml(c)}</span>`)
-    .join('');
-}
-
-function renderBranchTree(
-  sp: PokemonSpecies,
-  activeBranchId: string | null,
-  activeUpgrades: string[],
-): string {
-  const pathsHtml = sp.branches
-    .map((b, idx) => {
-      const chosen = activeBranchId === b.id;
-      const locked = Boolean(activeBranchId && !chosen);
-      const stateBadge = chosen
-        ? '<span class="tag branch-tag">Active</span>'
-        : locked
-          ? '<span class="tag locked-tag">Locked</span>'
-          : `<span class="tag">Path ${idx + 1}</span>`;
-      return `
-        <div class="expanded-branch-card ${chosen ? 'chosen' : ''} ${locked ? 'locked' : ''}">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-            <strong>${escapeHtml(b.name)}</strong>
-            ${stateBadge}
-          </div>
-          <div class="branch-chip-row">${formatBranchChips(b)}</div>
-          <span>${escapeHtml(b.desc)}</span>
-        </div>
-      `;
-    })
-    .join('');
-
-  const matchingMinor = CLASS_MINOR_UPGRADES.filter((u) =>
-    doesMinorUpgradeMatchSpecies(u, sp),
-  );
-  const minorHtml = matchingMinor
-    .map((u) => {
-      const owned = activeUpgrades.includes(u.id);
-      return `
-        <div class="minor-pool-item ${owned ? 'owned' : ''}" title="${escapeHtml(u.desc)}">
-          <span class="minor-pool-name">${escapeHtml(u.title)}</span>
-          <span class="tag ${owned ? 'starter-tag' : ''}">${owned ? 'Active' : 'Random Pool'}</span>
-        </div>
-      `;
-    })
-    .join('');
-
-  return `
-    <div class="expanded-branches-grid">${pathsHtml}</div>
-    <div class="minor-pool-box">
-      <div class="branch-header">
-        <span>${escapeHtml(sp.pokeClass)}${sp.subclass ? ` · ${escapeHtml(sp.subclass)}` : ''} Minor Upgrades</span>
-        <span class="card-hint">Randomly offered between waves</span>
-      </div>
-      <div class="minor-pool-grid">${minorHtml}</div>
-    </div>
-  `;
-}
-
-const HELD_ITEM_ICONS: Record<string, string> = {
-  bloodthirsty_edge: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="10" y="2" width="4" height="4" fill="#f85149"/>
-    <rect x="8" y="4" width="4" height="4" fill="#ff7b72"/>
-    <rect x="6" y="6" width="4" height="4" fill="#e6edf3"/>
-    <rect x="4" y="8" width="4" height="4" fill="#8b949e"/>
-    <rect x="2" y="11" width="3" height="3" fill="#d29922"/>
-  </svg>`,
-  storm_conductor: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="8" y="1" width="4" height="3" fill="#f7cc45"/>
-    <rect x="6" y="4" width="4" height="3" fill="#fde047"/>
-    <rect x="4" y="7" width="8" height="2" fill="#f7cc45"/>
-    <rect x="6" y="9" width="4" height="3" fill="#58a6ff"/>
-    <rect x="4" y="12" width="4" height="3" fill="#38bdf8"/>
-  </svg>`,
-  guardian_charm: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="4" y="2" width="8" height="2" fill="#58a6ff"/>
-    <rect x="3" y="4" width="10" height="5" fill="#38bdf8"/>
-    <rect x="4" y="9" width="8" height="3" fill="#58a6ff"/>
-    <rect x="6" y="12" width="4" height="2" fill="#d29922"/>
-    <rect x="6" y="5" width="4" height="4" fill="#f7cc45"/>
-  </svg>`,
-};
-
-const RELIC_ICONS: Record<string, string> = {
-  sharp_claws: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="2" width="2" height="9" fill="#f85149"/><rect x="7" y="2" width="2" height="11" fill="#ff7b72"/><rect x="11" y="2" width="2" height="9" fill="#f85149"/><rect x="3" y="12" width="10" height="2" fill="#8b949e"/></svg>`,
-  quick_charge: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="2" width="3" height="5" fill="#f7cc45"/><rect x="5" y="7" width="6" height="2" fill="#fde047"/><rect x="6" y="9" width="3" height="5" fill="#f7cc45"/></svg>`,
-  thick_hide: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="3" width="10" height="7" fill="#3fb950"/><rect x="5" y="10" width="6" height="3" fill="#2ea043"/><rect x="6" y="5" width="4" height="4" fill="#a7f3d0"/></svg>`,
-  fortification_core: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="3" width="10" height="10" fill="#8b949e"/><rect x="5" y="5" width="6" height="6" fill="#d29922"/></svg>`,
-  temporal_gear: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="5" y="2" width="6" height="12" fill="#bc8cff"/><rect x="2" y="5" width="12" height="6" fill="#bc8cff"/><rect x="6" y="6" width="4" height="4" fill="#0d1117"/></svg>`,
-  arcane_conduit: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="6" y="2" width="4" height="12" fill="#58a6ff"/><rect x="4" y="5" width="8" height="6" fill="#bc8cff"/><rect x="7" y="6" width="2" height="4" fill="#e6edf3"/></svg>`,
-  commanders_insignia: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="2" width="2" height="12" fill="#f7cc45"/><rect x="4" y="5" width="8" height="6" fill="#d29922"/><rect x="6" y="6" width="4" height="4" fill="#fde047"/></svg>`,
-};
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function pct(cur: number, max: number): number {
-  if (max <= 0) return 0;
-  return Math.max(0, Math.min(100, (cur / max) * 100));
-}
+  renderRelicTooltipContent,
+  renderShopTooltipContent,
+  renderSidePanelHtml,
+  renderTopBarHtml,
+} from './hudSidePanel';
+import { renderModalHtml } from './hudModals';
 
 export class HudOverlay {
   private readonly topBar: HTMLElement | null;
@@ -328,13 +32,335 @@ export class HudOverlay {
   private lastSideHtml = '';
   private lastModalHtml = '';
 
+  private readonly onSnapshot = (snap: GameSnapshot): void => {
+    this.render(snap);
+  };
+
+  private readonly onClick = (ev: Event): void => {
+    const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+      '[data-action]',
+    );
+    if (!target) return;
+    const action = target.dataset.action;
+    const id = target.dataset.id ?? '';
+    if (!action) return;
+
+    if (action === 'toggle-credits') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showCredits = !this.showCredits;
+      this.renderModal();
+      return;
+    }
+    if (action === 'close-credits') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showCredits = false;
+      this.renderModal();
+      return;
+    }
+    if (action === 'open-pokedex') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showPokedex = true;
+      this.renderModal();
+      return;
+    }
+    if (action === 'close-pokedex') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showPokedex = false;
+      this.renderModal();
+      return;
+    }
+    if (action === 'pokedex-filter') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.pokedexFilter = id === 'unlocked' || id === 'locked' ? id : 'all';
+      this.renderModal();
+      return;
+    }
+    if (action === 'inspect-pokedex') {
+      if (id && POKEMON_SPECIES[id]) {
+        this.scene()?.playUiSfx?.('ui_select');
+        this.inspectedPokedexId = id;
+        this.renderModal();
+      }
+      return;
+    }
+    if (action === 'cancel-action') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.cancelActiveAction();
+      return;
+    }
+
+    const scene = this.scene();
+    if (!scene) return;
+
+    if (
+      action !== 'toggle-speed' &&
+      action !== 'toggle-mute' &&
+      action !== 'start-wave'
+    ) {
+      if (
+        action === 'buy-item' ||
+        action === 'heal-unit' ||
+        action === 'revive-unit'
+      ) {
+        scene.playUiSfx?.('coin');
+      } else if (
+        action === 'confirm-draft' ||
+        action === 'pick-reward' ||
+        action === 'pick-branch'
+      ) {
+        scene.playUiSfx?.('ui_confirm');
+      } else {
+        scene.playUiSfx?.('ui_click');
+      }
+    }
+
+    switch (action) {
+      case 'toggle-speed':
+        scene.toggleSpeed?.();
+        break;
+      case 'toggle-mute':
+        scene.toggleMute?.();
+        break;
+      case 'start-wave':
+        scene.startWave?.();
+        break;
+      case 'select-tool': {
+        const tool = id as ToolId;
+        scene.selectTool?.(this.lastSnap?.selectedTool === tool ? null : tool);
+        break;
+      }
+      case 'repair-struct':
+        scene.repairStructure?.(id);
+        break;
+      case 'repair-all': {
+        if (typeof scene.repairAllStructures === 'function') {
+          scene.repairAllStructures();
+        } else {
+          const damaged = (this.lastSnap?.structures ?? []).filter(
+            (s) => s.ruined || s.hp < s.maxHp,
+          );
+          for (const s of damaged) {
+            scene.repairStructure?.(s.uid);
+          }
+        }
+        break;
+      }
+      case 'detonate-barrel':
+        scene.detonateBarrel?.(id);
+        break;
+      case 'cast-ult':
+        scene.triggerUlt?.(id);
+        break;
+      case 'heal-unit':
+        scene.healUnit?.(id);
+        break;
+      case 'revive-unit':
+        scene.reviveUnit?.(id);
+        break;
+      case 'select-unit':
+        scene.selectUnit?.(id);
+        break;
+      case 'swap-reserve': {
+        const activeUid =
+          this.lastSnap?.selectedUnitUid ?? this.lastSnap?.activeUnits[0]?.uid;
+        if (activeUid) scene.swapReserve?.(activeUid, id);
+        break;
+      }
+      case 'pick-reward':
+        scene.pickReward?.(id);
+        break;
+      case 'home-play':
+        scene.startPlayFromHome?.();
+        break;
+      case 'select-map':
+        scene.selectMapAndDraft?.(id);
+        break;
+      case 'back-map-select':
+        scene.backToMapSelect?.();
+        break;
+      case 'map-filter':
+        this.mapDifficultyFilter =
+          id === 'Beginner' ||
+          id === 'Intermediate' ||
+          id === 'Advanced' ||
+          id === 'Expert'
+            ? id
+            : 'All';
+        this.renderModal();
+        break;
+      case 'back-home':
+        scene.returnToHome?.();
+        break;
+      case 'inspect-draft':
+        if (id && POKEMON_SPECIES[id]) {
+          this.inspectedDraftId = id;
+          this.renderModal();
+        }
+        break;
+      case 'toggle-draft':
+        scene.toggleDraftSpecies?.(id);
+        break;
+      case 'clear-draft':
+        scene.clearDraft?.();
+        break;
+      case 'confirm-draft':
+        scene.confirmDraft?.();
+        break;
+      case 'pick-branch-reward':
+        scene.pickBranchReward?.(id);
+        break;
+      case 'deploy-reserve':
+        scene.deployReserve?.(id);
+        break;
+      case 'switch-tab':
+        this.sideTab = id === 'shop' ? 'shop' : 'team';
+        if (this.lastSnap) this.renderSidePanel(this.lastSnap);
+        break;
+      case 'expand-unit':
+        this.expandedUnitUid = id || null;
+        this.renderModal();
+        break;
+      case 'close-expanded-unit':
+        this.expandedUnitUid = null;
+        this.renderModal();
+        break;
+      case 'buy-item':
+        scene.buyHeldItem?.(id);
+        break;
+      case 'equip-item': {
+        const unitUid = target.dataset.unit ?? this.lastSnap?.selectedUnitUid;
+        if (unitUid) scene.equipHeldItem?.(unitUid, id);
+        break;
+      }
+      case 'unequip-item': {
+        const unitUid = target.dataset.unit ?? this.lastSnap?.selectedUnitUid;
+        const idx = Number(id);
+        if (unitUid && !Number.isNaN(idx)) {
+          scene.unequipHeldItem?.(unitUid, idx);
+        }
+        break;
+      }
+      case 'restart-run':
+        scene.restartRun?.();
+        break;
+    }
+  };
+
+  private readonly onChange = (ev: Event): void => {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input || input.dataset.action !== 'toggle-auto-ult') return;
+    const uid = input.dataset.id;
+    if (uid) this.scene()?.toggleAutoUlt?.(uid);
+  };
+
+  private readonly onToolEnter = (ev: Event): void => {
+    const el = ev.target as HTMLElement | null;
+    const toolTarget = el?.closest<HTMLElement>('[data-tool-tip]');
+    if (toolTarget) {
+      const tipId = toolTarget.dataset.toolTip as ToolId | undefined;
+      if (tipId && tipId !== this.hoveredTool) {
+        this.hoveredTool = tipId;
+        this.updateShopTooltip();
+      }
+    }
+    const relicTarget = el?.closest<HTMLElement>('[data-relic-tip]');
+    if (relicTarget) {
+      const relicId = relicTarget.dataset.relicTip;
+      if (relicId && relicId !== this.hoveredRelicId) {
+        this.hoveredRelicId = relicId;
+        this.updateRelicTooltip();
+      }
+    }
+  };
+
+  private readonly onToolLeave = (ev: Event): void => {
+    const mouseOrFocus = ev as MouseEvent | FocusEvent;
+    const el = ev.target as HTMLElement | null;
+    const related = mouseOrFocus.relatedTarget as HTMLElement | null;
+
+    const leavingTool = el?.closest<HTMLElement>('[data-tool-tip]');
+    if (leavingTool && !related?.closest<HTMLElement>('[data-tool-tip]')) {
+      if (this.hoveredTool !== null) {
+        this.hoveredTool = null;
+        this.updateShopTooltip();
+      }
+    }
+
+    const leavingRelic = el?.closest<HTMLElement>('[data-relic-tip]');
+    if (leavingRelic && !related?.closest<HTMLElement>('[data-relic-tip]')) {
+      if (this.hoveredRelicId !== null) {
+        this.hoveredRelicId = null;
+        this.updateRelicTooltip();
+      }
+    }
+  };
+
+  private readonly onModalClick = (ev: Event): void => {
+    const target = ev.target as HTMLElement | null;
+    if (
+      target === this.modalRoot ||
+      target?.classList.contains('menu-backdrop')
+    ) {
+      if (this.showCredits) {
+        this.showCredits = false;
+        this.renderModal();
+        return;
+      }
+      if (this.showPokedex) {
+        this.showPokedex = false;
+        this.renderModal();
+        return;
+      }
+      if (this.expandedUnitUid) {
+        this.expandedUnitUid = null;
+        this.renderModal();
+        return;
+      }
+    }
+    this.onClick(ev);
+  };
+
+  private readonly onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key !== 'Escape') return;
+    if (this.showCredits) {
+      this.showCredits = false;
+      this.renderModal();
+      return;
+    }
+    if (this.showPokedex) {
+      this.showPokedex = false;
+      this.renderModal();
+      return;
+    }
+    if (this.expandedUnitUid) {
+      this.expandedUnitUid = null;
+      this.renderModal();
+      return;
+    }
+    this.cancelActiveAction();
+  };
+
   constructor(private readonly game: Phaser.Game) {
     this.topBar = document.getElementById('top-bar');
     this.sidePanel = document.getElementById('side-panel');
     this.modalRoot = document.getElementById('modal-root');
 
     this.bindEvents();
-    this.game.events.on('snapshot', (snap: GameSnapshot) => this.render(snap));
+    this.game.events.on('snapshot', this.onSnapshot);
+  }
+
+  public destroy(): void {
+    this.game.events.off('snapshot', this.onSnapshot);
+    this.topBar?.removeEventListener('click', this.onClick);
+    this.sidePanel?.removeEventListener('click', this.onClick);
+    this.sidePanel?.removeEventListener('change', this.onChange);
+    this.modalRoot?.removeEventListener('change', this.onChange);
+    this.sidePanel?.removeEventListener('mouseover', this.onToolEnter);
+    this.sidePanel?.removeEventListener('mouseout', this.onToolLeave);
+    this.sidePanel?.removeEventListener('focusin', this.onToolEnter);
+    this.sidePanel?.removeEventListener('focusout', this.onToolLeave);
+    this.modalRoot?.removeEventListener('click', this.onModalClick);
+    window.removeEventListener('keydown', this.onKeyDown);
   }
 
   private scene(): BattleScene | undefined {
@@ -353,322 +379,33 @@ export class HudOverlay {
   }
 
   private bindEvents(): void {
-    const onClick = (ev: Event) => {
-      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
-        '[data-action]',
-      );
-      if (!target) return;
-      const action = target.dataset.action;
-      const id = target.dataset.id ?? '';
-      if (!action) return;
-
-      if (action === 'toggle-credits') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.showCredits = !this.showCredits;
-        this.renderModal();
-        return;
-      }
-      if (action === 'close-credits') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.showCredits = false;
-        this.renderModal();
-        return;
-      }
-      if (action === 'open-pokedex') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.showPokedex = true;
-        this.renderModal();
-        return;
-      }
-      if (action === 'close-pokedex') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.showPokedex = false;
-        this.renderModal();
-        return;
-      }
-      if (action === 'pokedex-filter') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.pokedexFilter = id === 'unlocked' || id === 'locked' ? id : 'all';
-        this.renderModal();
-        return;
-      }
-      if (action === 'inspect-pokedex') {
-        if (id && POKEMON_SPECIES[id]) {
-          this.scene()?.playUiSfx?.('ui_select');
-          this.inspectedPokedexId = id;
-          this.renderModal();
-        }
-        return;
-      }
-      if (action === 'cancel-action') {
-        this.scene()?.playUiSfx?.('ui_click');
-        this.cancelActiveAction();
-        return;
-      }
-
-      const scene = this.scene();
-      if (!scene) return;
-
-      if (
-        action !== 'toggle-speed' &&
-        action !== 'toggle-mute' &&
-        action !== 'start-wave'
-      ) {
-        if (
-          action === 'buy-item' ||
-          action === 'heal-unit' ||
-          action === 'revive-unit'
-        ) {
-          scene.playUiSfx?.('coin');
-        } else if (
-          action === 'confirm-draft' ||
-          action === 'pick-reward' ||
-          action === 'pick-branch'
-        ) {
-          scene.playUiSfx?.('ui_confirm');
-        } else {
-          scene.playUiSfx?.('ui_click');
-        }
-      }
-
-      switch (action) {
-        case 'toggle-speed':
-          scene.toggleSpeed?.();
-          break;
-        case 'toggle-mute':
-          scene.toggleMute?.();
-          break;
-        case 'start-wave':
-          scene.startWave?.();
-          break;
-        case 'select-tool': {
-          const tool = id as ToolId;
-          scene.selectTool?.(
-            this.lastSnap?.selectedTool === tool ? null : tool,
-          );
-          break;
-        }
-        case 'repair-struct':
-          scene.repairStructure?.(id);
-          break;
-        case 'repair-all': {
-          if (typeof scene.repairAllStructures === 'function') {
-            scene.repairAllStructures();
-          } else {
-            const damaged = (this.lastSnap?.structures ?? []).filter(
-              (s) => s.ruined || s.hp < s.maxHp,
-            );
-            for (const s of damaged) {
-              scene.repairStructure?.(s.uid);
-            }
-          }
-          break;
-        }
-        case 'detonate-barrel':
-          scene.detonateBarrel?.(id);
-          break;
-        case 'cast-ult':
-          scene.triggerUlt?.(id);
-          break;
-        case 'heal-unit':
-          scene.healUnit?.(id);
-          break;
-        case 'revive-unit':
-          scene.reviveUnit?.(id);
-          break;
-        case 'select-unit':
-          scene.selectUnit?.(id);
-          break;
-        case 'swap-reserve': {
-          const activeUid =
-            this.lastSnap?.selectedUnitUid ??
-            this.lastSnap?.activeUnits[0]?.uid;
-          if (activeUid) scene.swapReserve?.(activeUid, id);
-          break;
-        }
-        case 'pick-reward':
-          scene.pickReward?.(id);
-          break;
-        case 'home-play':
-          scene.startPlayFromHome?.();
-          break;
-        case 'select-map':
-          scene.selectMapAndDraft?.(id);
-          break;
-        case 'back-map-select':
-          scene.backToMapSelect?.();
-          break;
-        case 'map-filter':
-          this.mapDifficultyFilter =
-            id === 'Beginner' ||
-            id === 'Intermediate' ||
-            id === 'Advanced' ||
-            id === 'Expert'
-              ? id
-              : 'All';
-          this.renderModal();
-          break;
-        case 'back-home':
-          scene.returnToHome?.();
-          break;
-        case 'inspect-draft':
-          if (id && POKEMON_SPECIES[id]) {
-            this.inspectedDraftId = id;
-            this.renderModal();
-          }
-          break;
-        case 'toggle-draft':
-          scene.toggleDraftSpecies?.(id);
-          break;
-        case 'clear-draft':
-          scene.clearDraft?.();
-          break;
-        case 'confirm-draft':
-          scene.confirmDraft?.();
-          break;
-        case 'pick-branch-reward':
-          scene.pickBranchReward?.(id);
-          break;
-        case 'deploy-reserve':
-          scene.deployReserve?.(id);
-          break;
-        case 'switch-tab':
-          this.sideTab = id === 'shop' ? 'shop' : 'team';
-          if (this.lastSnap) this.renderSidePanel(this.lastSnap);
-          break;
-        case 'expand-unit':
-          this.expandedUnitUid = id || null;
-          this.renderModal();
-          break;
-        case 'close-expanded-unit':
-          this.expandedUnitUid = null;
-          this.renderModal();
-          break;
-        case 'buy-item':
-          scene.buyHeldItem?.(id);
-          break;
-        case 'equip-item': {
-          const unitUid = target.dataset.unit ?? this.lastSnap?.selectedUnitUid;
-          if (unitUid) scene.equipHeldItem?.(unitUid, id);
-          break;
-        }
-        case 'unequip-item': {
-          const unitUid = target.dataset.unit ?? this.lastSnap?.selectedUnitUid;
-          const idx = Number(id);
-          if (unitUid && !Number.isNaN(idx)) {
-            scene.unequipHeldItem?.(unitUid, idx);
-          }
-          break;
-        }
-        case 'restart-run':
-          scene.restartRun?.();
-          break;
-      }
-    };
-
-    const onChange = (ev: Event) => {
-      const input = ev.target as HTMLInputElement | null;
-      if (!input || input.dataset.action !== 'toggle-auto-ult') return;
-      const uid = input.dataset.id;
-      if (uid) this.scene()?.toggleAutoUlt?.(uid);
-    };
-
-    const onToolEnter = (ev: Event) => {
-      const el = ev.target as HTMLElement | null;
-      const toolTarget = el?.closest<HTMLElement>('[data-tool-tip]');
-      if (toolTarget) {
-        const tipId = toolTarget.dataset.toolTip as ToolId | undefined;
-        if (tipId && tipId !== this.hoveredTool) {
-          this.hoveredTool = tipId;
-          this.updateShopTooltip();
-        }
-      }
-      const relicTarget = el?.closest<HTMLElement>('[data-relic-tip]');
-      if (relicTarget) {
-        const relicId = relicTarget.dataset.relicTip;
-        if (relicId && relicId !== this.hoveredRelicId) {
-          this.hoveredRelicId = relicId;
-          this.updateRelicTooltip();
-        }
-      }
-    };
-
-    const onToolLeave = (ev: Event) => {
-      const mouseOrFocus = ev as MouseEvent | FocusEvent;
-      const el = ev.target as HTMLElement | null;
-      const related = mouseOrFocus.relatedTarget as HTMLElement | null;
-
-      const leavingTool = el?.closest<HTMLElement>('[data-tool-tip]');
-      if (leavingTool && !related?.closest<HTMLElement>('[data-tool-tip]')) {
-        if (this.hoveredTool !== null) {
-          this.hoveredTool = null;
-          this.updateShopTooltip();
-        }
-      }
-
-      const leavingRelic = el?.closest<HTMLElement>('[data-relic-tip]');
-      if (leavingRelic && !related?.closest<HTMLElement>('[data-relic-tip]')) {
-        if (this.hoveredRelicId !== null) {
-          this.hoveredRelicId = null;
-          this.updateRelicTooltip();
-        }
-      }
-    };
-
-    this.topBar?.addEventListener('click', onClick);
-    this.sidePanel?.addEventListener('click', onClick);
-    this.sidePanel?.addEventListener('change', onChange);
-    this.modalRoot?.addEventListener('change', onChange);
-    this.sidePanel?.addEventListener('mouseover', onToolEnter);
-    this.sidePanel?.addEventListener('mouseout', onToolLeave);
-    this.sidePanel?.addEventListener('focusin', onToolEnter);
-    this.sidePanel?.addEventListener('focusout', onToolLeave);
-    this.modalRoot?.addEventListener('click', (ev) => {
-      if (ev.target === this.modalRoot) {
-        if (this.showCredits) {
-          this.showCredits = false;
-          this.renderModal();
-          return;
-        }
-        if (this.expandedUnitUid) {
-          this.expandedUnitUid = null;
-          this.renderModal();
-          return;
-        }
-      }
-      onClick(ev);
-    });
-
-    window.addEventListener('keydown', (ev: KeyboardEvent) => {
-      if (ev.key !== 'Escape') return;
-      if (this.showCredits) {
-        this.showCredits = false;
-        this.renderModal();
-        return;
-      }
-      if (this.expandedUnitUid) {
-        this.expandedUnitUid = null;
-        this.renderModal();
-        return;
-      }
-      this.cancelActiveAction();
-    });
+    this.topBar?.addEventListener('click', this.onClick);
+    this.sidePanel?.addEventListener('click', this.onClick);
+    this.sidePanel?.addEventListener('change', this.onChange);
+    this.modalRoot?.addEventListener('change', this.onChange);
+    this.sidePanel?.addEventListener('mouseover', this.onToolEnter);
+    this.sidePanel?.addEventListener('mouseout', this.onToolLeave);
+    this.sidePanel?.addEventListener('focusin', this.onToolEnter);
+    this.sidePanel?.addEventListener('focusout', this.onToolLeave);
+    this.modalRoot?.addEventListener('click', this.onModalClick);
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   private updateShopTooltip(): void {
     if (!this.sidePanel || !this.lastSnap) return;
     const box = this.sidePanel.querySelector<HTMLElement>('#shop-tooltip');
     if (!box) return;
-    box.innerHTML = this.renderShopTooltipContent(this.lastSnap);
-    this.lastSideHtml = this.sidePanel.innerHTML;
+    box.innerHTML = renderShopTooltipContent(this.lastSnap, this.hoveredTool);
   }
 
   private updateRelicTooltip(): void {
     if (!this.sidePanel || !this.lastSnap) return;
     const box = this.sidePanel.querySelector<HTMLElement>('#relic-tooltip');
     if (!box) return;
-    box.innerHTML = this.renderRelicTooltipContent(this.lastSnap);
-    this.lastSideHtml = this.sidePanel.innerHTML;
+    box.innerHTML = renderRelicTooltipContent(
+      this.lastSnap,
+      this.hoveredRelicId,
+    );
   }
 
   public render(snap: GameSnapshot): void {
@@ -690,42 +427,7 @@ export class HudOverlay {
 
   private renderTopBar(snap: GameSnapshot): void {
     if (!this.topBar) return;
-    const corePct = pct(snap.coreHp, snap.coreMaxHp).toFixed(1);
-
-    const html = `
-      <div class="top-group">
-        <span class="brand">PokéBastion</span>
-        <span class="stat-pill">
-          <span class="stat-label">Wave</span>
-          <span class="stat-val">${snap.wave} / ${snap.maxWaves}</span>
-        </span>
-        <span class="phase-badge phase-${snap.phase}">${snap.phase}</span>
-        <div class="stat-pill core-meter">
-          <span class="stat-label">Core</span>
-          <div class="core-bar-wrap">
-            <div class="bar-track">
-              <div class="bar-fill bar-core" style="width:${corePct}%"></div>
-            </div>
-          </div>
-          <span class="stat-val">${Math.max(0, Math.ceil(snap.coreHp))} / ${snap.coreMaxHp}</span>
-        </div>
-      </div>
-      <div class="top-group">
-        <span class="stat-pill">
-          <span class="stat-label">Gold</span>
-          <span class="stat-val gold">₽${snap.gold}</span>
-        </span>
-        <span class="stat-pill" title="Action Points for combat movement (1 AP anywhere on the map; +3 per wave)">
-          <span class="stat-label">AP</span>
-          <span class="stat-val ap">${snap.ap} / ${snap.maxAp}</span>
-        </span>
-        <button class="btn" data-action="toggle-speed" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
-        <button class="btn" data-action="toggle-mute" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
-        <button class="btn" data-action="toggle-credits">Credits</button>
-        <button class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
-      </div>
-    `;
-
+    const html = renderTopBarHtml(snap);
     if (html !== this.lastTopHtml) {
       this.topBar.innerHTML = html;
       this.lastTopHtml = html;
@@ -734,1247 +436,31 @@ export class HudOverlay {
 
   private renderSidePanel(snap: GameSnapshot): void {
     if (!this.sidePanel) return;
-
-    const selectedStruct =
-      snap.structures.find((s) => s.uid === snap.selectedStructureUid) ?? null;
-
-    const parts: string[] = [];
-    const activeModeBar = this.renderActiveModeBar(snap);
-    if (activeModeBar) {
-      parts.push(activeModeBar);
-    }
-
-    parts.push(
-      `<div class="status-banner">${escapeHtml(snap.statusMessage || 'Ready.')}</div>`,
-    );
-
-    if (snap.phase === 'PREP') {
-      parts.push(`
-        <button class="btn btn-primary btn-wave" data-action="start-wave">
-          Start Wave ${snap.wave}
-        </button>
-      `);
-    }
-
-    parts.push(`
-      <div class="side-tabs">
-        <button
-          class="side-tab-btn ${this.sideTab === 'team' ? 'active' : ''}"
-          data-action="switch-tab"
-          data-id="team"
-        >
-          Team (${snap.activeUnits.length}/${MAX_ACTIVE_UNITS})
-        </button>
-        <button
-          class="side-tab-btn ${this.sideTab === 'shop' ? 'active' : ''}"
-          data-action="switch-tab"
-          data-id="shop"
-        >
-          Shop
-        </button>
-      </div>
-    `);
-
-    if (this.sideTab === 'shop') {
-      if (snap.phase === 'PREP') {
-        parts.push(this.renderBuildPalette(snap));
-        if (selectedStruct) {
-          parts.push(this.renderSelectedStructure(snap, selectedStruct));
-        }
-        parts.push(this.renderHeldItemShop(snap));
-      } else {
-        if (selectedStruct) {
-          parts.push(this.renderSelectedStructure(snap, selectedStruct));
-        }
-        parts.push(
-          '<section class="card"><div class="card-hint">Structures and Held Items can be purchased during the Prep phase.</div></section>',
-        );
-      }
-    } else {
-      parts.push(this.renderRelics(snap));
-      parts.push(this.renderTeamAndReserve(snap));
-    }
-
-    const html = parts.join('');
+    const html = renderSidePanelHtml(snap, {
+      sideTab: this.sideTab,
+      hoveredTool: this.hoveredTool,
+      hoveredRelicId: this.hoveredRelicId,
+    });
     if (html !== this.lastSideHtml) {
       this.sidePanel.innerHTML = html;
       this.lastSideHtml = html;
     }
   }
 
-  private renderActiveModeBar(snap: GameSnapshot): string {
-    if (snap.aimingUltUnitUid !== null) {
-      const aimingUnit = snap.activeUnits.find(
-        (u) => u.uid === snap.aimingUltUnitUid,
-      );
-      const sp = aimingUnit ? POKEMON_SPECIES[aimingUnit.speciesId] : null;
-      const ultName = sp ? sp.ultName : 'Ultimate';
-      return `
-        <div class="active-mode-bar ult">
-          <span class="active-mode-text">Aiming ${escapeHtml(ultName)} — Click target tile</span>
-          <button class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc)</button>
-        </div>
-      `;
-    }
-
-    if (snap.selectedTool === null) return '';
-
-    let text: string;
-    let barClass = 'active-mode-bar';
-    if (snap.selectedTool === 'move_struct') {
-      text = 'Moving Structure — Click structure, then grass tile';
-    } else if (snap.selectedTool === 'sell_struct') {
-      text = 'Selling Structure — Click structure to refund 70%';
-      barClass = 'active-mode-bar sell';
-    } else {
-      const spec = STRUCTURE_SPECS[snap.selectedTool];
-      text = `Placing ${escapeHtml(spec.name)} — Click grass tile`;
-    }
-
-    return `
-      <div class="${barClass}">
-        <span class="active-mode-text">${text}</span>
-        <button class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc)</button>
-      </div>
-    `;
-  }
-
-  private renderShopTooltipContent(snap: GameSnapshot): string {
-    const tool = this.hoveredTool ?? snap.selectedTool;
-    if (!tool) {
-      return `<div class="tool-desc">Hover or focus an item above to view HP, pathing, and effects.</div>`;
-    }
-
-    if (tool === 'move_struct') {
-      return `
-        <div class="shop-tooltip-head">
-          <span>Move Structure</span>
-          <span class="tool-cost free">Free</span>
-        </div>
-        <div class="shop-tooltip-tags">
-          <span class="tag">Relocate</span>
-        </div>
-        <div class="shop-tooltip-desc">Click an existing structure, then click an open grass tile to move it.</div>
-      `;
-    }
-
-    if (tool === 'sell_struct') {
-      return `
-        <div class="shop-tooltip-head">
-          <span>Sell Structure</span>
-          <span class="tool-cost refund">+70% ₽</span>
-        </div>
-        <div class="shop-tooltip-tags">
-          <span class="tag">Refund</span>
-        </div>
-        <div class="shop-tooltip-desc">Click an existing structure to dismantle it and refund 70% of its build cost.</div>
-      `;
-    }
-
-    const spec = STRUCTURE_SPECS[tool];
-    const deficit = Math.max(0, spec.cost - snap.gold);
-    const pathTag = spec.blocksGround
-      ? 'Blocks Ground'
-      : spec.consumable
-        ? 'One-Time Trap'
-        : 'Passable';
-
-    return `
-      <div class="shop-tooltip-head">
-        <span>${escapeHtml(spec.name)}</span>
-        <span class="tool-cost">₽${spec.cost}</span>
-      </div>
-      <div class="shop-tooltip-tags">
-        <span class="tag">HP ${spec.maxHp}</span>
-        <span class="tag">${pathTag}</span>
-        ${deficit > 0 ? `<span class="shop-need">Need ₽${deficit} more</span>` : ''}
-      </div>
-      <div class="shop-tooltip-desc">${escapeHtml(spec.desc)}</div>
-    `;
-  }
-
-  private renderBuildPalette(snap: GameSnapshot): string {
-    const structButtons = Object.values(STRUCTURE_SPECS)
-      .map((spec) => {
-        const active = snap.selectedTool === spec.kind ? 'active' : '';
-        const unaffordable = snap.gold < spec.cost ? 'unaffordable' : '';
-        return `
-          <button
-            class="tool-btn ${active} ${unaffordable}"
-            data-action="select-tool"
-            data-id="${spec.kind}"
-            data-tool-tip="${spec.kind}"
-          >
-            <span class="tool-icon">${TOOL_ICONS[spec.kind]}</span>
-            <span class="tool-meta">
-              <span class="tool-name">${escapeHtml(TOOL_SHORT_NAME[spec.kind])}</span>
-              <span class="tool-cost">₽${spec.cost}</span>
-            </span>
-          </button>
-        `;
-      })
-      .join('');
-
-    const moveActive = snap.selectedTool === 'move_struct' ? 'active' : '';
-    const sellActive =
-      snap.selectedTool === 'sell_struct' ? 'active-danger' : '';
-
-    const damagedStructs = snap.structures.filter(
-      (s) => s.ruined || s.hp < s.maxHp,
-    );
-    const totalRepairCost = damagedStructs.reduce(
-      (sum, s) => sum + getRepairCost(s.kind, s.hp, s.maxHp),
-      0,
-    );
-
-    return `
-      <section class="card">
-        <div class="section-header">
-          <span>Build Palette</span>
-          <span>Click grid to place</span>
-        </div>
-        <div class="tool-grid">
-          ${structButtons}
-          <button
-            class="tool-btn ${moveActive}"
-            data-action="select-tool"
-            data-id="move_struct"
-            data-tool-tip="move_struct"
-          >
-            <span class="tool-icon">${TOOL_ICONS.move_struct}</span>
-            <span class="tool-meta">
-              <span class="tool-name">${TOOL_SHORT_NAME.move_struct}</span>
-              <span class="tool-cost free">Free</span>
-            </span>
-          </button>
-          <button
-            class="tool-btn ${sellActive}"
-            data-action="select-tool"
-            data-id="sell_struct"
-            data-tool-tip="sell_struct"
-          >
-            <span class="tool-icon">${TOOL_ICONS.sell_struct}</span>
-            <span class="tool-meta">
-              <span class="tool-name">${TOOL_SHORT_NAME.sell_struct}</span>
-              <span class="tool-cost refund">+70% ₽</span>
-            </span>
-          </button>
-        </div>
-        <div class="shop-tooltip" id="shop-tooltip">
-          ${this.renderShopTooltipContent(snap)}
-        </div>
-        ${
-          damagedStructs.length > 0 && totalRepairCost > 0
-            ? `
-              <button
-                class="btn btn-accent"
-                data-action="repair-all"
-                ${snap.gold >= totalRepairCost ? '' : 'disabled'}
-                title="Repair all ${damagedStructs.length} damaged or ruined structures"
-              >
-                Repair All (₽${totalRepairCost})
-              </button>
-            `
-            : ''
-        }
-      </section>
-    `;
-  }
-
-  private renderHeldItemShop(snap: GameSnapshot): string {
-    const items = Object.values(HELD_ITEMS);
-    const invCount = snap.heldItemInventory.length;
-    const rows = items
-      .map((item) => {
-        const disabled = snap.gold < item.cost ? 'disabled' : '';
-        const owned = snap.heldItemInventory.filter(
-          (id) => id === item.id,
-        ).length;
-        return `
-          <div class="shop-item-row">
-            <div class="shop-item-info">
-              <strong>${escapeHtml(item.name)}${owned > 0 ? ` <span class="tag">${owned} in bag</span>` : ''}</strong>
-              <span class="shop-item-desc">${escapeHtml(item.desc)}</span>
-            </div>
-            <button
-              class="btn btn-accent btn-xs"
-              data-action="buy-item"
-              data-id="${item.id}"
-              ${disabled}
-            >
-              ₽${item.cost}
-            </button>
-          </div>
-        `;
-      })
-      .join('');
-
-    return `
-      <section class="card">
-        <div class="card-header">
-          <span class="card-title">Held Items Shop</span>
-          <span class="card-hint">${invCount} in bag</span>
-        </div>
-        <div class="shop-items-list">${rows}</div>
-      </section>
-    `;
-  }
-
-  private renderSelectedStructure(
-    snap: GameSnapshot,
-    struct: GridStructure,
-  ): string {
-    const spec = STRUCTURE_SPECS[struct.kind];
-    const hpPct = pct(struct.hp, struct.maxHp).toFixed(1);
-    const repairCost = getRepairCost(struct.kind, struct.hp, struct.maxHp);
-    const needsRepair =
-      (struct.ruined || struct.hp < struct.maxHp) && repairCost > 0;
-    const canRepair =
-      snap.phase === 'PREP' && needsRepair && snap.gold >= repairCost;
-    const isBarrel = struct.kind === 'barrel' && !struct.ruined;
-    const showDetonate = isBarrel && snap.phase === 'COMBAT';
-
-    return `
-      <section class="card">
-        <div class="unit-title-row">
-          <strong>${escapeHtml(spec.name)}</strong>
-          ${struct.ruined ? '<span class="tag ruined">Ruined</span>' : `<span class="tag">(${struct.gx}, ${struct.gy})</span>`}
-        </div>
-        <div class="bar-row">
-          <div class="bar-labels">
-            <span>Structure HP</span>
-            <span>${Math.max(0, Math.ceil(struct.hp))} / ${struct.maxHp}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill bar-hp" style="width:${hpPct}%"></div>
-          </div>
-        </div>
-        ${
-          (snap.phase === 'PREP' && needsRepair) || showDetonate
-            ? `
-              <div class="btn-row">
-                ${
-                  snap.phase === 'PREP' && needsRepair
-                    ? `<button class="btn btn-accent" data-action="repair-struct" data-id="${struct.uid}" ${canRepair ? '' : 'disabled'}>Repair (₽${repairCost})</button>`
-                    : ''
-                }
-                ${
-                  showDetonate
-                    ? `<button class="btn btn-danger" data-action="detonate-barrel" data-id="${struct.uid}">Detonate</button>`
-                    : ''
-                }
-              </div>
-            `
-            : ''
-        }
-      </section>
-    `;
-  }
-
-  private renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
-    const species = POKEMON_SPECIES[unit.speciesId];
-    if (!species) return '';
-
-    const isSelected = snap.selectedUnitUid === unit.uid;
-    const hpPct = pct(unit.hp, unit.maxHp).toFixed(1);
-    const ultPctNum = pct(unit.ult, unit.ultMax);
-    const ultPct = ultPctNum.toFixed(1);
-    const ultReady = !unit.fainted && unit.ult >= unit.ultMax;
-    const isAiming = snap.aimingUltUnitUid === unit.uid;
-    const canCastUlt = snap.phase === 'COMBAT' && ultReady;
-
-    let ultLabel = 'Cast Ult';
-    if (isAiming) {
-      ultLabel = 'Aiming...';
-    } else if (unit.fainted) {
-      ultLabel = 'Fainted';
-    } else if (snap.phase !== 'COMBAT') {
-      ultLabel = 'Prep Only';
-    } else if (!ultReady) {
-      ultLabel = `${Math.floor(ultPctNum)}%`;
-    }
-
-    const branch = getBranchSpec(unit.speciesId, unit.branchId);
-    const atk = getEffectiveAtk(
-      unit.speciesId,
-      snap.upgrades,
-      false,
-      unit.branchId,
-      unit.heldItems,
-    );
-    const def = getEffectiveDef(unit.speciesId, unit.branchId, unit.heldItems);
-    const range = getEffectiveRange(unit.speciesId, unit.branchId);
-    const mov = getEffectiveMoveRange(species.moveRange, snap.upgrades, branch);
-
-    const canHeal =
-      snap.phase === 'PREP' &&
-      !unit.fainted &&
-      unit.hp < unit.maxHp &&
-      snap.gold >= HEAL_COST;
-    const canRevive =
-      snap.phase === 'PREP' && unit.fainted && snap.gold >= REVIVE_COST;
-
-    let prepBtn = '';
-    if (snap.phase === 'PREP') {
-      if (unit.fainted) {
-        prepBtn = `<button class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>`;
-      } else if (unit.hp < unit.maxHp) {
-        prepBtn = `<button class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>`;
-      }
-    }
-
-    return `
-      <div class="team-unit-card ${isSelected ? 'selected' : ''}">
-        <div class="unit-title-row">
-          <button class="unit-chip ${isSelected ? 'selected' : ''}" data-action="select-unit" data-id="${unit.uid}" style="border:none;background:transparent;padding:0">
-            ${renderPokeIcon(unit.speciesId)}
-            <strong>${escapeHtml(species.name)}</strong>
-          </button>
-          <div class="unit-name-wrap">
-            ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
-            <button class="btn btn-xs" data-action="expand-unit" data-id="${unit.uid}">Details</button>
-          </div>
-        </div>
-
-        <div class="unit-stats-grid">
-          <div class="unit-stat">
-            <span class="unit-stat-lbl">ATK</span>
-            <span class="unit-stat-val">${atk}</span>
-          </div>
-          <div class="unit-stat">
-            <span class="unit-stat-lbl">DEF</span>
-            <span class="unit-stat-val">${def}</span>
-          </div>
-          <div class="unit-stat">
-            <span class="unit-stat-lbl">RANGE</span>
-            <span class="unit-stat-val">${range}</span>
-          </div>
-          <div class="unit-stat">
-            <span class="unit-stat-lbl">MOV</span>
-            <span class="unit-stat-val">${mov}</span>
-          </div>
-        </div>
-
-        <div class="bar-row">
-          <div class="bar-labels">
-            <span>HP</span>
-            <span>${Math.max(0, Math.ceil(unit.hp))} / ${unit.maxHp}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill bar-hp" style="width:${hpPct}%"></div>
-          </div>
-        </div>
-
-        <div class="bar-row">
-          <div class="bar-labels">
-            <span>Ult (${escapeHtml(species.ultName)})</span>
-            <span>${Math.floor(unit.ult)} / ${unit.ultMax}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill bar-ult" style="width:${ultPct}%"></div>
-          </div>
-        </div>
-
-        <div class="btn-row" style="align-items:center;flex-wrap:wrap">
-          <button class="btn btn-ult btn-xs" data-action="cast-ult" data-id="${unit.uid}" ${canCastUlt ? '' : 'disabled'}>${ultLabel}</button>
-          <label class="toggle-label">
-            <input type="checkbox" data-action="toggle-auto-ult" data-id="${unit.uid}" ${unit.autoUlt ? 'checked' : ''} />
-            Auto
-          </label>
-          ${prepBtn}
-        </div>
-
-        <div class="held-slots-row">
-          ${Array.from({ length: MAX_HELD_ITEMS })
-            .map((_, idx) => {
-              const itemId = unit.heldItems[idx];
-              const item = itemId ? HELD_ITEMS[itemId] : null;
-              if (!item) {
-                return '<div class="held-slot-icon" title="Empty Held Item Slot"></div>';
-              }
-              const icon = HELD_ITEM_ICONS[item.id] ?? '';
-              return `
-                <div class="held-slot-icon filled" title="${escapeHtml(`${item.name}: ${item.desc}`)}">
-                  ${icon}
-                  ${
-                    snap.phase === 'PREP'
-                      ? `<button class="held-slot-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" title="Unequip ${escapeHtml(item.name)}">×</button>`
-                      : ''
-                  }
-                </div>
-              `;
-            })
-            .join('')}
-          ${
-            snap.phase === 'PREP' &&
-            unit.heldItems.length < MAX_HELD_ITEMS &&
-            snap.heldItemInventory.length > 0
-              ? Array.from(new Set(snap.heldItemInventory))
-                  .map((itemId) => {
-                    const item = HELD_ITEMS[itemId];
-                    if (!item) return '';
-                    return `
-                      <button
-                        class="held-equip-icon-btn"
-                        data-action="equip-item"
-                        data-unit="${unit.uid}"
-                        data-id="${itemId}"
-                        title="${escapeHtml(`Equip ${item.name}: ${item.desc}`)}"
-                      >
-                        +${HELD_ITEM_ICONS[item.id] ?? escapeHtml(item.name)}
-                      </button>
-                    `;
-                  })
-                  .join('')
-              : ''
-          }
-        </div>
-      </div>
-    `;
-  }
-
-  private renderTeamAndReserve(snap: GameSnapshot): string {
-    const activeCards = snap.activeUnits
-      .map((u) => this.renderTeamUnitCard(snap, u))
-      .join('');
-
-    const selectedActive =
-      snap.activeUnits.find((u) => u.uid === snap.selectedUnitUid) ?? null;
-    const selectedActiveName = selectedActive
-      ? (POKEMON_SPECIES[selectedActive.speciesId]?.name ??
-        selectedActive.speciesId)
-      : null;
-    const canSwap = snap.phase === 'PREP' && Boolean(selectedActive);
-    const canDeploy =
-      snap.phase === 'PREP' && snap.activeUnits.length < MAX_ACTIVE_UNITS;
-
-    const reserveChips = snap.reserveIds.length
-      ? snap.reserveIds
-          .map((id) => {
-            const sp = POKEMON_SPECIES[id];
-            const name = sp ? sp.name : id;
-            let tooltip = 'Select an active Pokémon during PREP to swap';
-            if (sp) {
-              const hp = getEffectiveMaxHp(sp.id, snap.upgrades);
-              const atk = getEffectiveAtk(sp.id, snap.upgrades);
-              const mov = getEffectiveMoveRange(sp.moveRange, snap.upgrades);
-              tooltip = [
-                `${sp.name} (${sp.pokeClass})`,
-                `HP ${hp} | ATK ${atk} | Range ${sp.range} | MOV ${mov}`,
-                `Passive: ${sp.passiveDesc}`,
-                `Ult — ${sp.ultName}: ${sp.ultDesc}`,
-                canDeploy
-                  ? 'Click Deploy to add to battlefield (up to 6)'
-                  : canSwap && selectedActiveName
-                    ? `Click to swap into ${selectedActiveName}'s slot`
-                    : 'Select an active Pokémon during PREP to swap',
-              ].join('\n');
-            }
-            if (canDeploy) {
-              return `
-                <button
-                  class="unit-chip reserve"
-                  data-action="deploy-reserve"
-                  data-id="${id}"
-                  title="${escapeHtml(tooltip)}"
-                >
-                  ${renderPokeIcon(id)}
-                  <span>+ Deploy ${escapeHtml(name)}</span>
-                </button>
-              `;
-            }
-            return `
-              <button
-                class="unit-chip reserve"
-                data-action="swap-reserve"
-                data-id="${id}"
-                ${canSwap ? '' : 'disabled'}
-                title="${escapeHtml(tooltip)}"
-              >
-                ${renderPokeIcon(id)}
-                <span>${escapeHtml(name)}</span>
-              </button>
-            `;
-          })
-          .join('')
-      : '<span class="tool-desc">No reserve Pokémon.</span>';
-
-    const reserveHint =
-      snap.phase === 'PREP'
-        ? canDeploy
-          ? `Click to deploy (${snap.activeUnits.length}/${MAX_ACTIVE_UNITS})`
-          : selectedActiveName
-            ? `Swap into ${escapeHtml(selectedActiveName)}'s slot`
-            : 'Select active to swap'
-        : 'PREP only';
-
-    return `
-      <section class="card">
-        <div class="section-header">
-          <span>Active Team</span>
-          <span>${snap.activeUnits.length} / ${MAX_ACTIVE_UNITS} deployed</span>
-        </div>
-        <div class="team-unit-list">${activeCards}</div>
-        <div class="section-header" style="margin-top:4px">
-          <span>Reserve</span>
-          <span>${reserveHint}</span>
-        </div>
-        <div class="chips-grid">${reserveChips}</div>
-      </section>
-    `;
-  }
-
-  private renderRelicTooltipContent(snap: GameSnapshot): string {
-    const id = this.hoveredRelicId;
-    if (!id || (!snap.upgrades.includes(id) && !snap.artifacts.includes(id))) {
-      return '<span class="tool-desc">Hover an icon to view details.</span>';
-    }
-    const meta = REWARD_BY_ID[id];
-    const title = meta ? meta.title : id;
-    const desc = meta ? meta.desc : '';
-    const isArtifact = snap.artifacts.includes(id);
-    const kindLabel = isArtifact ? 'Artifact' : 'Upgrade';
-    return `
-      <div class="relic-tooltip-head">
-        <span>${escapeHtml(title)}</span>
-        <span class="tag ${isArtifact ? 'tag-gold' : ''}">${kindLabel}</span>
-      </div>
-      <div class="tool-desc">${escapeHtml(desc)}</div>
-    `;
-  }
-
-  private renderRelics(snap: GameSnapshot): string {
-    const badges: string[] = [];
-
-    for (const id of snap.upgrades) {
-      const meta = REWARD_BY_ID[id];
-      const title = meta ? meta.title : id;
-      const icon =
-        RELIC_ICONS[id] ?? `<span>${escapeHtml(title[0] ?? '?')}</span>`;
-      const active = this.hoveredRelicId === id ? ' is-active' : '';
-      badges.push(
-        `<span class="relic-icon-tile upgrade${active}" tabindex="0" data-relic-tip="${escapeHtml(id)}" aria-label="${escapeHtml(title)}">${icon}</span>`,
-      );
-    }
-    for (const id of snap.artifacts) {
-      const meta = REWARD_BY_ID[id];
-      const title = meta ? meta.title : id;
-      const icon =
-        RELIC_ICONS[id] ?? `<span>${escapeHtml(title[0] ?? '?')}</span>`;
-      const active = this.hoveredRelicId === id ? ' is-active' : '';
-      badges.push(
-        `<span class="relic-icon-tile artifact${active}" tabindex="0" data-relic-tip="${escapeHtml(id)}" aria-label="${escapeHtml(title)}">${icon}</span>`,
-      );
-    }
-
-    return `
-      <section class="card" style="padding:7px 10px">
-        <div class="section-header" style="margin-bottom:${badges.length ? '5px' : '0'}">
-          <span>Artifacts & Upgrades</span>
-          <span>${badges.length}</span>
-        </div>
-        ${
-          badges.length
-            ? `<div class="relic-icons-row">${badges.join('')}</div>
-               <div class="relic-tooltip" id="relic-tooltip">${this.renderRelicTooltipContent(snap)}</div>`
-            : '<span class="tool-desc">None acquired yet.</span>'
-        }
-      </section>
-    `;
-  }
-
   private renderModal(): void {
     if (!this.modalRoot) return;
-    let html = '';
-
-    if (this.showCredits) {
-      html = `
-        <div class="menu-backdrop">
-          <div class="modal-card compact">
-            <div class="modal-header">
-              <div class="modal-title">Asset Credits</div>
-              <button class="btn" data-action="close-credits">Close</button>
-            </div>
-          <div class="credits-list">
-            <div class="credit-item">
-              <strong>Tiles, Forest Props & Pokémon Center — Ekat's Public Tiles</strong>
-              <span>Ekat's Public Tiles (Route 224, Tall Grass, Citrus Outdoors, Cold Storage)</span>
-            </div>
-            <div class="credit-item">
-              <strong>Tile Textures — MPWSP01</strong>
-              <a href="https://scarloxy.itch.io/mpwsp01" target="_blank" rel="noopener noreferrer">
-                https://scarloxy.itch.io/mpwsp01
-              </a>
-            </div>
-            <div class="credit-item">
-              <strong>Pokémon Sprites — PMD / PMDCollab</strong>
-              <a href="https://sprites.pmdcollab.org" target="_blank" rel="noopener noreferrer">
-                https://sprites.pmdcollab.org
-              </a>
-            </div>
-            <div class="credit-item">
-              <strong>Attack VFX — PVFX Foundry</strong>
-              <a href="https://nerijs.itch.io/pvfx-foundry/devlog/1750877/pvfx-foundry-10-101-new-effects-rebuilt-for-quality" target="_blank" rel="noopener noreferrer">
-                https://nerijs.itch.io/pvfx-foundry/devlog/1750877/pvfx-foundry-10-101-new-effects-rebuilt-for-quality
-              </a>
-            </div>
-            <div class="credit-item">
-              <strong>Sound Effects &amp; Music — Tuxemon &amp; Kelvin Shadewing</strong>
-              <a href="https://github.com/Tuxemon/Tuxemon" target="_blank" rel="noopener noreferrer">
-                https://github.com/Tuxemon/Tuxemon
-              </a>
-              <span>Includes SFX by Nick &ldquo;Kelvin Shadewing&rdquo; Kovacs (kelvinshadewing.net) &amp; Tuxemon contributors, plus JRPGCollection BGM loops</span>
-            </div>
-          </div>
-          </div>
-        </div>
-      `;
-    } else if (this.showPokedex) {
-      const unlockedSet = new Set(this.lastSnap?.unlockedIds ?? []);
-      const allSpecies = Object.values(POKEMON_SPECIES);
-      const unlockedCount = allSpecies.filter((s) =>
-        unlockedSet.has(s.id),
-      ).length;
-      const filtered = allSpecies.filter((s) => {
-        if (this.pokedexFilter === 'unlocked') return unlockedSet.has(s.id);
-        if (this.pokedexFilter === 'locked') return !unlockedSet.has(s.id);
-        return true;
-      });
-      const inspectedId =
-        this.inspectedPokedexId && POKEMON_SPECIES[this.inspectedPokedexId]
-          ? this.inspectedPokedexId
-          : (filtered[0]?.id ?? allSpecies[0]?.id);
-      const inspectedSp = inspectedId
-        ? POKEMON_SPECIES[inspectedId]
-        : undefined;
-      const inspectedUnlocked = inspectedSp
-        ? unlockedSet.has(inspectedSp.id)
-        : false;
-
-      const gridHtml =
-        filtered.length > 0
-          ? filtered
-              .map((sp) => {
-                const isUnlocked = unlockedSet.has(sp.id);
-                const classes = [
-                  'draft-roster-item',
-                  !isUnlocked ? 'is-locked' : '',
-                  sp.id === inspectedId ? 'is-inspected' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ');
-                return `
-                  <button
-                    type="button"
-                    class="${classes}"
-                    data-action="inspect-pokedex"
-                    data-id="${sp.id}"
-                  >
-                    ${renderPokeIcon(sp.id)}
-                    <span class="draft-roster-name">#${sp.id.slice(-3)} ${escapeHtml(sp.name)}</span>
-                  </button>
-                `;
-              })
-              .join('')
-          : '<div class="card-hint" style="grid-column:1/-1;padding:12px;">No Pokémon match this filter yet.</div>';
-
-      const detailHtml = inspectedSp
-        ? `
-          <div class="draft-detail-panel">
-            <div class="draft-detail-head">
-              <div class="draft-detail-title">
-                ${renderPokeIcon(inspectedSp.id, 'lg')}
-                <div>
-                  <div class="draft-detail-name">#${inspectedSp.id} ${escapeHtml(inspectedSp.name)}</div>
-                  <div class="draft-detail-tags">
-                    <span class="tag">${escapeHtml(inspectedSp.pokeClass)}</span>
-                    ${inspectedSp.rarity ? `<span class="tag">${escapeHtml(inspectedSp.rarity)}</span>` : ''}
-                    <span class="tag cost-tag">${inspectedSp.draftCost} pt${inspectedSp.draftCost === 1 ? '' : 's'}</span>
-                    <span class="tag ${inspectedUnlocked ? 'starter-tag' : 'locked-tag'}">${inspectedUnlocked ? 'Unlocked' : 'Locked'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            ${renderDraftSnowflake(inspectedSp)}
-            <div class="draft-kit">
-              <div><strong>Passive:</strong> ${escapeHtml(inspectedSp.passiveDesc)}</div>
-              <div><strong>Basic:</strong> ${escapeHtml(inspectedSp.basicDesc)}</div>
-              <div><strong>Ult (${escapeHtml(inspectedSp.ultName)}):</strong> ${escapeHtml(inspectedSp.ultDesc)}</div>
-              <div class="draft-branches">
-                <strong>Branches:</strong>
-                ${inspectedSp.branches
-                  .map(
-                    (b, idx) =>
-                      `<div class="branch-line">• <em>Path ${idx + 1}: ${escapeHtml(b.name)}</em> ${formatBranchChips(b)} — ${escapeHtml(b.desc)}</div>`,
-                  )
-                  .join('')}
-              </div>
-            </div>
-          </div>
-        `
-        : '';
-
-      html = `
-        <div class="menu-backdrop">
-          <div class="modal-card draft-modal">
-            <div class="modal-header">
-              <div>
-                <div class="modal-title">Pokédex — ${unlockedCount} / ${allSpecies.length} Unlocked</div>
-                <div class="card-hint">Recruit Pokémon during runs to unlock them for future drafts.</div>
-              </div>
-              <div class="btn-row" style="margin:0">
-                <button class="btn ${this.pokedexFilter === 'all' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="all">All (${allSpecies.length})</button>
-                <button class="btn ${this.pokedexFilter === 'unlocked' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="unlocked">Unlocked (${unlockedCount})</button>
-                <button class="btn ${this.pokedexFilter === 'locked' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="locked">Locked (${allSpecies.length - unlockedCount})</button>
-                <button class="btn" data-action="close-pokedex">Close</button>
-              </div>
-            </div>
-            <div class="draft-body">
-              <div class="draft-roster-grid">${gridHtml}</div>
-              ${detailHtml}
-            </div>
-          </div>
-        </div>
-      `;
-    } else if (this.lastSnap?.phase === 'HOME') {
-      const unlockedCount = this.lastSnap.unlockedIds.length;
-      const totalCount = Object.keys(POKEMON_SPECIES).length;
-      html = `
-        <div class="menu-backdrop">
-          <div class="modal-card compact home-modal">
-            <div class="home-badge">GEN 1 EDITION</div>
-            <div class="home-title">PokéBastion TD</div>
-            <p class="home-subtitle">
-              Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center across 10 waves.
-            </p>
-            <div class="home-meta">
-              <span class="tag starter-tag">${unlockedCount} / ${totalCount} Pokémon Unlocked</span>
-              <span class="tag">${MAP_CATALOG.length} Maps</span>
-              <span class="tag">6 Classes · 18 Subclasses</span>
-            </div>
-            <div class="home-actions">
-              <button class="btn btn-primary home-btn" data-action="home-play">Play</button>
-              <button class="btn home-btn" data-action="open-pokedex">Pokédex</button>
-              <button class="btn home-btn" data-action="toggle-credits">Credits</button>
-            </div>
-          </div>
-        </div>
-      `;
-    } else if (this.lastSnap?.phase === 'MAP_SELECT') {
-      const difficulties: Array<'All' | MapDifficulty> = [
-        'All',
-        'Beginner',
-        'Intermediate',
-        'Advanced',
-        'Expert',
-      ];
-      const filteredMaps = MAP_CATALOG.filter(
-        (m) =>
-          this.mapDifficultyFilter === 'All' ||
-          m.difficulty === this.mapDifficultyFilter,
-      );
-      const mapCardsHtml = filteredMaps
-        .map((m) => {
-          const grid = createGridForMap(m.id);
-          const rects: string[] = [];
-          for (let gy = 0; gy < grid.length; gy++) {
-            for (let gx = 0; gx < grid[gy].length; gx++) {
-              const t = grid[gy][gx];
-              if (t === 'grass') continue;
-              const fill =
-                t === 'water'
-                  ? '#38bdf8'
-                  : t === 'tree'
-                    ? '#166534'
-                    : '#f43f5e';
-              rects.push(
-                `<rect x="${gx}" y="${gy}" width="1" height="1" fill="${fill}" />`,
-              );
-            }
-          }
-          const diffClass = `diff-${m.difficulty.toLowerCase()}`;
-          const isCurrent =
-            !m.comingSoon && this.lastSnap?.selectedMapId === m.id;
-          const previewHtml = m.comingSoon
-            ? `<div class="map-coming-soon">COMING SOON</div>`
-            : `<svg class="map-preview-svg" viewBox="0 0 28 18" preserveAspectRatio="xMidYMid slice">
-                <rect width="28" height="18" fill="#2d5a27" />
-                ${rects.join('')}
-              </svg>`;
-          return `
-            <div class="map-card ${isCurrent ? 'is-selected' : ''} ${m.comingSoon ? 'is-coming-soon' : ''}">
-              <div class="map-preview-wrap">
-                ${previewHtml}
-                <span class="tag map-diff-badge ${diffClass}">${escapeHtml(m.difficulty)}</span>
-              </div>
-              <div class="map-card-body">
-                <div class="map-card-title">${escapeHtml(m.name)}</div>
-                <div class="map-card-desc">${escapeHtml(m.desc)}</div>
-                <button class="btn ${m.comingSoon ? '' : 'btn-primary'}" data-action="select-map" data-id="${escapeHtml(m.id)}" ${m.comingSoon ? 'disabled' : ''}>
-                  ${m.comingSoon ? 'Coming Soon' : 'Select Map'}
-                </button>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-
-      const filterTabsHtml = difficulties
-        .map(
-          (d) =>
-            `<button class="btn ${this.mapDifficultyFilter === d ? 'btn-primary' : ''}" data-action="map-filter" data-id="${d}">${d}</button>`,
-        )
-        .join('');
-
-      html = `
-        <div class="menu-backdrop">
-          <div class="modal-card draft-modal map-select-modal">
-            <div class="modal-header">
-              <div>
-                <div class="modal-title">Select Battlefield</div>
-                <div class="card-hint">Choose a Gen 1 map before drafting your starting team.</div>
-              </div>
-              <div class="btn-row" style="margin:0">
-                ${filterTabsHtml}
-                <button class="btn" data-action="back-home">Home</button>
-              </div>
-            </div>
-            <div class="map-grid">${mapCardsHtml}</div>
-          </div>
-        </div>
-      `;
-    } else if (this.lastSnap?.phase === 'DRAFT') {
-      const snap = this.lastSnap;
-      const spent = getDraftCost(snap.draftIds);
-      const remaining = snap.draftBudget - spent;
-      const allSpecies = Object.values(POKEMON_SPECIES);
-      const defaultDraftId =
-        snap.draftIds[0] ?? Object.keys(POKEMON_SPECIES)[0];
-      const inspectedId =
-        this.inspectedDraftId && POKEMON_SPECIES[this.inspectedDraftId]
-          ? this.inspectedDraftId
-          : defaultDraftId;
-      const inspectedSp = POKEMON_SPECIES[inspectedId];
-
-      const unlockedSet = new Set(snap.unlockedIds);
-      const sortedSpecies = [...allSpecies].sort((a, b) => {
-        const aUnl = unlockedSet.has(a.id) ? 0 : 1;
-        const bUnl = unlockedSet.has(b.id) ? 0 : 1;
-        return aUnl - bUnl || Number(a.id) - Number(b.id);
-      });
-      const rosterItems = sortedSpecies
-        .map((sp) => {
-          const isUnlocked = unlockedSet.has(sp.id);
-          const picked = snap.draftIds.includes(sp.id);
-          const canAdd =
-            isUnlocked &&
-            (picked ||
-              (snap.draftIds.length < MAX_ACTIVE_UNITS &&
-                spent + sp.draftCost <= snap.draftBudget));
-          const classes = [
-            'draft-roster-item',
-            picked ? 'is-picked' : '',
-            !isUnlocked ? 'is-locked' : '',
-            sp.id === inspectedId ? 'is-inspected' : '',
-            isUnlocked && !picked && !canAdd ? 'is-unaffordable' : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return `
-            <button
-              type="button"
-              class="${classes}"
-              data-action="inspect-draft"
-              data-id="${sp.id}"
-            >
-              ${renderPokeIcon(sp.id)}
-              <span class="draft-roster-name">${escapeHtml(sp.name)}</span>
-            </button>
-          `;
-        })
-        .join('');
-
-      const teamChips =
-        snap.draftIds.length > 0
-          ? snap.draftIds
-              .map((id) => {
-                const sp = POKEMON_SPECIES[id];
-                return `<button type="button" class="draft-chip ${sp.id === inspectedId ? 'is-inspected' : ''}" data-action="inspect-draft" data-id="${sp.id}" style="border-color:${sp.color}">${escapeHtml(sp.name)} (${sp.draftCost})</button>`;
-              })
-              .join('')
-          : '<span class="card-hint">Select at least 1 Pokémon to start.</span>';
-
-      const isInspectedUnlocked = inspectedSp
-        ? unlockedSet.has(inspectedSp.id)
-        : false;
-      const isPicked = inspectedSp
-        ? snap.draftIds.includes(inspectedSp.id)
-        : false;
-      const canAddInspected = inspectedSp
-        ? isInspectedUnlocked &&
-          (isPicked ||
-            (snap.draftIds.length < MAX_ACTIVE_UNITS &&
-              spent + inspectedSp.draftCost <= snap.draftBudget))
-        : false;
-      const needPts = inspectedSp ? inspectedSp.draftCost - remaining : 0;
-      const actionLabel = !isInspectedUnlocked
-        ? 'Locked'
-        : isPicked
-          ? 'Remove'
-          : canAddInspected
-            ? 'Draft'
-            : snap.draftIds.length >= MAX_ACTIVE_UNITS
-              ? 'Team Full'
-              : `Need ${needPts} more pt${needPts === 1 ? '' : 's'}`;
-      const actionBtnClass = isPicked
-        ? 'btn btn-danger'
-        : canAddInspected
-          ? 'btn btn-primary'
-          : 'btn';
-
-      const detailHtml = inspectedSp
-        ? `
-          <div class="draft-detail-panel">
-            <div class="draft-detail-header">
-              <div class="draft-detail-identity">
-                ${renderPokeIcon(inspectedSp.id, 'lg')}
-                <div class="draft-detail-title">
-                  <div class="draft-detail-name">${escapeHtml(inspectedSp.name)}</div>
-                  <div class="draft-detail-tags">
-                    <span class="tag">${escapeHtml(inspectedSp.pokeClass)}</span>
-                    <span class="tag ${isPicked ? 'draft-cost-picked' : ''}">${inspectedSp.draftCost} pt${inspectedSp.draftCost === 1 ? '' : 's'}</span>
-                    ${inspectedSp.unlockedStarter ? '<span class="tag starter-tag">Starter</span>' : ''}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="${actionBtnClass}"
-                data-action="toggle-draft"
-                data-id="${inspectedSp.id}"
-                ${isPicked || canAddInspected ? '' : 'disabled'}
-              >
-                ${actionLabel}
-              </button>
-            </div>
-            ${renderDraftSnowflake(inspectedSp)}
-            <div class="desc-box">
-              <div><strong>Passive:</strong> ${escapeHtml(inspectedSp.passiveDesc)}</div>
-              <div><strong>Basic:</strong> ${escapeHtml(inspectedSp.basicDesc)}</div>
-              <div><strong>${escapeHtml(inspectedSp.ultName)}:</strong> ${escapeHtml(inspectedSp.ultDesc)}</div>
-            </div>
-          </div>
-        `
-        : '';
-
-      html = `
-        <div class="modal-card draft-modal">
-          <div class="modal-header">
-            <div>
-              <div class="modal-title">Starter Draft — ${spent} / ${snap.draftBudget} pts</div>
-              <div class="card-hint">Remaining: ${remaining} pts · Team: ${snap.draftIds.length} / ${MAX_ACTIVE_UNITS} (Squirtle, Charmander & Bulbasaur unlocked at 3 pts)</div>
-            </div>
-            <div class="btn-row" style="margin:0">
-              <button class="btn" data-action="back-map-select">Maps</button>
-              <button class="btn" data-action="back-home">Home</button>
-              <button class="btn" data-action="open-pokedex">Pokédex</button>
-              <button class="btn" data-action="clear-draft" ${snap.draftIds.length === 0 ? 'disabled' : ''}>Clear</button>
-              <button class="btn btn-primary" data-action="confirm-draft" ${snap.draftIds.length === 0 ? 'disabled' : ''}>Start Game</button>
-            </div>
-          </div>
-          <div class="draft-team-bar">${teamChips}</div>
-          <div class="draft-body">
-            <div class="draft-roster-grid">${rosterItems}</div>
-            ${detailHtml}
-          </div>
-        </div>
-      `;
-    } else if (
-      this.lastSnap?.phase === 'REWARD' &&
-      this.lastSnap.pendingBranchUnitUid
-    ) {
-      const unit = this.lastSnap.activeUnits.find(
-        (u) => u.uid === this.lastSnap?.pendingBranchUnitUid,
-      );
-      const sp = unit ? POKEMON_SPECIES[unit.speciesId] : undefined;
-      if (sp) {
-        const branchCards = sp.branches
-          .map(
-            (b) => `
-              <button class="reward-card" data-action="pick-branch-reward" data-id="${escapeHtml(b.id)}">
-                <span class="tag branch-tag">Specialization</span>
-                <div class="reward-title">${escapeHtml(b.name)}</div>
-                <div class="reward-desc">${escapeHtml(b.desc)}</div>
-              </button>
-            `,
-          )
-          .join('');
-
-        html = `
-          <div class="modal-card">
-            <div class="modal-header">
-              <div class="modal-title">Specialize ${escapeHtml(sp.name)} — Choose 1 of 3</div>
-            </div>
-            <div class="reward-grid">${branchCards}</div>
-          </div>
-        `;
-      }
-    } else if (this.lastSnap?.phase === 'REWARD') {
-      const cards = this.lastSnap.rewardChoices
-        .map(
-          (choice) => `
-            <button class="reward-card" data-action="pick-reward" data-id="${escapeHtml(choice.id)}">
-              <span class="tag">${escapeHtml(choice.kind)}</span>
-              <div class="reward-title">${escapeHtml(choice.title)}</div>
-              <div class="reward-desc">${escapeHtml(choice.desc)}</div>
-            </button>
-          `,
-        )
-        .join('');
-
-      html = `
-        <div class="modal-card">
-          <div class="modal-header">
-            <div class="modal-title">Wave Cleared — Choose a Reward</div>
-          </div>
-          <div class="reward-grid">${cards}</div>
-        </div>
-      `;
-    } else if (
-      this.lastSnap?.phase === 'VICTORY' ||
-      this.lastSnap?.phase === 'DEFEAT'
-    ) {
-      const victory = this.lastSnap.phase === 'VICTORY';
-      html = `
-        <div class="modal-card compact">
-          <div class="modal-header">
-            <div class="modal-title" style="color:${victory ? 'var(--green)' : 'var(--red)'}">
-              ${victory ? 'Bastion Secured — Victory!' : 'Core Shattered — Defeat'}
-            </div>
-          </div>
-          <div class="stats-grid">
-            <div class="stat-box">
-              <div class="stat-label">Wave</div>
-              <div class="stat-box-val">${this.lastSnap.wave} / ${this.lastSnap.maxWaves}</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">Kills</div>
-              <div class="stat-box-val">${this.lastSnap.kills}</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">Core HP</div>
-              <div class="stat-box-val">${Math.max(0, Math.ceil(this.lastSnap.coreHp))} / ${this.lastSnap.coreMaxHp}</div>
-            </div>
-          </div>
-          <button class="btn btn-primary btn-wave" data-action="restart-run">
-            Play Again
-          </button>
-        </div>
-      `;
-    } else if (this.expandedUnitUid && this.lastSnap) {
-      const snap = this.lastSnap;
-      const unit = snap.activeUnits.find((u) => u.uid === this.expandedUnitUid);
-      const sp = unit ? POKEMON_SPECIES[unit.speciesId] : undefined;
-      if (unit && sp) {
-        const branch = getBranchSpec(unit.speciesId, unit.branchId);
-        const atk = getEffectiveAtk(
-          unit.speciesId,
-          snap.upgrades,
-          false,
-          unit.branchId,
-          unit.heldItems,
-        );
-        const def = getEffectiveDef(
-          unit.speciesId,
-          unit.branchId,
-          unit.heldItems,
-          snap.upgrades,
-        );
-        const range = getEffectiveRange(
-          unit.speciesId,
-          unit.branchId,
-          snap.upgrades,
-        );
-        const mov = getEffectiveMoveRange(
-          sp.moveRange,
-          snap.upgrades,
-          branch,
-          unit.speciesId,
-        );
-        const intervalMs = getEffectiveAttackIntervalMs(
-          unit.speciesId,
-          snap.artifacts,
-          unit.branchId,
-          unit.heldItems,
-          snap.upgrades,
-        );
-        const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
-
-        const heldHtml = Array.from({ length: MAX_HELD_ITEMS })
-          .map((_, idx) => {
-            const itemId = unit.heldItems[idx];
-            const item = itemId ? HELD_ITEMS[itemId] : null;
-            if (!item) return '<div class="held-slot empty">Empty Slot</div>';
-            return `
-              <div class="held-slot filled">
-                <span><strong>${escapeHtml(item.name)}</strong> — ${escapeHtml(item.desc)}</span>
-                ${
-                  snap.phase === 'PREP'
-                    ? `<button class="held-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}">×</button>`
-                    : ''
-                }
-              </div>
-            `;
-          })
-          .join('');
-
-        html = `
-          <div class="modal-card draft-modal">
-            <div class="modal-header">
-              <div class="unit-name-wrap">
-                ${renderPokeIcon(sp.id)}
-                <div class="modal-title">${escapeHtml(sp.name)}</div>
-                <span class="tag">${escapeHtml(sp.pokeClass)}</span>
-                ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
-              </div>
-              <button class="btn" data-action="close-expanded-unit">Close</button>
-            </div>
-
-            <div class="unit-stats-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:10px">
-              <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.ceil(unit.hp)}/${unit.maxHp}</span></div>
-              <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
-              <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
-              <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val">${range}</span></div>
-              <div class="unit-stat"><span class="unit-stat-lbl">MOVE</span><span class="unit-stat-val">${mov}</span></div>
-              <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val">${atkSpd}</span></div>
-            </div>
-
-            <div class="desc-box" style="margin-bottom:10px">
-              <div><strong>Passive:</strong> ${escapeHtml(sp.passiveDesc)}</div>
-              <div><strong>Basic Attack:</strong> ${escapeHtml(sp.basicDesc)}</div>
-              <div><strong>Ultimate — ${escapeHtml(sp.ultName)}:</strong> ${escapeHtml(sp.ultDesc)} (${Math.floor(unit.ult)}/${unit.ultMax})</div>
-            </div>
-
-            <div class="branch-header">
-              <span>Specialization Paths &amp; Minor Upgrade Pool</span>
-              <span class="card-hint">${branch ? `Chosen: ${escapeHtml(branch.name)}` : 'Not yet specialized'}</span>
-            </div>
-            ${renderBranchTree(sp, unit.branchId, snap.upgrades)}
-
-            <div class="held-box" style="margin-top:12px">
-              <div class="branch-header">
-                <span>Held Items</span>
-                <span class="card-hint">${unit.heldItems.length} / ${MAX_HELD_ITEMS}</span>
-              </div>
-              <div class="held-slots">${heldHtml}</div>
-            </div>
-          </div>
-        `;
-      } else {
-        this.expandedUnitUid = null;
-      }
+    const { html, invalidExpandedUnit } = renderModalHtml(this.lastSnap, {
+      showCredits: this.showCredits,
+      showPokedex: this.showPokedex,
+      pokedexFilter: this.pokedexFilter,
+      inspectedPokedexId: this.inspectedPokedexId,
+      mapDifficultyFilter: this.mapDifficultyFilter,
+      inspectedDraftId: this.inspectedDraftId,
+      expandedUnitUid: this.expandedUnitUid,
+    });
+    if (invalidExpandedUnit) {
+      this.expandedUnitUid = null;
     }
-
     if (html !== this.lastModalHtml) {
       this.modalRoot.innerHTML = html;
       this.lastModalHtml = html;

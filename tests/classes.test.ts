@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLASS_DEFINITIONS,
+  CLASS_MINOR_UPGRADE_MAP,
   CLASS_MINOR_UPGRADES,
   SUBCLASS_DEFINITIONS,
 } from '../src/data/classes';
@@ -138,5 +139,14 @@ describe('Classes, Subclasses, and Minor Upgrades', () => {
     expect(choices.every((c) => c.kind === 'upgrade' && c.targetClass)).toBe(
       true,
     );
+  });
+
+  it('maintains 1:1 lookup integrity in CLASS_MINOR_UPGRADE_MAP', () => {
+    expect(Object.keys(CLASS_MINOR_UPGRADE_MAP)).toHaveLength(
+      CLASS_MINOR_UPGRADES.length,
+    );
+    for (const u of CLASS_MINOR_UPGRADES) {
+      expect(CLASS_MINOR_UPGRADE_MAP[u.id]).toBe(u);
+    }
   });
 });

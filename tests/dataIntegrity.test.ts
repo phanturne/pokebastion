@@ -107,4 +107,27 @@ describe('Data & Asset Manifest Integrity', () => {
       expect(SFX_ASSETS[getSpeciesUltSfx(sp.id)]).toBeDefined();
     }
   });
+
+  it('ensures all active species, enemies, items, and rewards have valid finite stats and unique IDs', () => {
+    for (const sp of Object.values(POKEMON_SPECIES)) {
+      expect(Number.isFinite(sp.maxHp) && sp.maxHp > 0).toBe(true);
+      expect(Number.isFinite(sp.atk) && sp.atk > 0).toBe(true);
+      expect(Number.isFinite(sp.range) && sp.range > 0).toBe(true);
+      expect(
+        Number.isFinite(sp.attackIntervalMs) && sp.attackIntervalMs > 0,
+      ).toBe(true);
+      expect(sp.branches.length).toBeGreaterThan(0);
+    }
+    for (const enemy of Object.values(ENEMY_SPECIES)) {
+      expect(Number.isFinite(enemy.maxHp) && enemy.maxHp > 0).toBe(true);
+      expect(Number.isFinite(enemy.atk) && enemy.atk > 0).toBe(true);
+      expect(Number.isFinite(enemy.speed) && enemy.speed > 0).toBe(true);
+    }
+    const rewardIds = new Set<string>();
+    for (const reward of REWARD_POOL) {
+      expect(rewardIds.has(reward.id)).toBe(false);
+      rewardIds.add(reward.id);
+      expect(reward.desc.length).toBeGreaterThan(0);
+    }
+  });
 });
