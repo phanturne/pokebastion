@@ -175,16 +175,19 @@ export class HudOverlay {
       if (!action) return;
 
       if (action === 'toggle-credits') {
+        this.scene()?.playUiSfx?.('ui_click');
         this.showCredits = !this.showCredits;
         this.renderModal();
         return;
       }
       if (action === 'close-credits') {
+        this.scene()?.playUiSfx?.('ui_click');
         this.showCredits = false;
         this.renderModal();
         return;
       }
       if (action === 'cancel-action') {
+        this.scene()?.playUiSfx?.('ui_click');
         this.cancelActiveAction();
         return;
       }
@@ -192,9 +195,34 @@ export class HudOverlay {
       const scene = this.scene();
       if (!scene) return;
 
+      if (
+        action !== 'toggle-speed' &&
+        action !== 'toggle-mute' &&
+        action !== 'start-wave'
+      ) {
+        if (
+          action === 'buy-item' ||
+          action === 'heal-unit' ||
+          action === 'revive-unit'
+        ) {
+          scene.playUiSfx?.('coin');
+        } else if (
+          action === 'confirm-draft' ||
+          action === 'pick-reward' ||
+          action === 'pick-branch'
+        ) {
+          scene.playUiSfx?.('ui_confirm');
+        } else {
+          scene.playUiSfx?.('ui_click');
+        }
+      }
+
       switch (action) {
         case 'toggle-speed':
           scene.toggleSpeed?.();
+          break;
+        case 'toggle-mute':
+          scene.toggleMute?.();
           break;
         case 'start-wave':
           scene.startWave?.();
@@ -420,6 +448,7 @@ export class HudOverlay {
           <span class="stat-val ap">${snap.ap} / ${snap.maxAp}</span>
         </span>
         <button class="btn" data-action="toggle-speed" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
+        <button class="btn" data-action="toggle-mute" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
         <button class="btn" data-action="toggle-credits">Credits</button>
       </div>
     `;
@@ -1094,6 +1123,13 @@ export class HudOverlay {
               <a href="https://nerijs.itch.io/pvfx-foundry/devlog/1750877/pvfx-foundry-10-101-new-effects-rebuilt-for-quality" target="_blank" rel="noopener noreferrer">
                 https://nerijs.itch.io/pvfx-foundry/devlog/1750877/pvfx-foundry-10-101-new-effects-rebuilt-for-quality
               </a>
+            </div>
+            <div class="credit-item">
+              <strong>Sound Effects &amp; Music — Tuxemon &amp; Kelvin Shadewing</strong>
+              <a href="https://github.com/Tuxemon/Tuxemon" target="_blank" rel="noopener noreferrer">
+                https://github.com/Tuxemon/Tuxemon
+              </a>
+              <span>Includes SFX by Nick &ldquo;Kelvin Shadewing&rdquo; Kovacs (kelvinshadewing.net) &amp; Tuxemon contributors, plus JRPGCollection BGM loops</span>
             </div>
           </div>
         </div>
