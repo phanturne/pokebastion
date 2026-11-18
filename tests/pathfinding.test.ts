@@ -165,4 +165,70 @@ describe('A* Pathfinding & Grid Rules', () => {
       }
     }
   });
+
+  it('handles findPath boundary cases (core start, out-of-bounds, impassable start)', () => {
+    const grid = createBaseGrid();
+    // Starting on a core cell returns single-element path
+    expect(findPath(CORE_CELLS[0], grid, new Set(), 'ground')).toEqual([
+      CORE_CELLS[0],
+    ]);
+    // Out-of-bounds start returns null
+    expect(findPath({ gx: -1, gy: 5 }, grid, new Set(), 'ground')).toBeNull();
+    // Completely boxed-in ground unit returns null while fly escapes over walls
+    const boxed = new Set([
+      '4,4',
+      '5,4',
+      '6,4',
+      '4,5',
+      '6,5',
+      '4,6',
+      '5,6',
+      '6,6',
+    ]);
+    expect(findPath({ gx: 5, gy: 5 }, grid, boxed, 'ground')).toBeNull();
+    expect(findPath({ gx: 5, gy: 5 }, grid, boxed, 'fly')).not.toBeNull();
+  });
+
+  it('ignores ruined or non-blocking structures in findNearestBlockingWall and checks OOB/water no-build', () => {
+    const grid = createBaseGrid();
+    const ruinedWall = makeWall('w_ruined', 3, SPAWN_WEST[1].gy, true);
+    const nonBlocking: GridStructure = {
+      uid: 'bush_1',
+      kind: 'berry_bush',
+      gx: 3,
+      gy: SPAWN_WEST[1].gy + 1,
+      hp: 150,
+      maxHp: 150,
+      ruined: false,
+    };
+    expect(
+      findNearestBlockingWall(SPAWN_WEST[1], grid, [ruinedWall, nonBlocking]),
+    ).toBeNull();
+    expect(
+      findNearestBlockingWall({ gx: -1, gy: 0 }, grid, [
+        makeWall('w1', 3, 5, false),
+      ]),
+    ).toBeNull();
+
+    // Out-of-bounds and water tiles are no-build
+    expect(isNoBuildTile(-1, 5, grid)).toBe(true);
+    expect(isNoBuildTile(999, 5, grid)).toBe(true);
+    grid[5][5] = 'water';
+    expect(isNoBuildTile(5, 5, grid)).toBe(true);
+
+    // Portal buffer is 1-tile Manhattan only (not diagonal)
+    const portals = [
+      { id: 'p_w', side: 'west' as const, cells: [{ gx: 0, gy: 8 }] },
+    ];
+    expect(isPortalBufferTile(1, 8, portals)).toBe(true);
+    expect(isPortalBufferTile(1, 9, portals)).toBe(false);
+  });
+
+  it('rolls 2-cell portals on Wave 1 and 3-cell portals on Wave 2+', () => {
+    const grid = createBaseGrid();
+    const w1 = rollWavePortals(1, grid, [], () => 0.25);
+    const w2 = rollWavePortals(2, grid, [], () => 0.25);
+    expect(w1.every((p) => p.cells.length === 2)).toBe(true);
+    expect(w2.every((p) => p.cells.length === 3)).toBe(true);
+  });
 });

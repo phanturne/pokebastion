@@ -166,3 +166,53 @@ export function generateRewardChoices(
 
   return choices;
 }
+
+/**
+ * Checks whether grid coordinate `(bx, by)` falls inside the circular attack
+ * perimeter of radius `range + 0.5` tiles centered on `(ax, ay)`.
+ */
+export function isInCircularRange(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  range: number,
+): boolean {
+  if (range < 0) return false;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const r = range + 0.5;
+  return dx * dx + dy * dy <= r * r;
+}
+
+export interface ProjectileLaunch {
+  startX: number;
+  startY: number;
+  rotation: number;
+}
+
+/**
+ * Computes a muzzle-offset spawn point and rotation angle (radians, 0 = +x)
+ * from `(sx, sy)` toward `(tx, ty)`, clamped so it never overshoots the target.
+ */
+export function computeProjectileLaunch(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  muzzleOffset = 16,
+): ProjectileLaunch {
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1e-6) {
+    return { startX: sx, startY: sy, rotation: 0 };
+  }
+  const rotation = Math.atan2(dy, dx);
+  const offset = Math.min(Math.max(0, muzzleOffset), dist * 0.5);
+  return {
+    startX: sx + Math.cos(rotation) * offset,
+    startY: sy + Math.sin(rotation) * offset,
+    rotation,
+  };
+}

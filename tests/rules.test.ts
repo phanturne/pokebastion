@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { POKEMON_SPECIES, REWARD_POOL } from '../src/data/pokemon';
 import {
   BASE_AP_KILL_THRESHOLD,
   TEMPORAL_GEAR_KILL_THRESHOLD,
   chebyshevDist,
+  computeProjectileLaunch,
   generateRewardChoices,
   getApKillThreshold,
   getBountyGold,
@@ -14,6 +16,7 @@ import {
   getMovementCost,
   getRepairCost,
   getSellRefund,
+  isInCircularRange,
 } from '../src/engine/rules';
 
 describe('Game Rules, AP Movement & Economy', () => {
@@ -91,5 +94,90 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(ids.has('sharp_claws')).toBe(false);
     expect(ids.has('temporal_gear')).toBe(false);
     expect(choices.some((c) => c.kind === 'recruit')).toBe(true);
+  });
+
+  it('evaluates circular attack range (including range-1 diagonals, excluding square corners)', () => {
+    // range = 1: cardinal and diagonal neighbors are inside radius 1.5
+    expect(isInCircularRange(5, 5, 6, 5, 1)).toBe(true);
+    expect(isInCircularRange(5, 5, 6, 6, 1)).toBe(true);
+    expect(isInCircularRange(5, 5, 7, 5, 1)).toBe(false);
+
+    // range = 2: (2,0) and (2,1) are inside radius 2.5, corner (2,2) is outside
+    expect(isInCircularRange(5, 5, 7, 5, 2)).toBe(true);
+    expect(isInCircularRange(5, 5, 7, 6, 2)).toBe(true);
+    expect(isInCircularRange(5, 5, 7, 7, 2)).toBe(false);
+
+    // range = 3: (2,2) is inside radius 3.5, (3,2) and (3,3) are outside
+    expect(isInCircularRange(5, 5, 7, 7, 3)).toBe(true);
+    expect(isInCircularRange(5, 5, 8, 7, 3)).toBe(false);
+    expect(isInCircularRange(5, 5, 8, 8, 3)).toBe(false);
+
+    expect(isInCircularRange(5, 5, 5, 5, -1)).toBe(false);
+  });
+
+  it('computes muzzle-offset projectile spawn and angle toward target', () => {
+    // Shooting diagonally down-right (45 deg)
+    const diag = computeProjectileLaunch(100, 100, 200, 200, 16);
+    expect(diag.rotation).toBeCloseTo(Math.PI / 4, 6);
+    expect(diag.startX).toBeCloseTo(100 + Math.SQRT1_2 * 16, 4);
+    expect(diag.startY).toBeCloseTo(100 + Math.SQRT1_2 * 16, 4);
+
+    // Shooting straight up (-90 deg)
+    const up = computeProjectileLaunch(100, 100, 100, 20, 16);
+    expect(up.rotation).toBeCloseTo(-Math.PI / 2, 6);
+    expect(up.startX).toBeCloseTo(100, 6);
+    expect(up.startY).toBeCloseTo(84, 6);
+
+    // Clamps offset when target is very close so spawn doesn't overshoot target
+    const close = computeProjectileLaunch(100, 100, 110, 100, 16);
+    expect(close.startX).toBeCloseTo(105, 6);
+    expect(close.startY).toBeCloseTo(100, 6);
+
+    // Zero-distance edge case returns finite fallback without NaN
+    const same = computeProjectileLaunch(50, 60, 50, 60, 16);
+    expect(same).toEqual({ startX: 50, startY: 60, rotation: 0 });
+  });
+
+  it('handles repair cost floor, unknown species fallbacks, and exhausted reward pools', () => {
+    // 5g minimum floor on tiny damage (1/300 missing on 50g stone_wall)
+    expect(getRepairCost('stone_wall', 299, 300)).toBe(5);
+    // Overhealed or invalid maxHp edge cases
+    expect(getRepairCost('stone_wall', 320, 300)).toBe(0);
+    expect(getRepairCost('stone_wall', 100, 0)).toBe(25);
+
+    // Non-wall structures ignore fortification_core; stone_wall gets 1.4x
+    expect(
+      getEffectiveStructureMaxHp('stone_wall', ['fortification_core']),
+    ).toBe(420);
+    expect(
+      getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
+    ).toBe(150);
+
+    // Unknown speciesId fallbacks & unboosted bounty
+    expect(getEffectiveMaxHp('9999', [])).toBe(100);
+    expect(getEffectiveAtk('9999', [])).toBe(20);
+    expect(getEffectiveAttackIntervalMs('9999', [])).toBe(1000);
+    expect(getBountyGold(20, [])).toBe(20);
+
+    // Exhausted recruit pool still fills 3 upgrade/artifact choices
+    const allSpecies = new Set(Object.keys(POKEMON_SPECIES));
+    const poolOnly = generateRewardChoices(allSpecies, [], [], () => 0.1);
+    expect(poolOnly).toHaveLength(3);
+    expect(poolOnly.every((c) => c.kind !== 'recruit')).toBe(true);
+
+    // Fully exhausted pool returns empty array
+    const allUpgrades = REWARD_POOL.filter((r) => r.kind === 'upgrade').map(
+      (r) => r.id,
+    );
+    const allArtifacts = REWARD_POOL.filter((r) => r.kind === 'artifact').map(
+      (r) => r.id,
+    );
+    const exhausted = generateRewardChoices(
+      allSpecies,
+      allUpgrades,
+      allArtifacts,
+      () => 0.5,
+    );
+    expect(exhausted).toEqual([]);
   });
 });

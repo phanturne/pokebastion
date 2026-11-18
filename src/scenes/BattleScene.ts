@@ -19,9 +19,11 @@ import {
   SpawnPortal,
 } from '../engine/pathfinding';
 import {
+  computeProjectileLaunch,
   getRepairCost,
   getSellRefund,
   HEAL_COST,
+  isInCircularRange,
   REVIVE_COST,
 } from '../engine/rules';
 import {
@@ -1796,12 +1798,11 @@ export class BattleScene extends Phaser.Scene {
   // Highlights
   // ---------------------------------------------------------------------------
 
-  private drawDashedRect(
+  private drawDashedCircle(
     g: Phaser.GameObjects.Graphics,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
+    cx: number,
+    cy: number,
+    radius: number,
     primaryColor: number,
     secondaryColor: number | null,
     alpha: number,
@@ -1809,30 +1810,21 @@ export class BattleScene extends Phaser.Scene {
     dashLen = 8,
     gapLen = 5,
   ): void {
-    const edges: Array<[number, number, number, number]> = [
-      [x, y, x + w, y],
-      [x + w, y, x + w, y + h],
-      [x + w, y + h, x, y + h],
-      [x, y + h, x, y],
-    ];
-    let stepIdx = 0;
-    for (const [x1, y1, x2, y2] of edges) {
-      const dist = Math.hypot(x2 - x1, y2 - y1);
-      if (dist <= 0) continue;
-      const ux = (x2 - x1) / dist;
-      const uy = (y2 - y1) / dist;
-      let d = 0;
-      while (d < dist) {
-        const end = Math.min(d + dashLen, dist);
-        const color =
-          secondaryColor !== null && stepIdx % 2 === 1
-            ? secondaryColor
-            : primaryColor;
-        g.lineStyle(lineWidth, color, alpha);
-        g.lineBetween(x1 + ux * d, y1 + uy * d, x1 + ux * end, y1 + uy * end);
-        d += dashLen + gapLen;
-        stepIdx += 1;
-      }
+    if (radius <= 0) return;
+    const circumference = 2 * Math.PI * radius;
+    const stepLen = dashLen + gapLen;
+    const numDashes = Math.max(8, Math.round(circumference / stepLen));
+    const stepAngle = (2 * Math.PI) / numDashes;
+    const dashAngle = stepAngle * (dashLen / stepLen);
+
+    for (let i = 0; i < numDashes; i++) {
+      const startAngle = i * stepAngle;
+      const color =
+        secondaryColor !== null && i % 2 === 1 ? secondaryColor : primaryColor;
+      g.lineStyle(lineWidth, color, alpha);
+      g.beginPath();
+      g.arc(cx, cy, radius, startAngle, startAngle + dashAngle);
+      g.strokePath();
     }
   }
 
@@ -1843,15 +1835,14 @@ export class BattleScene extends Phaser.Scene {
     alpha: number,
     lineWidth: number,
   ): void {
-    const size = (2 * range + 1) * TILE_SIZE;
-    const x = (gx - range) * TILE_SIZE + 1;
-    const y = (gy - range) * TILE_SIZE + 1;
-    this.drawDashedRect(
+    const cx = tileCenterX(gx);
+    const cy = tileCenterY(gy);
+    const radius = (range + 0.5) * TILE_SIZE - 1;
+    this.drawDashedCircle(
       this.highlightGraphics,
-      x,
-      y,
-      size - 2,
-      size - 2,
+      cx,
+      cy,
+      radius,
       0xfb7185,
       0xffffff,
       alpha,
@@ -2538,13 +2529,13 @@ export class BattleScene extends Phaser.Scene {
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
         if (
-          chebyshevDist(
+          !isInCircularRange(
             unit.data.gx,
             unit.data.gy,
             ally.data.gx,
             ally.data.gy,
-          ) >
-          spec.range + 2
+            spec.range + 2,
+          )
         ) {
           continue;
         }
@@ -3301,15 +3292,23 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const { startX, startY, rotation } = computeProjectileLaunch(
+      sx,
+      sy,
+      tx,
+      ty,
+    );
+
     const proj = this.add
-      .sprite(sx, sy, `vfx:${flightKey}`)
+      .sprite(startX, startY, `vfx:${flightKey}`)
       .setDepth(8)
+      .setOrigin(0.25, 0.5)
       .setScale(0.75)
-      .setRotation(Math.atan2(ty - sy, tx - sx));
+      .setRotation(rotation);
     this.transientVfx.push(proj);
     proj.play(animKey);
 
-    const dist = Math.hypot(tx - sx, ty - sy);
+    const dist = Math.hypot(tx - startX, ty - startY);
     const duration = Math.max(90, Math.round((dist / 380) * 1000));
 
     this.tweens.add({
@@ -3319,7 +3318,7 @@ export class BattleScene extends Phaser.Scene {
       duration,
       onComplete: () => {
         if (proj.active) proj.destroy();
-        this.spawnOneShotVfx(impactKey, tx, ty, 0.85);
+        this.spawnOneShotVfx(impactKey, tx, ty, 0.85, rotation);
         onArrive();
       },
     });
@@ -3330,6 +3329,7 @@ export class BattleScene extends Phaser.Scene {
     x: number,
     y: number,
     scale = 0.9,
+    rotation = 0,
   ): void {
     const animKey = `anim:vfx:${vfxKey}`;
     if (!this.anims.exists(animKey)) return;
@@ -3337,9 +3337,10 @@ export class BattleScene extends Phaser.Scene {
     const fx = this.add
       .sprite(x, y, `vfx:${vfxKey}`)
       .setDepth(8)
-      .setScale(scale);
+      .setScale(scale)
+      .setRotation(rotation);
     this.transientVfx.push(fx);
-    fx.play(animKey);
+    fx.play({ key: animKey, repeat: 0 });
     fx.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
       if (fx.active) fx.destroy();
     });
@@ -3493,8 +3494,7 @@ export class BattleScene extends Phaser.Scene {
     let bestDist = Infinity;
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
-      const cheb = chebyshevDist(gx, gy, enemy.gx, enemy.gy);
-      if (cheb > range) continue;
+      if (!isInCircularRange(gx, gy, enemy.gx, enemy.gy, range)) continue;
       const euclid = Math.hypot(enemy.gx - gx, enemy.gy - gy);
       if (euclid < bestDist) {
         bestDist = euclid;
