@@ -12,25 +12,38 @@ export interface GridPoint {
   gy: number;
 }
 
+export type PortalSide = 'north' | 'south' | 'west' | 'east';
+
+export interface SpawnPortal {
+  id: string;
+  side: PortalSide;
+  cells: GridPoint[];
+}
+
+const CORE_X = Math.floor(GRID_COLS / 2) - 1; // 13
+const CORE_Y = Math.floor(GRID_ROWS / 2) - 1; // 8
+const SPAWN_MIN_Y = CORE_Y - 1; // 7
+const SPAWN_MAX_Y = CORE_Y + 2; // 10
+
 export const CORE_CELLS: GridPoint[] = [
-  { gx: 8, gy: 5 },
-  { gx: 9, gy: 5 },
-  { gx: 8, gy: 6 },
-  { gx: 9, gy: 6 },
+  { gx: CORE_X, gy: CORE_Y },
+  { gx: CORE_X + 1, gy: CORE_Y },
+  { gx: CORE_X, gy: CORE_Y + 1 },
+  { gx: CORE_X + 1, gy: CORE_Y + 1 },
 ];
 
 export const SPAWN_WEST: GridPoint[] = [
-  { gx: 0, gy: 4 },
-  { gx: 0, gy: 5 },
-  { gx: 0, gy: 6 },
-  { gx: 0, gy: 7 },
+  { gx: 0, gy: SPAWN_MIN_Y },
+  { gx: 0, gy: SPAWN_MIN_Y + 1 },
+  { gx: 0, gy: SPAWN_MIN_Y + 2 },
+  { gx: 0, gy: SPAWN_MAX_Y },
 ];
 
 export const SPAWN_EAST: GridPoint[] = [
-  { gx: 17, gy: 4 },
-  { gx: 17, gy: 5 },
-  { gx: 17, gy: 6 },
-  { gx: 17, gy: 7 },
+  { gx: GRID_COLS - 1, gy: SPAWN_MIN_Y },
+  { gx: GRID_COLS - 1, gy: SPAWN_MIN_Y + 1 },
+  { gx: GRID_COLS - 1, gy: SPAWN_MIN_Y + 2 },
+  { gx: GRID_COLS - 1, gy: SPAWN_MAX_Y },
 ];
 
 const DIRS: readonly GridPoint[] = [
@@ -40,11 +53,51 @@ const DIRS: readonly GridPoint[] = [
   { gx: 0, gy: -1 },
 ];
 
-const WATER_MOATS: readonly GridPoint[] = [
-  { gx: 5, gy: 5 },
-  { gx: 5, gy: 6 },
-  { gx: 12, gy: 5 },
-  { gx: 12, gy: 6 },
+const DIRS_8: readonly (GridPoint & { cost: number })[] = [
+  { gx: 1, gy: 0, cost: 1 },
+  { gx: -1, gy: 0, cost: 1 },
+  { gx: 0, gy: 1, cost: 1 },
+  { gx: 0, gy: -1, cost: 1 },
+  { gx: 1, gy: 1, cost: Math.SQRT2 },
+  { gx: 1, gy: -1, cost: Math.SQRT2 },
+  { gx: -1, gy: 1, cost: Math.SQRT2 },
+  { gx: -1, gy: -1, cost: Math.SQRT2 },
+];
+
+const WATER_MOATS: readonly GridPoint[] = [];
+
+const TREE_TILES: readonly GridPoint[] = [
+  // NW corner forest cluster
+  { gx: 0, gy: 0 }, { gx: 1, gy: 0 }, { gx: 2, gy: 0 }, { gx: 3, gy: 0 },
+  { gx: 0, gy: 1 }, { gx: 1, gy: 1 }, { gx: 2, gy: 1 }, { gx: 3, gy: 1 },
+  { gx: 0, gy: 2 }, { gx: 1, gy: 2 }, { gx: 2, gy: 2 },
+  // NE corner forest cluster
+  { gx: GRID_COLS - 1, gy: 0 }, { gx: GRID_COLS - 2, gy: 0 }, { gx: GRID_COLS - 3, gy: 0 }, { gx: GRID_COLS - 4, gy: 0 },
+  { gx: GRID_COLS - 1, gy: 1 }, { gx: GRID_COLS - 2, gy: 1 }, { gx: GRID_COLS - 3, gy: 1 }, { gx: GRID_COLS - 4, gy: 1 },
+  { gx: GRID_COLS - 1, gy: 2 }, { gx: GRID_COLS - 2, gy: 2 }, { gx: GRID_COLS - 3, gy: 2 },
+  // SW corner forest cluster
+  { gx: 0, gy: GRID_ROWS - 1 }, { gx: 1, gy: GRID_ROWS - 1 }, { gx: 2, gy: GRID_ROWS - 1 }, { gx: 3, gy: GRID_ROWS - 1 },
+  { gx: 0, gy: GRID_ROWS - 2 }, { gx: 1, gy: GRID_ROWS - 2 }, { gx: 2, gy: GRID_ROWS - 2 }, { gx: 3, gy: GRID_ROWS - 2 },
+  { gx: 0, gy: GRID_ROWS - 3 }, { gx: 1, gy: GRID_ROWS - 3 }, { gx: 2, gy: GRID_ROWS - 3 },
+  // SE corner forest cluster
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 4, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 4, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 3 },
+  // North & South mid-woods groves (leaving wide open portal stretches in between)
+  { gx: 6, gy: 2 }, { gx: 7, gy: 2 }, { gx: 7, gy: 1 }, { gx: 8, gy: 1 },
+  { gx: GRID_COLS - 7, gy: 2 }, { gx: GRID_COLS - 8, gy: 2 }, { gx: GRID_COLS - 8, gy: 1 }, { gx: GRID_COLS - 9, gy: 1 },
+  { gx: 6, gy: GRID_ROWS - 3 }, { gx: 7, gy: GRID_ROWS - 3 }, { gx: 7, gy: GRID_ROWS - 2 }, { gx: 8, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 7, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 8, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 8, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 9, gy: GRID_ROWS - 2 },
+  // Organic 4-tree groves flanking the West & East approaches
+  { gx: 7, gy: 5 }, { gx: 8, gy: 5 }, { gx: 9, gy: 5 }, { gx: 8, gy: 6 },
+  { gx: 7, gy: 12 }, { gx: 8, gy: 12 }, { gx: 9, gy: 12 }, { gx: 8, gy: 11 },
+  { gx: 18, gy: 5 }, { gx: 19, gy: 5 }, { gx: 20, gy: 5 }, { gx: 19, gy: 6 },
+  { gx: 18, gy: 12 }, { gx: 19, gy: 12 }, { gx: 20, gy: 12 }, { gx: 19, gy: 11 },
+  // Mid-field tactical tree pillars
+  { gx: 5, gy: 5 }, { gx: GRID_COLS - 6, gy: 5 },
+  { gx: 5, gy: GRID_ROWS - 6 }, { gx: GRID_COLS - 6, gy: GRID_ROWS - 6 },
+  { gx: 10, gy: 3 }, { gx: GRID_COLS - 11, gy: 3 },
+  { gx: 10, gy: GRID_ROWS - 4 }, { gx: GRID_COLS - 11, gy: GRID_ROWS - 4 },
 ];
 
 function key(gx: number, gy: number): string {
@@ -56,13 +109,18 @@ function inBounds(gx: number, gy: number): boolean {
 }
 
 function isCoreCell(gx: number, gy: number): boolean {
-  return (gx === 8 || gx === 9) && (gy === 5 || gy === 6);
+  return (
+    (gx === CORE_X || gx === CORE_X + 1) &&
+    (gy === CORE_Y || gy === CORE_Y + 1)
+  );
 }
 
 function minCoreDist(gx: number, gy: number): number {
   let best = Infinity;
   for (const c of CORE_CELLS) {
-    const d = Math.abs(gx - c.gx) + Math.abs(gy - c.gy);
+    const dx = Math.abs(gx - c.gx);
+    const dy = Math.abs(gy - c.gy);
+    const d = Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
     if (d < best) best = d;
   }
   return best;
@@ -76,28 +134,14 @@ export function createBaseGrid(): TileKind[][] {
     Array.from({ length: GRID_COLS }, (): TileKind => 'grass'),
   );
 
-  // Main horizontal lanes (y = 5, 6) and center ring around the 2x2 core
-  for (let gx = 1; gx < GRID_COLS - 1; gx++) {
-    grid[5][gx] = 'dirt';
-    grid[6][gx] = 'dirt';
-  }
-  for (let gy = 4; gy <= 7; gy++) {
-    for (let gx = 7; gx <= 10; gx++) {
-      grid[gy][gx] = 'dirt';
-    }
-  }
-
   for (const w of WATER_MOATS) {
     grid[w.gy][w.gx] = 'water';
   }
+  for (const t of TREE_TILES) {
+    grid[t.gy][t.gx] = 'tree';
+  }
   for (const c of CORE_CELLS) {
     grid[c.gy][c.gx] = 'core';
-  }
-  for (const s of SPAWN_WEST) {
-    grid[s.gy][s.gx] = 'spawn';
-  }
-  for (const s of SPAWN_EAST) {
-    grid[s.gy][s.gx] = 'spawn';
   }
 
   return grid;
@@ -112,7 +156,7 @@ function isPassable(
 ): boolean {
   if (!inBounds(gx, gy)) return false;
   if (movementType === 'fly') return true;
-  if (tiles[gy][gx] === 'water') return false;
+  if (tiles[gy][gx] === 'water' || tiles[gy][gx] === 'tree') return false;
   if (movementType === 'ground' && blockedWalls.has(key(gx, gy))) return false;
   return true;
 }
@@ -185,22 +229,31 @@ export function findPath(
       return path;
     }
 
-    const baseG = gScore[current] + 1;
-    for (const d of DIRS) {
+    for (const d of DIRS_8) {
       const nx = cx + d.gx;
       const ny = cy + d.gy;
       if (!isPassable(nx, ny, tiles, blockedWalls, movementType)) continue;
+      // Prevent diagonal corner-cutting through solid walls/trees/water
+      if (d.gx !== 0 && d.gy !== 0) {
+        if (
+          !isPassable(cx + d.gx, cy, tiles, blockedWalls, movementType) ||
+          !isPassable(cx, cy + d.gy, tiles, blockedWalls, movementType)
+        ) {
+          continue;
+        }
+      }
 
       const nIdx = idx(nx, ny);
       if (closed[nIdx]) continue;
 
-      if (baseG < gScore[nIdx]) {
+      const nextG = gScore[current] + d.cost;
+      if (nextG < gScore[nIdx]) {
         cameFrom[nIdx] = current;
-        gScore[nIdx] = baseG;
+        gScore[nIdx] = nextG;
         const dx1 = nx - refCore.gx;
         const dy1 = ny - refCore.gy;
         const cross = Math.abs(dx1 * dyStart - dxStart * dy1);
-        fScore[nIdx] = baseG + minCoreDist(nx, ny) + cross * 0.0001;
+        fScore[nIdx] = nextG + minCoreDist(nx, ny) + cross * 0.0001;
         open.push(nIdx);
       }
     }
@@ -247,7 +300,7 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water') continue;
+      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
       if (nextDist < distToCore[ny][nx]) {
         distToCore[ny][nx] = nextDist;
         coreQueue.push({ gx: nx, gy: ny });
@@ -269,7 +322,7 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water') continue;
+      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
       if (distFromStart[ny][nx] !== -1) continue;
 
       distFromStart[ny][nx] = nextDist;
@@ -303,7 +356,7 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water') continue;
+      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
       if (fallbackDist[ny][nx] !== -1) continue;
       const wall = wallMap.get(key(nx, ny));
       if (wall) return wall;
@@ -315,14 +368,119 @@ export function findNearestBlockingWall(
   return null;
 }
 
+export function isPortalBufferTile(
+  gx: number,
+  gy: number,
+  portals: readonly SpawnPortal[],
+): boolean {
+  for (const p of portals) {
+    for (const c of p.cells) {
+      if (Math.abs(gx - c.gx) + Math.abs(gy - c.gy) <= 1) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Rolls 2 (Waves 1-2) or 3 (Wave 3+) randomized 2-3 tile spawn portals along
+ * the outer map borders, avoiding trees, water, core, and standing structures.
+ */
+export function rollWavePortals(
+  wave: number,
+  tiles: TileKind[][],
+  structures: readonly GridStructure[],
+  rng: () => number = Math.random,
+): SpawnPortal[] {
+  const occupied = new Set(
+    structures.filter((s) => !s.ruined).map((s) => key(s.gx, s.gy)),
+  );
+  const isOpenBorder = (gx: number, gy: number) => {
+    if (!inBounds(gx, gy)) return false;
+    const t = tiles[gy][gx];
+    return t !== 'tree' && t !== 'water' && t !== 'core' && !occupied.has(key(gx, gy));
+  };
+
+  const candidatesForSide = (side: PortalSide): GridPoint[][] => {
+    const groups: GridPoint[][] = [];
+    const span = wave >= 2 ? 3 : 2;
+    if (side === 'west' || side === 'east') {
+      const gx = side === 'west' ? 0 : GRID_COLS - 1;
+      for (let y = 2; y <= GRID_ROWS - 2 - span; y++) {
+        const cells: GridPoint[] = [];
+        let ok = true;
+        for (let dy = 0; dy < span; dy++) {
+          if (!isOpenBorder(gx, y + dy)) {
+            ok = false;
+            break;
+          }
+          cells.push({ gx, gy: y + dy });
+        }
+        if (ok) groups.push(cells);
+      }
+    } else {
+      const gy = side === 'north' ? 0 : GRID_ROWS - 1;
+      for (let x = 4; x <= GRID_COLS - 4 - span; x++) {
+        const cells: GridPoint[] = [];
+        let ok = true;
+        for (let dx = 0; dx < span; dx++) {
+          if (!isOpenBorder(x + dx, gy)) {
+            ok = false;
+            break;
+          }
+          cells.push({ gx: x + dx, gy });
+        }
+        if (ok) groups.push(cells);
+      }
+    }
+    return groups;
+  };
+
+  const allSides: PortalSide[] = ['west', 'east', 'north', 'south'];
+  for (let i = allSides.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [allSides[i], allSides[j]] = [allSides[j], allSides[i]];
+  }
+
+  const targetCount = wave >= 3 ? 3 : 2;
+  const portals: SpawnPortal[] = [];
+  for (const side of allSides) {
+    if (portals.length >= targetCount) break;
+    const groups = candidatesForSide(side);
+    if (groups.length === 0) continue;
+    const cells = groups[Math.floor(rng() * groups.length)];
+    portals.push({ id: `portal_${wave}_${side}`, side, cells });
+  }
+
+  return portals.length > 0
+    ? portals
+    : [{ id: `portal_${wave}_west`, side: 'west', cells: [...SPAWN_WEST.slice(0, 2)] }];
+}
+
 /**
  * Returns true if structures cannot be placed at `(gx, gy)`.
- * Blocks out-of-bounds, core, spawn, water moat tiles, and the 1-tile spawn buffer.
+ * Blocks out-of-bounds, core, spawn, water, tree tiles, and 1-tile active portal buffers.
  */
-export function isNoBuildTile(gx: number, gy: number, tiles: TileKind[][]): boolean {
+export const BORDER_NO_BUILD_DEPTH = 2;
+
+export function isNoBuildTile(
+  gx: number,
+  gy: number,
+  tiles: TileKind[][],
+  portals?: readonly SpawnPortal[],
+): boolean {
   if (!inBounds(gx, gy)) return true;
+  if (
+    gx < BORDER_NO_BUILD_DEPTH ||
+    gx >= GRID_COLS - BORDER_NO_BUILD_DEPTH ||
+    gy < BORDER_NO_BUILD_DEPTH ||
+    gy >= GRID_ROWS - BORDER_NO_BUILD_DEPTH
+  ) {
+    return true;
+  }
   const tile = tiles[gy][gx];
-  if (tile === 'core' || tile === 'spawn' || tile === 'water') return true;
-  if ((gx === 1 || gx === 16) && gy >= 4 && gy <= 7) return true;
+  if (tile === 'core' || tile === 'spawn' || tile === 'water' || tile === 'tree') return true;
+  if (portals) {
+    return isPortalBufferTile(gx, gy, portals);
+  }
   return false;
 }

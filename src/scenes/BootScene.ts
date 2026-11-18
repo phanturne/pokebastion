@@ -37,10 +37,23 @@ export class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.load.spritesheet('mpwsp01', 'assets/tiles/mpwsp01-tileset.png', {
+    this.load.spritesheet('ekat-route224', 'assets/tiles/ekat-route224.png', {
       frameWidth: 16,
       frameHeight: 16,
     });
+    this.load.image('tex:core', 'assets/structures/core-pkcenter.png');
+    this.load.image('tex:wood_wall', 'assets/structures/wood_wall.png');
+    this.load.image('tex:stone_wall', 'assets/structures/stone_wall.png');
+    this.load.image('tex:berry_bush', 'assets/structures/berry_bush.png');
+    this.load.image('tex:barrel', 'assets/structures/barrel.png');
+    this.load.image('tex:tree_oak', 'assets/structures/tree_oak.png');
+    this.load.image('tex:tree_pine', 'assets/structures/tree_pine.png');
+    this.load.image('deco:sprout1', 'assets/structures/deco_sprout_1.png');
+    this.load.image('deco:sprout2', 'assets/structures/deco_sprout_2.png');
+    this.load.image('deco:sprout3', 'assets/structures/deco_sprout_3.png');
+    this.load.image('deco:pebbles', 'assets/structures/deco_stump.png');
+    this.load.image('deco:stump', 'assets/structures/deco_real_stump.png');
+    this.load.image('deco:tallgrass', 'assets/structures/deco_tall_grass.png');
     this.load.json('vfx-manifest', 'assets/vfx/manifest.json');
     this.load.json('poke-manifest', 'assets/pokemon/manifest.json');
   }
@@ -133,196 +146,9 @@ export class BootScene extends Phaser.Scene {
   private generateProceduralTextures(): void {
     const g = this.make.graphics({ x: 0, y: 0 }, false);
 
-    this.drawCoreTexture(g);
-    this.drawWoodWallTexture(g);
-    this.drawStoneWallTexture(g);
-    this.drawBerryBushTexture(g);
-    this.drawBarrelTexture(g);
     this.drawRuinedTexture(g);
 
     g.destroy();
-  }
-
-  private drawCoreTexture(g: Phaser.GameObjects.Graphics): void {
-    g.clear();
-    // Outer cyan aura rings
-    g.fillStyle(0x06b6d4, 0.16);
-    g.fillCircle(48, 48, 44);
-    g.fillStyle(0x22d3ee, 0.24);
-    g.fillCircle(48, 48, 34);
-
-    // Gold pedestal octagon ring
-    g.lineStyle(3, 0xfbbf24, 0.95);
-    g.strokeCircle(48, 48, 30);
-    g.fillStyle(0x0f172a, 0.85);
-    g.fillCircle(48, 48, 27);
-
-    // Gold cardinal prongs
-    g.fillStyle(0xf59e0b, 1);
-    g.fillRect(45, 10, 6, 10);
-    g.fillRect(45, 76, 6, 10);
-    g.fillRect(10, 45, 10, 6);
-    g.fillRect(76, 45, 10, 6);
-
-    // Crystal facets (cyan + bright core)
-    g.fillStyle(0x0891b2, 1);
-    g.fillTriangle(48, 16, 70, 48, 48, 80);
-    g.fillStyle(0x22d3ee, 1);
-    g.fillTriangle(48, 16, 26, 48, 48, 80);
-    g.fillStyle(0xa5f3fc, 0.95);
-    g.fillTriangle(48, 24, 36, 48, 48, 54);
-    g.fillStyle(0xfef08a, 0.95);
-    g.fillCircle(48, 48, 7);
-    g.lineStyle(2, 0xfde047, 1);
-    g.strokeTriangle(48, 16, 70, 48, 48, 80);
-    g.strokeTriangle(48, 16, 26, 48, 48, 80);
-
-    g.generateTexture('tex:core', 96, 96);
-  }
-
-  private drawWoodWallTexture(g: Phaser.GameObjects.Graphics): void {
-    g.clear();
-    // Base shadow
-    g.fillStyle(0x1c1917, 0.45);
-    g.fillRoundedRect(4, 38, 40, 8, 3);
-
-    // Vertical palisade logs
-    const logXs = [5, 14, 23, 32];
-    for (const lx of logXs) {
-      g.fillStyle(0x78350f, 1);
-      g.fillRect(lx, 10, 8, 32);
-      g.fillStyle(0x92400e, 1);
-      g.fillRect(lx + 1, 10, 4, 30);
-      // Pointed top
-      g.fillStyle(0xb45309, 1);
-      g.fillTriangle(lx, 10, lx + 4, 3, lx + 8, 10);
-      g.lineStyle(1, 0x451a03, 1);
-      g.strokeRect(lx, 10, 8, 32);
-    }
-
-    // Horizontal crossbeams + iron nails
-    g.fillStyle(0x57280a, 1);
-    g.fillRect(3, 17, 42, 5);
-    g.fillRect(3, 31, 42, 5);
-    g.lineStyle(1, 0x291507, 1);
-    g.strokeRect(3, 17, 42, 5);
-    g.strokeRect(3, 31, 42, 5);
-
-    g.fillStyle(0xd6d3d1, 1);
-    for (const lx of logXs) {
-      g.fillRect(lx + 3, 19, 2, 2);
-      g.fillRect(lx + 3, 33, 2, 2);
-    }
-
-    g.generateTexture('tex:wood_wall', 48, 48);
-  }
-
-  private drawStoneWallTexture(g: Phaser.GameObjects.Graphics): void {
-    g.clear();
-    // Base block
-    g.fillStyle(0x334155, 1);
-    g.fillRoundedRect(3, 4, 42, 40, 4);
-
-    // Top bevel highlight
-    g.fillStyle(0x94a3b8, 1);
-    g.fillRect(4, 5, 40, 6);
-
-    // Stone brick courses
-    g.fillStyle(0x64748b, 1);
-    g.fillRect(5, 12, 18, 9);
-    g.fillRect(25, 12, 18, 9);
-    g.fillRect(5, 23, 11, 9);
-    g.fillRect(18, 23, 16, 9);
-    g.fillRect(36, 23, 7, 9);
-    g.fillRect(5, 34, 20, 8);
-    g.fillRect(27, 34, 16, 8);
-
-    // Crenellation notches on top
-    g.fillStyle(0x475569, 1);
-    g.fillRect(5, 3, 10, 5);
-    g.fillRect(19, 3, 10, 5);
-    g.fillRect(33, 3, 10, 5);
-
-    // Crisp dark mortar outline
-    g.lineStyle(2, 0x1e293b, 1);
-    g.strokeRoundedRect(3, 4, 42, 40, 4);
-
-    g.generateTexture('tex:stone_wall', 48, 48);
-  }
-
-  private drawBerryBushTexture(g: Phaser.GameObjects.Graphics): void {
-    g.clear();
-    // Shadow
-    g.fillStyle(0x052e16, 0.45);
-    g.fillEllipse(24, 40, 36, 10);
-
-    // Foliage clusters
-    g.fillStyle(0x14532d, 1);
-    g.fillCircle(16, 28, 12);
-    g.fillCircle(32, 28, 12);
-    g.fillCircle(24, 19, 14);
-
-    g.fillStyle(0x16a34a, 1);
-    g.fillCircle(15, 25, 9);
-    g.fillCircle(32, 26, 9);
-    g.fillCircle(24, 17, 11);
-
-    g.fillStyle(0x4ade80, 0.85);
-    g.fillCircle(21, 13, 6);
-    g.fillCircle(13, 22, 4);
-
-    // Red/pink healing berries
-    const berries: Array<[number, number, number]> = [
-      [14, 24, 0xf43f5e],
-      [25, 16, 0xfb7185],
-      [33, 25, 0xe11d48],
-      [22, 29, 0xf43f5e],
-      [29, 19, 0xfda4af],
-    ];
-    for (const [bx, by, color] of berries) {
-      g.fillStyle(color, 1);
-      g.fillCircle(bx, by, 3.5);
-      g.fillStyle(0xffe4e6, 1);
-      g.fillCircle(bx - 1, by - 1, 1.2);
-    }
-
-    g.generateTexture('tex:berry_bush', 48, 48);
-  }
-
-  private drawBarrelTexture(g: Phaser.GameObjects.Graphics): void {
-    g.clear();
-    // Shadow
-    g.fillStyle(0x1c1917, 0.45);
-    g.fillEllipse(24, 42, 28, 8);
-
-    // Barrel body
-    g.fillStyle(0x991b1b, 1);
-    g.fillRoundedRect(11, 8, 26, 33, 6);
-    g.fillStyle(0xdc2626, 1);
-    g.fillRoundedRect(13, 10, 14, 29, 4);
-
-    // Top rim
-    g.fillStyle(0x7f1d1d, 1);
-    g.fillEllipse(24, 10, 24, 7);
-    g.lineStyle(2, 0x450a0a, 1);
-    g.strokeRoundedRect(11, 8, 26, 33, 6);
-
-    // Amber hazard band
-    g.fillStyle(0xf59e0b, 1);
-    g.fillRect(11, 20, 26, 9);
-    // Diagonal hazard stripes
-    g.fillStyle(0x1c1917, 1);
-    g.fillTriangle(13, 29, 18, 20, 22, 20);
-    g.fillTriangle(13, 29, 22, 20, 17, 29);
-    g.fillTriangle(25, 29, 30, 20, 34, 20);
-    g.fillTriangle(25, 29, 34, 20, 29, 29);
-
-    // Metal hoops
-    g.fillStyle(0x475569, 1);
-    g.fillRect(10, 14, 28, 3);
-    g.fillRect(10, 32, 28, 3);
-
-    g.generateTexture('tex:barrel', 48, 48);
   }
 
   private drawRuinedTexture(g: Phaser.GameObjects.Graphics): void {

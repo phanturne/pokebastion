@@ -28,44 +28,10 @@ const TOOL_SHORT_NAME: Record<ToolId, string> = {
 };
 
 const TOOL_ICONS: Record<ToolId, string> = {
-  wood_wall: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="2" y="3" width="3" height="11" fill="#8b5a2b"/>
-    <rect x="6" y="2" width="4" height="12" fill="#a06b38"/>
-    <rect x="11" y="3" width="3" height="11" fill="#8b5a2b"/>
-    <rect x="1" y="6" width="14" height="2" fill="#5c3a1b"/>
-    <rect x="1" y="10" width="14" height="2" fill="#5c3a1b"/>
-    <rect x="3" y="6" width="1" height="1" fill="#d29922"/>
-    <rect x="12" y="10" width="1" height="1" fill="#d29922"/>
-  </svg>`,
-  stone_wall: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="1" y="2" width="14" height="12" fill="#484f58"/>
-    <rect x="2" y="3" width="5" height="3" fill="#8b949e"/>
-    <rect x="8" y="3" width="6" height="3" fill="#6e7681"/>
-    <rect x="2" y="7" width="3" height="3" fill="#6e7681"/>
-    <rect x="6" y="7" width="6" height="3" fill="#8b949e"/>
-    <rect x="13" y="7" width="1" height="3" fill="#6e7681"/>
-    <rect x="2" y="11" width="6" height="2" fill="#8b949e"/>
-    <rect x="9" y="11" width="5" height="2" fill="#6e7681"/>
-  </svg>`,
-  berry_bush: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="4" y="3" width="8" height="3" fill="#2ea043"/>
-    <rect x="2" y="5" width="12" height="6" fill="#3fb950"/>
-    <rect x="3" y="10" width="10" height="3" fill="#238636"/>
-    <rect x="5" y="13" width="6" height="1" fill="#1b5e20"/>
-    <rect x="4" y="6" width="2" height="2" fill="#f85149"/>
-    <rect x="9" y="5" width="2" height="2" fill="#f7cc45"/>
-    <rect x="7" y="9" width="2" height="2" fill="#f85149"/>
-    <rect x="11" y="8" width="2" height="2" fill="#ff7b72"/>
-  </svg>`,
-  barrel: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="10" y="1" width="2" height="2" fill="#f7cc45"/>
-    <rect x="8" y="2" width="2" height="2" fill="#f85149"/>
-    <rect x="4" y="4" width="8" height="10" fill="#b62324"/>
-    <rect x="5" y="5" width="6" height="8" fill="#f85149"/>
-    <rect x="3" y="6" width="10" height="2" fill="#6e7681"/>
-    <rect x="3" y="10" width="10" height="2" fill="#6e7681"/>
-    <rect x="7" y="8" width="2" height="2" fill="#f7cc45"/>
-  </svg>`,
+  wood_wall: `<img src="assets/structures/wood_wall.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
+  stone_wall: `<img src="assets/structures/stone_wall.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
+  berry_bush: `<img src="assets/structures/berry_bush.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
+  barrel: `<img src="assets/structures/barrel.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
   move_struct: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
     <rect x="7" y="2" width="2" height="12" fill="#58a6ff"/>
     <rect x="2" y="7" width="12" height="2" fill="#58a6ff"/>
@@ -894,6 +860,10 @@ export class HudOverlay {
             <button class="btn" data-action="close-credits">Close</button>
           </div>
           <div class="credits-list">
+            <div class="credit-item">
+              <strong>Tiles, Forest Props & Pokémon Center — Ekat's Public Tiles</strong>
+              <span>Ekat's Public Tiles (Route 224, Tall Grass, Citrus Outdoors, Cold Storage)</span>
+            </div>
             <div class="credit-item">
               <strong>Tile Textures — MPWSP01</strong>
               <a href="https://scarloxy.itch.io/mpwsp01" target="_blank" rel="noopener noreferrer">

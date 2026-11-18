@@ -1,10 +1,10 @@
-export const GRID_COLS = 18;
-export const GRID_ROWS = 12;
-export const TILE_SIZE = 48;
+export const GRID_COLS = 28;
+export const GRID_ROWS = 18;
+export const TILE_SIZE = 32;
 
 export type GamePhase = 'PREP' | 'COMBAT' | 'REWARD' | 'VICTORY' | 'DEFEAT';
 
-export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn';
+export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn' | 'tree';
 
 export type PokemonClass =
   | 'Defender'

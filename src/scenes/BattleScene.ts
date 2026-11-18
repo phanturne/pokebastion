@@ -15,31 +15,31 @@ import {
   findPath,
   GridPoint,
   isNoBuildTile,
-  SPAWN_EAST,
-  SPAWN_WEST,
+  rollWavePortals,
+  SpawnPortal,
 } from '../engine/pathfinding';
 import { getRepairCost, getSellRefund, HEAL_COST, REVIVE_COST } from '../engine/rules';
 import {
   ActiveUnit,
+  GRID_COLS,
+  GRID_ROWS,
   GamePhase,
   GameSnapshot,
   GridStructure,
   RewardOption,
   StructureKind,
+  TILE_SIZE,
   TileKind,
 } from '../types';
 
-const CANVAS_WIDTH = 864;
-const CANVAS_HEIGHT = 576;
-const TILE_SIZE = 48;
-const GRID_COLS = 18;
-const GRID_ROWS = 12;
+const CANVAS_WIDTH = GRID_COLS * TILE_SIZE;
+const CANVAS_HEIGHT = GRID_ROWS * TILE_SIZE;
 
 const PREP_INITIAL_POSITIONS: readonly GridPoint[] = [
-  { gx: 7, gy: 4 },
-  { gx: 10, gy: 4 },
-  { gx: 7, gy: 7 },
-  { gx: 10, gy: 7 },
+  { gx: 12, gy: 7 },
+  { gx: 15, gy: 7 },
+  { gx: 12, gy: 10 },
+  { gx: 15, gy: 10 },
 ];
 
 const INITIAL_GOLD = 140;
@@ -178,9 +178,15 @@ export class BattleScene extends Phaser.Scene {
   private lastPointerY = -1;
 
   private coreHpBarFill!: Phaser.GameObjects.Rectangle;
-  private spawnMarkers: Phaser.GameObjects.Rectangle[] = [];
+  private activePortals: SpawnPortal[] = [];
+  private portalGraphics!: Phaser.GameObjects.Graphics;
+  private portalMarkers: Phaser.GameObjects.Rectangle[] = [];
+  private portalTween: Phaser.Tweens.Tween | null = null;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
+  private cachedPreviewPaths: Array<{ points: GridPoint[]; color: number }> = [];
+  private cachedBlockingWalls: GridPoint[] = [];
+  private pathDashOffset = 0;
   private buildGhostSprite!: Phaser.GameObjects.Image;
   private moveCostBadge!: Phaser.GameObjects.Text;
   private ultCasterRing!: Phaser.GameObjects.Arc;
@@ -206,6 +212,7 @@ export class BattleScene extends Phaser.Scene {
     this.pathPreviewGraphics = this.add.graphics().setDepth(3);
     this.buildGhostSprite = this.add
       .image(0, 0, 'tex:wood_wall')
+      .setDisplaySize(TILE_SIZE, TILE_SIZE)
       .setDepth(4)
       .setAlpha(0.55)
       .setVisible(false);
@@ -269,6 +276,11 @@ export class BattleScene extends Phaser.Scene {
       }
     } else {
       this.ultCasterRing.setVisible(false);
+    }
+
+    if (this.phase === 'PREP' && this.cachedPreviewPaths.length > 0) {
+      this.pathDashOffset = (this.pathDashOffset + clampedDelta * 0.028) % 14;
+      this.renderPreviewPaths();
     }
 
     if (this.phase !== 'COMBAT') return;
@@ -650,6 +662,12 @@ export class BattleScene extends Phaser.Scene {
     this.rewardChoices = [];
     this.wave += 1;
     this.phase = 'PREP';
+    this.activePortals = rollWavePortals(
+      this.wave,
+      this.tiles,
+      this.structures.map((s) => s.data),
+    );
+    this.refreshPortalVisuals();
     this.refreshPathPreview();
     this.refreshHighlights();
     this.setStatus(`Picked ${choice.title}. Prepare for Wave ${this.wave}!`);
@@ -665,14 +683,115 @@ export class BattleScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private renderTerrain(): void {
+    const subSize = TILE_SIZE / 2; // 24px sub-tiles (16px * 1.5x) to match PMD sprite pixel density
+    const tileAt = (gx: number, gy: number) =>
+      gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS ? this.tiles[gy][gx] : 'grass';
+
     for (let gy = 0; gy < GRID_ROWS; gy++) {
       for (let gx = 0; gx < GRID_COLS; gx++) {
         const tile = this.tiles[gy][gx];
-        const frame = tile === 'grass' ? 0 : tile === 'water' ? 7 : 1;
+        for (let sy = 0; sy < 2; sy++) {
+          for (let sx = 0; sx < 2; sx++) {
+            const dx = sx === 0 ? -1 : 1;
+            const dy = sy === 0 ? -1 : 1;
+            let frame = 0;
+
+            if (tile === 'water') {
+              const sameH = tileAt(gx + dx, gy) === 'water';
+              const sameV = tileAt(gx, gy + dy) === 'water';
+              const col = !sameH ? (sx === 0 ? 5 : 7) : 6;
+              const row = !sameV ? (sy === 0 ? 6 : 8) : 7;
+              frame = row * 8 + col;
+            } else if (tile === 'core') {
+              frame = 0; // clean meadow grass underneath the transparent Pokémon Center
+            } else if (tile === 'dirt' || tile === 'spawn') {
+              const isPath = (x: number, y: number) => {
+                const t = tileAt(x, y);
+                return t === 'dirt' || t === 'spawn' || t === 'core';
+              };
+              const sameH = isPath(gx + dx, gy);
+              const sameV = isPath(gx, gy + dy);
+              const col = !sameH ? (sx === 0 ? 5 : 7) : 6;
+              const row = !sameV ? (sy === 0 ? 3 : 5) : 4;
+              frame = row * 8 + col;
+            } else {
+              // Clean, seamless meadow grass (0) with subtle grass tuft variation (1)
+              const subX = gx * 2 + sx;
+              const subY = gy * 2 + sy;
+              let h = Math.imul(subX ^ (subY << 5), 0x45d9f3b);
+              h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+              h = (h ^ (h >>> 16)) >>> 0;
+              frame = h % 100 < 22 ? 1 : 0;
+            }
+
+            this.add
+              .image(
+                gx * TILE_SIZE + sx * subSize + subSize / 2,
+                gy * TILE_SIZE + sy * subSize + subSize / 2,
+                'ekat-route224',
+                frame,
+              )
+              .setScale(1)
+              .setDepth(0);
+          }
+        }
+
+        if (tile === 'grass') {
+          let gh = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
+          gh = Math.imul(gh ^ (gh >>> 15), 0x85ebca6b);
+          const gr = (gh >>> 0) % 100;
+          if (gr < 4) {
+            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1').setDepth(0.5);
+          } else if (gr < 7) {
+            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2').setDepth(0.5);
+          } else if (gr === 7) {
+            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3').setDepth(0.5);
+          } else if (gr === 8) {
+            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles').setDepth(0.5);
+          }
+        } else if (tile === 'tree') {
+          const isOak = (gx + gy) % 2 === 0;
+          this.add
+            .image(tileCenterX(gx), tileCenterY(gy) + TILE_SIZE * 0.45, isOak ? 'tex:tree_oak' : 'tex:tree_pine')
+            .setOrigin(0.5, 1)
+            .setDepth(4 + gy * 0.1 + 0.02);
+        }
+      }
+    }
+
+    // Wild tall-grass clusters & tree stumps for natural route diversity
+    const tallGrassCoords: Array<[number, number]> = [
+      [3, 3], [4, 3], [3, 4],
+      [GRID_COLS - 4, 3], [GRID_COLS - 5, 3], [GRID_COLS - 4, 4],
+      [3, GRID_ROWS - 4], [4, GRID_ROWS - 4], [3, GRID_ROWS - 5],
+      [GRID_COLS - 4, GRID_ROWS - 4], [GRID_COLS - 5, GRID_ROWS - 4], [GRID_COLS - 4, GRID_ROWS - 5],
+      [11, 2], [12, 2], [15, 2], [16, 2],
+      [11, GRID_ROWS - 3], [12, GRID_ROWS - 3], [15, GRID_ROWS - 3], [16, GRID_ROWS - 3],
+      // Extra meadow vegetation where the old road used to be
+      [4, 8], [4, 9], [5, 8],
+      [GRID_COLS - 5, 8], [GRID_COLS - 5, 9], [GRID_COLS - 6, 9],
+      [10, 7], [17, 10],
+    ];
+    for (const [gx, gy] of tallGrassCoords) {
+      if (this.tiles[gy]?.[gx] === 'grass') {
         this.add
-          .image(tileCenterX(gx), tileCenterY(gy), 'mpwsp01', frame)
-          .setScale(3)
-          .setDepth(0);
+          .image(tileCenterX(gx), tileCenterY(gy), 'deco:tallgrass')
+          .setScale(1.4)
+          .setDepth(0.6);
+      }
+    }
+
+    const stumpCoords: Array<[number, number]> = [
+      [8, 2], [GRID_COLS - 9, 2],
+      [9, 5], [GRID_COLS - 10, 5],
+      [8, GRID_ROWS - 3], [GRID_COLS - 9, GRID_ROWS - 3],
+    ];
+    for (const [gx, gy] of stumpCoords) {
+      if (this.tiles[gy]?.[gx] === 'grass') {
+        this.add
+          .image(tileCenterX(gx), tileCenterY(gy), 'deco:stump')
+          .setScale(1.25)
+          .setDepth(0.8);
       }
     }
   }
@@ -687,59 +806,92 @@ export class BattleScene extends Phaser.Scene {
       gridG.lineBetween(0, gy * TILE_SIZE, CANVAS_WIDTH, gy * TILE_SIZE);
     }
 
-    this.spawnMarkers = [];
-    for (const pt of [...SPAWN_WEST, ...SPAWN_EAST]) {
-      const marker = this.add
-        .rectangle(tileCenterX(pt.gx), tileCenterY(pt.gy), TILE_SIZE - 4, TILE_SIZE - 4, 0xf43f5e, 0.18)
-        .setStrokeStyle(1, 0xfb7185, 0.45)
-        .setDepth(1);
-      this.spawnMarkers.push(marker);
+    // Subtle 2-tile outer no-build perimeter boundary (Wilderness / Portal Zone)
+    const pad = 2 * TILE_SIZE;
+    gridG.lineStyle(1.5, 0xfb7185, 0.35);
+    gridG.strokeRect(pad, pad, CANVAS_WIDTH - pad * 2, CANVAS_HEIGHT - pad * 2);
+
+    this.portalGraphics = this.add.graphics().setDepth(1.2);
+  }
+
+  private refreshPortalVisuals(): void {
+    if (this.portalTween) {
+      this.portalTween.stop();
+      this.portalTween = null;
+    }
+    for (const m of this.portalMarkers) m.destroy();
+    this.portalMarkers = [];
+    this.portalGraphics.clear();
+
+    for (const portal of this.activePortals) {
+      const dirX = portal.side === 'west' ? 1 : portal.side === 'east' ? -1 : 0;
+      const dirY = portal.side === 'north' ? 1 : portal.side === 'south' ? -1 : 0;
+
+      for (const pt of portal.cells) {
+        const marker = this.add
+          .rectangle(tileCenterX(pt.gx), tileCenterY(pt.gy), TILE_SIZE - 4, TILE_SIZE - 4, 0xd946ef, 0.24)
+          .setStrokeStyle(1.5, 0xf43f5e, 0.85)
+          .setDepth(1.1);
+        this.portalMarkers.push(marker);
+
+        // Swirling portal ring & inward directional chevron
+        const cx = tileCenterX(pt.gx);
+        const cy = tileCenterY(pt.gy);
+        this.portalGraphics.lineStyle(1.5, 0xf0abfc, 0.75);
+        this.portalGraphics.strokeCircle(cx, cy, TILE_SIZE * 0.28);
+
+        this.portalGraphics.lineStyle(2, 0xffffff, 0.95);
+        if (dirX !== 0) {
+          this.portalGraphics.lineBetween(cx - 4 * dirX, cy - 5, cx + 4 * dirX, cy);
+          this.portalGraphics.lineBetween(cx + 4 * dirX, cy, cx - 4 * dirX, cy + 5);
+        } else {
+          this.portalGraphics.lineBetween(cx - 5, cy - 4 * dirY, cx, cy + 4 * dirY);
+          this.portalGraphics.lineBetween(cx, cy + 4 * dirY, cx + 5, cy - 4 * dirY);
+        }
+      }
+
+      // Draw 1-tile no-build buffer around this portal
+      const drawnBuffer = new Set<string>();
+      for (const pt of portal.cells) {
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const bx = pt.gx + dx;
+          const by = pt.gy + dy;
+          if (bx < 0 || bx >= GRID_COLS || by < 0 || by >= GRID_ROWS) continue;
+          if (portal.cells.some((c) => c.gx === bx && c.gy === by)) continue;
+          const bKey = keyOf(bx, by);
+          if (drawnBuffer.has(bKey)) continue;
+          drawnBuffer.add(bKey);
+          const x = bx * TILE_SIZE;
+          const y = by * TILE_SIZE;
+          this.portalGraphics.lineStyle(1, 0xfb7185, 0.28);
+          this.portalGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
+      }
     }
 
-    this.tweens.add({
-      targets: this.spawnMarkers,
-      alpha: { from: 0.35, to: 0.85 },
-      duration: 1100,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-
-    // Subtle hatched/chevron border markers on 1-tile no-build spawn buffers (1, 4..7) & (16, 4..7)
-    for (const gx of [1, 16]) {
-      const dir = gx === 1 ? 1 : -1;
-      for (let gy = 4; gy <= 7; gy++) {
-        const x = gx * TILE_SIZE;
-        const y = gy * TILE_SIZE;
-        const cx = tileCenterX(gx);
-        const cy = tileCenterY(gy);
-
-        gridG.lineStyle(1, 0xfb7185, 0.25);
-        gridG.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        gridG.lineStyle(1, 0xfb7185, 0.18);
-        gridG.lineBetween(x + 4, y + 14, x + 14, y + 4);
-        gridG.lineBetween(
-          x + TILE_SIZE - 14,
-          y + TILE_SIZE - 4,
-          x + TILE_SIZE - 4,
-          y + TILE_SIZE - 14,
-        );
-
-        gridG.lineStyle(1.5, 0xfb7185, 0.32);
-        gridG.lineBetween(cx - 4 * dir, cy - 6, cx + 4 * dir, cy);
-        gridG.lineBetween(cx + 4 * dir, cy, cx - 4 * dir, cy + 6);
-      }
+    if (this.portalMarkers.length > 0) {
+      this.portalTween = this.tweens.add({
+        targets: this.portalMarkers,
+        alpha: { from: 0.35, to: 0.9 },
+        duration: 950,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
     }
   }
 
   private renderBastionCore(): void {
-    const cx = 9 * TILE_SIZE;
-    const cy = 6 * TILE_SIZE;
-    this.add.image(cx, cy, 'tex:core').setDepth(4);
+    const cx = (GRID_COLS / 2) * TILE_SIZE;
+    const cy = (GRID_ROWS / 2) * TILE_SIZE;
+    this.add
+      .image(cx, cy, 'tex:core')
+      .setDisplaySize(TILE_SIZE * 2, TILE_SIZE * 2)
+      .setDepth(4 + (GRID_ROWS / 2) * 0.1);
 
-    this.add.rectangle(cx, cy + 44, 72, 6, 0x0f172a, 0.85).setDepth(7);
+    this.add.rectangle(cx, cy + TILE_SIZE + 6, 60, 6, 0x0f172a, 0.85).setDepth(7);
     this.coreHpBarFill = this.add
-      .rectangle(cx - 35, cy + 44, 70, 4, 0x22d3ee, 1)
+      .rectangle(cx - 29, cy + TILE_SIZE + 6, 58, 4, 0x22d3ee, 1)
       .setOrigin(0, 0.5)
       .setDepth(7);
   }
@@ -777,7 +929,9 @@ export class BattleScene extends Phaser.Scene {
       this.spawnUnit(INITIAL_ACTIVE_IDS[i], pos.gx, pos.gy);
     }
 
+    this.activePortals = rollWavePortals(this.wave, this.tiles, []);
     this.updateCoreBar();
+    this.refreshPortalVisuals();
     this.refreshPathPreview();
     this.refreshHighlights();
     this.setStatus('Wave 1 Prep: build barricades or reposition your Pokémon.');
@@ -1010,7 +1164,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (isNoBuildTile(gx, gy, this.tiles) || clickedUnit) {
+    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals) || clickedUnit) {
       this.setStatus('Cannot move structure to that tile.');
       return;
     }
@@ -1019,7 +1173,7 @@ export class BattleScene extends Phaser.Scene {
     moving.data.gy = gy;
     const cx = tileCenterX(gx);
     const cy = tileCenterY(gy);
-    moving.sprite.setPosition(cx, cy);
+    moving.sprite.setPosition(cx, cy).setDepth(4 + gy * 0.1);
     moving.hpBarBg.setPosition(cx, cy + 20);
     moving.hpBarFill.setPosition(cx - 17, cy + 20);
 
@@ -1087,7 +1241,7 @@ export class BattleScene extends Phaser.Scene {
 
   private tryPlaceStructure(kind: StructureKind, gx: number, gy: number): void {
     const spec = STRUCTURE_SPECS[kind];
-    if (isNoBuildTile(gx, gy, this.tiles)) {
+    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals)) {
       this.setStatus('Cannot build on spawn lanes, water moats, or the Bastion Core.');
       return;
     }
@@ -1114,7 +1268,10 @@ export class BattleScene extends Phaser.Scene {
 
     const cx = tileCenterX(gx);
     const cy = tileCenterY(gy);
-    const sprite = this.add.image(cx, cy, `tex:${kind}`).setDepth(4);
+    const sprite = this.add
+      .image(cx, cy, `tex:${kind}`)
+      .setDisplaySize(TILE_SIZE, TILE_SIZE)
+      .setDepth(4 + gy * 0.1);
     const hpBarBg = this.add.rectangle(cx, cy + 20, 36, 4, 0x0f172a, 0.85).setDepth(7);
     const hpBarFill = this.add
       .rectangle(cx - 17, cy + 20, 34, 2, 0x38bdf8, 1)
@@ -1155,7 +1312,7 @@ export class BattleScene extends Phaser.Scene {
 
   private isValidBuildTile(gx: number, gy: number): boolean {
     return (
-      !isNoBuildTile(gx, gy, this.tiles) &&
+      !isNoBuildTile(gx, gy, this.tiles, this.activePortals) &&
       !this.getStructureAt(gx, gy) &&
       !this.getUnitAt(gx, gy)
     );
@@ -1226,8 +1383,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshPathPreview(): void {
-    this.pathPreviewGraphics.clear();
-    if (this.phase !== 'PREP') return;
+    this.cachedPreviewPaths = [];
+    this.cachedBlockingWalls = [];
+    if (this.phase !== 'PREP') {
+      this.pathPreviewGraphics.clear();
+      return;
+    }
 
     const specPreview = this.getSpeculativeWallPreview();
     const blockedWalls = this.getBlockedWallKeys(true);
@@ -1240,60 +1401,131 @@ export class BattleScene extends Phaser.Scene {
         ]
       : this.structures.map((s) => s.data);
 
-    const starts: GridPoint[] = [
-      { gx: 0, gy: 5 },
-      { gx: 17, gy: 5 },
-    ];
-
-    for (const start of starts) {
-      const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
-      if (openPath && openPath.length > 1) {
-        this.drawDashedPath(openPath, 0x22d3ee, 0.85);
-        continue;
-      }
-
-      const blockingWall = findNearestBlockingWall(start, this.tiles, previewStructures);
-      if (blockingWall) {
-        const toWall = this.findPathToTile(
-          start,
-          { gx: blockingWall.gx, gy: blockingWall.gy },
-          blockedWalls,
-        );
-        if (toWall.length > 1) {
-          this.drawDashedPath(toWall, 0xf97316, 0.9);
+    for (const portal of this.activePortals) {
+      for (const start of portal.cells) {
+        const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
+        if (openPath && openPath.length > 1) {
+          this.cachedPreviewPaths.push({ points: openPath, color: 0xffffff });
+          continue;
         }
-        this.pathPreviewGraphics.lineStyle(2, 0xef4444, 0.9);
-        this.pathPreviewGraphics.strokeRect(
-          blockingWall.gx * TILE_SIZE + 4,
-          blockingWall.gy * TILE_SIZE + 4,
-          TILE_SIZE - 8,
-          TILE_SIZE - 8,
-        );
+
+        const blockingWall = findNearestBlockingWall(start, this.tiles, previewStructures);
+        if (blockingWall) {
+          const toWall = this.findPathToTile(
+            start,
+            { gx: blockingWall.gx, gy: blockingWall.gy },
+            blockedWalls,
+          );
+          if (toWall.length > 1) {
+            this.cachedPreviewPaths.push({ points: toWall, color: 0xf97316 });
+          }
+          this.cachedBlockingWalls.push({ gx: blockingWall.gx, gy: blockingWall.gy });
+        }
       }
+    }
+
+    this.renderPreviewPaths();
+  }
+
+  private renderPreviewPaths(): void {
+    this.pathPreviewGraphics.clear();
+    if (this.phase !== 'PREP') return;
+
+    const drawnSegments = new Set<string>();
+    const drawnArrows = new Set<string>();
+
+    for (const entry of this.cachedPreviewPaths) {
+      this.drawDashedPath(entry.points, entry.color, 0.95, drawnSegments, drawnArrows);
+    }
+
+    for (const bw of this.cachedBlockingWalls) {
+      this.pathPreviewGraphics.lineStyle(2.5, 0xef4444, 0.95);
+      this.pathPreviewGraphics.strokeRect(
+        bw.gx * TILE_SIZE + 4,
+        bw.gy * TILE_SIZE + 4,
+        TILE_SIZE - 8,
+        TILE_SIZE - 8,
+      );
     }
   }
 
-  private drawDashedPath(points: GridPoint[], color: number, alpha: number): void {
-    this.pathPreviewGraphics.lineStyle(2.5, color, alpha);
+  private drawDashedPath(
+    points: GridPoint[],
+    color: number,
+    alpha: number,
+    drawnSegments?: Set<string>,
+    drawnArrows?: Set<string>,
+  ): void {
     const dashLen = 8;
     const gapLen = 6;
+    const period = dashLen + gapLen;
 
+    const activeSegments: Array<[GridPoint, GridPoint]> = [];
     for (let i = 0; i < points.length - 1; i++) {
-      const x1 = tileCenterX(points[i].gx);
-      const y1 = tileCenterY(points[i].gy);
-      const x2 = tileCenterX(points[i + 1].gx);
-      const y2 = tileCenterY(points[i + 1].gy);
-      const dist = Math.hypot(x2 - x1, y2 - y1);
-      if (dist <= 0) continue;
+      const a = points[i];
+      const b = points[i + 1];
+      const segKey = `${a.gx},${a.gy}->${b.gx},${b.gy}`;
+      if (drawnSegments?.has(segKey)) continue;
+      drawnSegments?.add(segKey);
+      activeSegments.push([a, b]);
+    }
 
-      const ux = (x2 - x1) / dist;
-      const uy = (y2 - y1) / dist;
-      let d = 0;
-      while (d < dist) {
-        const end = Math.min(d + dashLen, dist);
-        this.pathPreviewGraphics.lineBetween(x1 + ux * d, y1 + uy * d, x1 + ux * end, y1 + uy * end);
-        d += dashLen + gapLen;
+    const strokeSegments = (width: number, col: number, a: number) => {
+      this.pathPreviewGraphics.lineStyle(width, col, a);
+      for (const [p0, p1] of activeSegments) {
+        const x1 = tileCenterX(p0.gx);
+        const y1 = tileCenterY(p0.gy);
+        const x2 = tileCenterX(p1.gx);
+        const y2 = tileCenterY(p1.gy);
+        const dist = Math.hypot(x2 - x1, y2 - y1);
+        if (dist <= 0) continue;
+
+        const ux = (x2 - x1) / dist;
+        const uy = (y2 - y1) / dist;
+        let d = -period + (this.pathDashOffset % period);
+        while (d < dist) {
+          const startD = Math.max(0, d);
+          const endD = Math.min(d + dashLen, dist);
+          if (endD > startD) {
+            this.pathPreviewGraphics.lineBetween(
+              x1 + ux * startD,
+              y1 + uy * startD,
+              x1 + ux * endD,
+              y1 + uy * endD,
+            );
+          }
+          d += period;
+        }
       }
+    };
+
+    // Dark outline first for crisp contrast over grass & sand
+    strokeSegments(5, 0x0f172a, 0.75);
+    strokeSegments(2.5, color, alpha);
+
+    // Directional arrowheads at portal exit & every 3 tiles along the route
+    for (let i = 0; i < points.length - 1; i += 3) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const arrowKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
+      if (drawnArrows?.has(arrowKey)) continue;
+      drawnArrows?.add(arrowKey);
+
+      const mx = (tileCenterX(p0.gx) + tileCenterX(p1.gx)) / 2;
+      const my = (tileCenterY(p0.gy) + tileCenterY(p1.gy)) / 2;
+      const rawDx = p1.gx - p0.gx;
+      const rawDy = p1.gy - p0.gy;
+      const len = Math.hypot(rawDx, rawDy) || 1;
+      const dx = rawDx / len;
+      const dy = rawDy / len;
+      const px = -dy;
+      const py = dx;
+      this.pathPreviewGraphics.lineStyle(4, 0x0f172a, 0.85);
+      this.pathPreviewGraphics.lineBetween(mx - dx * 4 + px * 4, my - dy * 4 + py * 4, mx + dx * 3, my + dy * 3);
+      this.pathPreviewGraphics.lineBetween(mx - dx * 4 - px * 4, my - dy * 4 - py * 4, mx + dx * 3, my + dy * 3);
+      this.pathPreviewGraphics.lineStyle(2, color, 1);
+      this.pathPreviewGraphics.lineBetween(mx - dx * 4 + px * 4, my - dy * 4 + py * 4, mx + dx * 3, my + dy * 3);
+      this.pathPreviewGraphics.lineBetween(mx - dx * 4 - px * 4, my - dy * 4 - py * 4, mx + dx * 3, my + dy * 3);
     }
   }
 
@@ -1791,7 +2023,7 @@ export class BattleScene extends Phaser.Scene {
 
     const cx = tileCenterX(gx);
     const cy = tileCenterY(gy);
-    const sprite = this.add.sprite(cx, cy, `pmd:${speciesId}:Idle`).setDepth(5);
+    const sprite = this.add.sprite(cx, cy, `pmd:${speciesId}:Idle`).setDepth(4 + gy * 0.1 + 0.04);
     const hpBarBg = this.add.rectangle(cx, cy - 22, 36, 6, 0x0f172a, 0.85).setDepth(7);
     const hpBarFill = this.add
       .rectangle(cx - 17, cy - 23, 34, 3, 0x4ade80, 1)
@@ -2086,18 +2318,18 @@ export class BattleScene extends Phaser.Scene {
     const waveDef = WAVE_DEFINITIONS[this.wave - 1];
     if (!waveDef) return;
 
-    let westIdx = 0;
-    let eastIdx = 0;
+    let portalIdx = 0;
 
     for (const group of waveDef.spawns) {
       const delay = group.delayMs ?? 0;
       for (let i = 0; i < group.count; i++) {
+        const portal =
+          this.activePortals[(portalIdx + i) % Math.max(1, this.activePortals.length)];
+        const point = portal
+          ? portal.cells[i % portal.cells.length]
+          : { gx: 0, gy: Math.floor(GRID_ROWS / 2) };
         const side: 'west' | 'east' =
-          group.side === 'both' ? (i % 2 === 0 ? 'west' : 'east') : group.side;
-        const point =
-          side === 'west'
-            ? SPAWN_WEST[westIdx++ % SPAWN_WEST.length]
-            : SPAWN_EAST[eastIdx++ % SPAWN_EAST.length];
+          portal?.side === 'east' ? 'east' : 'west';
         this.spawnQueue.push({
           spawnAtMs: delay + i * group.intervalMs,
           speciesId: group.speciesId,
@@ -2105,6 +2337,7 @@ export class BattleScene extends Phaser.Scene {
           point,
         });
       }
+      portalIdx += 1;
     }
 
     this.spawnQueue.sort((a, b) => a.spawnAtMs - b.spawnAtMs);
@@ -2127,7 +2360,7 @@ export class BattleScene extends Phaser.Scene {
 
     const sprite = this.add
       .sprite(x, y, `pmd:${speciesId}:Walk`)
-      .setDepth(spec.movementType === 'fly' ? 6 : 5);
+      .setDepth(spec.movementType === 'fly' ? 6.2 : 4 + (y / TILE_SIZE) * 0.1 + 0.04);
     const hpBarBg = this.add.rectangle(x, y - 20, 32, 4, 0x0f172a, 0.85).setDepth(7);
     const hpBarFill = this.add
       .rectangle(x - 15, y - 20, 30, 2, 0xf43f5e, 1)
@@ -2330,7 +2563,12 @@ export class BattleScene extends Phaser.Scene {
 
     this.coreHp = Math.max(0, this.coreHp - spec.atk);
     this.updateCoreBar();
-    this.spawnFloatingText(9 * TILE_SIZE, 6 * TILE_SIZE - 28, `-${spec.atk}`, '#f43f5e');
+    this.spawnFloatingText(
+      (GRID_COLS / 2) * TILE_SIZE,
+      (GRID_ROWS / 2) * TILE_SIZE - 24,
+      `-${spec.atk}`,
+      '#f43f5e',
+    );
     this.emitSnapshot();
   }
 
@@ -2788,7 +3026,7 @@ export class BattleScene extends Phaser.Scene {
   private isValidUnitTile(gx: number, gy: number): boolean {
     if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return false;
     const tile = this.tiles[gy][gx];
-    if (tile === 'water' || tile === 'core') return false;
+    if (tile === 'water' || tile === 'core' || tile === 'tree') return false;
     if (this.getUnitAt(gx, gy)) return false;
     const struct = this.getStructureAt(gx, gy);
     if (struct && !struct.data.ruined) return false;

@@ -2,9 +2,9 @@
 
 PokéBastion TD Prototype uses the following community & open-licensed assets:
 
-1. **Tile Textures — MPWSP01**
-   - Author: Scarloxy
-   - Source: https://scarloxy.itch.io/mpwsp01
+1. **Tile Textures, Forest Props & Pokémon Center — Ekat's Public Tiles & MPWSP01**
+   - Ekat's Public Tiles (Route 224, Tall Grass, Citrus Outdoors, Cold Storage, Pokémon Center)
+   - MPWSP01 by Scarloxy: https://scarloxy.itch.io/mpwsp01
 
 2. **Pokémon Directional Sprites — PMDCollab / SpriteCollab**
    - Authors: PMDCollab / SpriteCollab contributors
