@@ -25,6 +25,7 @@ import {
   ActiveUnit,
   GameSnapshot,
   GridStructure,
+  PokemonSpecies,
   RewardOption,
   StructureKind,
 } from '../types';
@@ -68,11 +69,108 @@ const REWARD_BY_ID: Record<string, RewardOption> = Object.fromEntries(
   REWARD_POOL.map((r) => [r.id, r]),
 );
 
-function renderPokeIcon(speciesId: string): string {
+function renderPokeIcon(speciesId: string, size: 'sm' | 'lg' = 'sm'): string {
+  const px = size === 'lg' ? 40 : 28;
+  const cls = size === 'lg' ? 'poke-icon-wrap lg' : 'poke-icon-wrap';
   return `
-    <span class="poke-icon-wrap" aria-hidden="true">
-      <img src="assets/pokemon/${escapeHtml(speciesId)}/Normal.png" alt="" width="28" height="28" />
+    <span class="${cls}" aria-hidden="true">
+      <img src="assets/pokemon/${escapeHtml(speciesId)}/Normal.png" alt="" width="${px}" height="${px}" />
     </span>
+  `;
+}
+
+interface SnowflakeAxis {
+  label: string;
+  getValue: (s: PokemonSpecies) => number;
+  format: (v: number) => string;
+}
+
+const SNOWFLAKE_AXES: SnowflakeAxis[] = [
+  { label: 'HP', getValue: (s) => s.maxHp, format: (v) => `${Math.round(v)}` },
+  { label: 'ATK', getValue: (s) => s.atk, format: (v) => `${Math.round(v)}` },
+  {
+    label: 'SPD',
+    getValue: (s) => (s.attackIntervalMs > 0 ? 1000 / s.attackIntervalMs : 0),
+    format: (v) => `${v.toFixed(2)}/s`,
+  },
+  {
+    label: 'MOV',
+    getValue: (s) => s.moveRange,
+    format: (v) => `${v}`,
+  },
+  { label: 'RNG', getValue: (s) => s.range, format: (v) => `${v}` },
+  { label: 'DEF', getValue: (s) => s.def, format: (v) => `${Math.round(v)}` },
+];
+
+function renderDraftSnowflake(sp: PokemonSpecies): string {
+  const all = Object.values(POKEMON_SPECIES);
+  const cx = 170;
+  const cy = 135;
+  const rMax = 80;
+  const normalize = (val: number, min: number, max: number): number =>
+    max <= min ? 0.625 : 0.25 + 0.75 * ((val - min) / (max - min));
+
+  const pt = (r: number, angle: number): [number, number] => [
+    cx + r * Math.cos(angle),
+    cy + r * Math.sin(angle),
+  ];
+
+  const ringPolys = [0.25, 0.5, 0.75, 1.0]
+    .map((frac) => {
+      const pts = SNOWFLAKE_AXES.map((_, i) => {
+        const [x, y] = pt(rMax * frac, -Math.PI / 2 + (i * Math.PI) / 3);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      return `<polygon points="${pts}" fill="none" stroke="#30363d" stroke-width="1" />`;
+    })
+    .join('');
+
+  const spokes = SNOWFLAKE_AXES.map((_, i) => {
+    const [x, y] = pt(rMax, -Math.PI / 2 + (i * Math.PI) / 3);
+    return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#30363d" stroke-width="1" />`;
+  }).join('');
+
+  const spPoints: string[] = [];
+  const spDots: string[] = [];
+  const labels: string[] = [];
+
+  SNOWFLAKE_AXES.forEach((ax, i) => {
+    const vals = all.map(ax.getValue);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const raw = ax.getValue(sp);
+
+    const angle = -Math.PI / 2 + (i * Math.PI) / 3;
+    const cos = Math.cos(angle);
+
+    const [spX, spY] = pt(rMax * normalize(raw, min, max), angle);
+    spPoints.push(`${spX.toFixed(1)},${spY.toFixed(1)}`);
+    spDots.push(
+      `<circle cx="${spX.toFixed(1)}" cy="${spY.toFixed(1)}" r="3.2" fill="${escapeHtml(sp.color)}" stroke="#0d1117" stroke-width="1" />`,
+    );
+
+    const [lx, ly] = pt(rMax + 22, angle);
+    const anchor = Math.abs(cos) < 0.1 ? 'middle' : cos > 0 ? 'start' : 'end';
+    const labelY = i === 0 ? ly - 12 : i === 3 ? ly - 1 : ly - 4;
+    const valY = i === 0 ? ly + 4 : i === 3 ? ly + 15 : ly + 12;
+
+    labels.push(
+      `<text x="${lx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="${anchor}" fill="#8b949e" font-size="11" font-weight="700">${ax.label}</text>`,
+      `<text x="${lx.toFixed(1)}" y="${valY.toFixed(1)}" text-anchor="${anchor}" fill="#e6edf3" font-size="13" font-weight="700">${escapeHtml(ax.format(raw))}</text>`,
+    );
+  });
+
+  const color = escapeHtml(sp.color);
+  return `
+    <div class="snowflake-wrap">
+      <svg class="snowflake-svg" viewBox="0 0 340 270" role="img" aria-label="${escapeHtml(sp.name)} stat comparison radar">
+        ${ringPolys}
+        ${spokes}
+        <polygon points="${spPoints.join(' ')}" fill="${color}" fill-opacity="0.24" stroke="${color}" stroke-width="2" />
+        ${spDots.join('')}
+        ${labels.join('')}
+      </svg>
+    </div>
   `;
 }
 
@@ -102,7 +200,6 @@ const HELD_ITEM_ICONS: Record<string, string> = {
 
 const RELIC_ICONS: Record<string, string> = {
   sharp_claws: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="2" width="2" height="9" fill="#f85149"/><rect x="7" y="2" width="2" height="11" fill="#ff7b72"/><rect x="11" y="2" width="2" height="9" fill="#f85149"/><rect x="3" y="12" width="10" height="2" fill="#8b949e"/></svg>`,
-  swift_boots: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="4" y="3" width="4" height="7" fill="#38bdf8"/><rect x="4" y="10" width="9" height="3" fill="#58a6ff"/><rect x="2" y="5" width="2" height="2" fill="#e6edf3"/></svg>`,
   quick_charge: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="2" width="3" height="5" fill="#f7cc45"/><rect x="5" y="7" width="6" height="2" fill="#fde047"/><rect x="6" y="9" width="3" height="5" fill="#f7cc45"/></svg>`,
   thick_hide: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="3" width="10" height="7" fill="#3fb950"/><rect x="5" y="10" width="6" height="3" fill="#2ea043"/><rect x="6" y="5" width="4" height="4" fill="#a7f3d0"/></svg>`,
   fortification_core: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="3" width="10" height="10" fill="#8b949e"/><rect x="5" y="5" width="6" height="6" fill="#d29922"/></svg>`,
@@ -134,7 +231,9 @@ export class HudOverlay {
   private showCredits = false;
   private sideTab: 'team' | 'shop' = 'team';
   private expandedUnitUid: string | null = null;
+  private inspectedDraftId: string | null = null;
   private hoveredTool: ToolId | null = null;
+  private hoveredRelicId: string | null = null;
 
   private lastTopHtml = '';
   private lastSideHtml = '';
@@ -275,6 +374,12 @@ export class HudOverlay {
         case 'pick-reward':
           scene.pickReward?.(id);
           break;
+        case 'inspect-draft':
+          if (id && POKEMON_SPECIES[id]) {
+            this.inspectedDraftId = id;
+            this.renderModal();
+          }
+          break;
         case 'toggle-draft':
           scene.toggleDraftSpecies?.(id);
           break;
@@ -332,29 +437,44 @@ export class HudOverlay {
     };
 
     const onToolEnter = (ev: Event) => {
-      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
-        '[data-tool-tip]',
-      );
-      if (!target) return;
-      const tipId = target.dataset.toolTip as ToolId | undefined;
-      if (tipId && tipId !== this.hoveredTool) {
-        this.hoveredTool = tipId;
-        this.updateShopTooltip();
+      const el = ev.target as HTMLElement | null;
+      const toolTarget = el?.closest<HTMLElement>('[data-tool-tip]');
+      if (toolTarget) {
+        const tipId = toolTarget.dataset.toolTip as ToolId | undefined;
+        if (tipId && tipId !== this.hoveredTool) {
+          this.hoveredTool = tipId;
+          this.updateShopTooltip();
+        }
+      }
+      const relicTarget = el?.closest<HTMLElement>('[data-relic-tip]');
+      if (relicTarget) {
+        const relicId = relicTarget.dataset.relicTip;
+        if (relicId && relicId !== this.hoveredRelicId) {
+          this.hoveredRelicId = relicId;
+          this.updateRelicTooltip();
+        }
       }
     };
 
     const onToolLeave = (ev: Event) => {
       const mouseOrFocus = ev as MouseEvent | FocusEvent;
-      const leaving = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
-        '[data-tool-tip]',
-      );
-      if (!leaving) return;
-      const next = (
-        mouseOrFocus.relatedTarget as HTMLElement | null
-      )?.closest<HTMLElement>('[data-tool-tip]');
-      if (!next && this.hoveredTool !== null) {
-        this.hoveredTool = null;
-        this.updateShopTooltip();
+      const el = ev.target as HTMLElement | null;
+      const related = mouseOrFocus.relatedTarget as HTMLElement | null;
+
+      const leavingTool = el?.closest<HTMLElement>('[data-tool-tip]');
+      if (leavingTool && !related?.closest<HTMLElement>('[data-tool-tip]')) {
+        if (this.hoveredTool !== null) {
+          this.hoveredTool = null;
+          this.updateShopTooltip();
+        }
+      }
+
+      const leavingRelic = el?.closest<HTMLElement>('[data-relic-tip]');
+      if (leavingRelic && !related?.closest<HTMLElement>('[data-relic-tip]')) {
+        if (this.hoveredRelicId !== null) {
+          this.hoveredRelicId = null;
+          this.updateRelicTooltip();
+        }
       }
     };
 
@@ -403,6 +523,14 @@ export class HudOverlay {
     const box = this.sidePanel.querySelector<HTMLElement>('#shop-tooltip');
     if (!box) return;
     box.innerHTML = this.renderShopTooltipContent(this.lastSnap);
+    this.lastSideHtml = this.sidePanel.innerHTML;
+  }
+
+  private updateRelicTooltip(): void {
+    if (!this.sidePanel || !this.lastSnap) return;
+    const box = this.sidePanel.querySelector<HTMLElement>('#relic-tooltip');
+    if (!box) return;
+    box.innerHTML = this.renderRelicTooltipContent(this.lastSnap);
     this.lastSideHtml = this.sidePanel.innerHTML;
   }
 
@@ -1051,27 +1179,46 @@ export class HudOverlay {
     `;
   }
 
+  private renderRelicTooltipContent(snap: GameSnapshot): string {
+    const id = this.hoveredRelicId;
+    if (!id || (!snap.upgrades.includes(id) && !snap.artifacts.includes(id))) {
+      return '<span class="tool-desc">Hover an icon to view details.</span>';
+    }
+    const meta = REWARD_BY_ID[id];
+    const title = meta ? meta.title : id;
+    const desc = meta ? meta.desc : '';
+    const isArtifact = snap.artifacts.includes(id);
+    const kindLabel = isArtifact ? 'Artifact' : 'Upgrade';
+    return `
+      <div class="relic-tooltip-head">
+        <span>${escapeHtml(title)}</span>
+        <span class="tag ${isArtifact ? 'tag-gold' : ''}">${kindLabel}</span>
+      </div>
+      <div class="tool-desc">${escapeHtml(desc)}</div>
+    `;
+  }
+
   private renderRelics(snap: GameSnapshot): string {
     const badges: string[] = [];
 
     for (const id of snap.upgrades) {
       const meta = REWARD_BY_ID[id];
       const title = meta ? meta.title : id;
-      const desc = meta ? meta.desc : '';
       const icon =
         RELIC_ICONS[id] ?? `<span>${escapeHtml(title[0] ?? '?')}</span>`;
+      const active = this.hoveredRelicId === id ? ' is-active' : '';
       badges.push(
-        `<span class="relic-icon-tile upgrade" title="${escapeHtml(`${title}: ${desc}`)}">${icon}</span>`,
+        `<span class="relic-icon-tile upgrade${active}" tabindex="0" data-relic-tip="${escapeHtml(id)}" aria-label="${escapeHtml(title)}">${icon}</span>`,
       );
     }
     for (const id of snap.artifacts) {
       const meta = REWARD_BY_ID[id];
       const title = meta ? meta.title : id;
-      const desc = meta ? meta.desc : '';
       const icon =
         RELIC_ICONS[id] ?? `<span>${escapeHtml(title[0] ?? '?')}</span>`;
+      const active = this.hoveredRelicId === id ? ' is-active' : '';
       badges.push(
-        `<span class="relic-icon-tile artifact" title="${escapeHtml(`${title}: ${desc}`)}">${icon}</span>`,
+        `<span class="relic-icon-tile artifact${active}" tabindex="0" data-relic-tip="${escapeHtml(id)}" aria-label="${escapeHtml(title)}">${icon}</span>`,
       );
     }
 
@@ -1083,7 +1230,8 @@ export class HudOverlay {
         </div>
         ${
           badges.length
-            ? `<div class="relic-icons-row">${badges.join('')}</div>`
+            ? `<div class="relic-icons-row">${badges.join('')}</div>
+               <div class="relic-tooltip" id="relic-tooltip">${this.renderRelicTooltipContent(snap)}</div>`
             : '<span class="tool-desc">None acquired yet.</span>'
         }
       </section>
@@ -1139,34 +1287,38 @@ export class HudOverlay {
       const spent = getDraftCost(snap.draftIds);
       const remaining = snap.draftBudget - spent;
       const allSpecies = Object.values(POKEMON_SPECIES);
+      const defaultDraftId =
+        snap.draftIds[0] ?? Object.keys(POKEMON_SPECIES)[0];
+      const inspectedId =
+        this.inspectedDraftId && POKEMON_SPECIES[this.inspectedDraftId]
+          ? this.inspectedDraftId
+          : defaultDraftId;
+      const inspectedSp = POKEMON_SPECIES[inspectedId];
 
-      const cards = allSpecies
+      const rosterItems = allSpecies
         .map((sp) => {
           const picked = snap.draftIds.includes(sp.id);
           const canAdd =
             picked ||
             (snap.draftIds.length < MAX_ACTIVE_UNITS &&
               spent + sp.draftCost <= snap.draftBudget);
+          const classes = [
+            'draft-roster-item',
+            picked ? 'is-picked' : '',
+            sp.id === inspectedId ? 'is-inspected' : '',
+            !picked && !canAdd ? 'is-unaffordable' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           return `
             <button
-              class="draft-card ${picked ? 'selected' : ''}"
-              data-action="toggle-draft"
+              type="button"
+              class="${classes}"
+              data-action="inspect-draft"
               data-id="${sp.id}"
-              ${canAdd ? '' : 'disabled'}
             >
-              <div class="draft-card-top">
-                <span class="unit-name-wrap">
-                  ${renderPokeIcon(sp.id)}
-                  <strong>${escapeHtml(sp.name)}</strong>
-                </span>
-                <span class="tag ${picked ? 'draft-cost-picked' : ''}">${sp.draftCost} pt${sp.draftCost === 1 ? '' : 's'}</span>
-              </div>
-              <div class="draft-card-meta">
-                <span class="tag">${escapeHtml(sp.pokeClass)}</span>
-                ${sp.unlockedStarter ? '<span class="tag starter-tag">Starter</span>' : ''}
-                <span>HP ${sp.maxHp} · ATK ${sp.atk} · Range ${sp.range}</span>
-              </div>
-              <div class="draft-card-desc">${escapeHtml(sp.passiveDesc)}</div>
+              ${renderPokeIcon(sp.id)}
+              <span class="draft-roster-name">${escapeHtml(sp.name)}</span>
             </button>
           `;
         })
@@ -1177,10 +1329,67 @@ export class HudOverlay {
           ? snap.draftIds
               .map((id) => {
                 const sp = POKEMON_SPECIES[id];
-                return `<span class="draft-chip" style="border-color:${sp.color}">${escapeHtml(sp.name)} (${sp.draftCost})</span>`;
+                return `<button type="button" class="draft-chip ${sp.id === inspectedId ? 'is-inspected' : ''}" data-action="inspect-draft" data-id="${sp.id}" style="border-color:${sp.color}">${escapeHtml(sp.name)} (${sp.draftCost})</button>`;
               })
               .join('')
           : '<span class="card-hint">Select at least 1 Pokémon to start.</span>';
+
+      const isPicked = inspectedSp
+        ? snap.draftIds.includes(inspectedSp.id)
+        : false;
+      const canAddInspected = inspectedSp
+        ? isPicked ||
+          (snap.draftIds.length < MAX_ACTIVE_UNITS &&
+            spent + inspectedSp.draftCost <= snap.draftBudget)
+        : false;
+      const needPts = inspectedSp ? inspectedSp.draftCost - remaining : 0;
+      const actionLabel = isPicked
+        ? 'Remove'
+        : canAddInspected
+          ? 'Draft'
+          : snap.draftIds.length >= MAX_ACTIVE_UNITS
+            ? 'Team Full'
+            : `Need ${needPts} more pt${needPts === 1 ? '' : 's'}`;
+      const actionBtnClass = isPicked
+        ? 'btn btn-danger'
+        : canAddInspected
+          ? 'btn btn-primary'
+          : 'btn';
+
+      const detailHtml = inspectedSp
+        ? `
+          <div class="draft-detail-panel">
+            <div class="draft-detail-header">
+              <div class="draft-detail-identity">
+                ${renderPokeIcon(inspectedSp.id, 'lg')}
+                <div class="draft-detail-title">
+                  <div class="draft-detail-name">${escapeHtml(inspectedSp.name)}</div>
+                  <div class="draft-detail-tags">
+                    <span class="tag">${escapeHtml(inspectedSp.pokeClass)}</span>
+                    <span class="tag ${isPicked ? 'draft-cost-picked' : ''}">${inspectedSp.draftCost} pt${inspectedSp.draftCost === 1 ? '' : 's'}</span>
+                    ${inspectedSp.unlockedStarter ? '<span class="tag starter-tag">Starter</span>' : ''}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="${actionBtnClass}"
+                data-action="toggle-draft"
+                data-id="${inspectedSp.id}"
+                ${isPicked || canAddInspected ? '' : 'disabled'}
+              >
+                ${actionLabel}
+              </button>
+            </div>
+            ${renderDraftSnowflake(inspectedSp)}
+            <div class="desc-box">
+              <div><strong>Passive:</strong> ${escapeHtml(inspectedSp.passiveDesc)}</div>
+              <div><strong>Basic:</strong> ${escapeHtml(inspectedSp.basicDesc)}</div>
+              <div><strong>${escapeHtml(inspectedSp.ultName)}:</strong> ${escapeHtml(inspectedSp.ultDesc)}</div>
+            </div>
+          </div>
+        `
+        : '';
 
       html = `
         <div class="modal-card draft-modal">
@@ -1195,7 +1404,10 @@ export class HudOverlay {
             </div>
           </div>
           <div class="draft-team-bar">${teamChips}</div>
-          <div class="draft-grid">${cards}</div>
+          <div class="draft-body">
+            <div class="draft-roster-grid">${rosterItems}</div>
+            ${detailHtml}
+          </div>
         </div>
       `;
     } else if (
