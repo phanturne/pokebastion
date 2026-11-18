@@ -16,7 +16,10 @@ const PUBLIC_ASSETS = path.resolve(__dirname, '../public/assets');
 describe('Data & Asset Manifest Integrity', () => {
   const vfxManifest = JSON.parse(
     fs.readFileSync(path.join(PUBLIC_ASSETS, 'vfx/manifest.json'), 'utf8'),
-  ) as Record<string, { frames: number; frameWidth: number; frameHeight: number }>;
+  ) as Record<
+    string,
+    { frames: number; frameWidth: number; frameHeight: number }
+  >;
 
   const pokeManifest = JSON.parse(
     fs.readFileSync(path.join(PUBLIC_ASSETS, 'pokemon/manifest.json'), 'utf8'),

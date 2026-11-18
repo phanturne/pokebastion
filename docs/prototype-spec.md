@@ -37,18 +37,18 @@
 
 Players start with **4 Active Pokémon** (`Pikachu`, `Charmander`, `Bulbasaur`, `Snorlax`) and **2 Reserve Pokémon** (`Squirtle`, `Geodude`), with **4 additional species** (`Gengar`, `Butterfree`, `Eevee`, `Lucario`) available via between-wave recruitment or roster swap testing. Max `6` active, `3` reserve slots in prototype.
 
-| Pokémon | ID | Class | Move | Range | Basic Attack | Passive | Ultimate (Manual / Auto) |
-|---|---|---|---|---|---|---|---|
-| **Pikachu** | `0025` | Blaster | 2 | 3 | Lightning Bolt projectile | +10% Ult charge per attack | **Thunderstrike:** AoE lightning at target tile (`lightning-strike`) |
-| **Charmander** | `0004` | Blaster | 2 | 3 | Fireball projectile | Attacks apply Burn (DoT) | **Inferno Blast:** AoE fire explosion (`fireball-impact`) |
-| **Bulbasaur** | `0001` | Support | 2 | 2 | Vine/Seed hit | Nearby allies +10% ATK | **Synthesis Bloom:** Heals nearby allies (`bloom-heal`) |
-| **Squirtle** | `0007` | Defender | 2 | 2 | Water Bolt projectile | +25% DEF near water/walls | **Tidal Surge:** Knockback + AoE splash (`tidal-wave`) |
-| **Snorlax** | `0143` | Defender | 1 | 1 | Heavy melee slam | -25% damage taken when stationary | **Body Slam:** AoE stun + knockback (`rock-shatter`) |
-| **Gengar** | `0094` | Specialist | 3 | 2 | Shadow Bolt | Bonus dmg to debuffed foes | **Void Implosion:** AoE shadow burst (`void-implosion`) |
-| **Geodude** | `0074` | Defender | 1 | 1 | Rock Smash melee | +30% DEF adjacent to walls | **Rock Tomb:** AoE rock shatter (`boulder-toss`) |
-| **Butterfree** | `0012` | Support | 3 | 3 | Pollen bolt (slows) | Slows last 50% longer | **Sleep Powder:** AoE stun/slow (`bloom-heal`) |
-| **Eevee** | `0133` | Brawler | 3 | 1 | Quick Slash melee | +20% Attack Speed | **Swift Fury:** Rapid multi-hit (`sword-combo`) |
-| **Lucario** | `0448` | Brawler | 3 | 1 | Aura Strike melee | Crits every 4th hit | **Aura Storm:** High-dmg AoE slash (`sword-combo`) |
+| Pokémon        | ID     | Class      | Move | Range | Basic Attack              | Passive                           | Ultimate (Manual / Auto)                                             |
+| -------------- | ------ | ---------- | ---- | ----- | ------------------------- | --------------------------------- | -------------------------------------------------------------------- |
+| **Pikachu**    | `0025` | Blaster    | 2    | 3     | Lightning Bolt projectile | +10% Ult charge per attack        | **Thunderstrike:** AoE lightning at target tile (`lightning-strike`) |
+| **Charmander** | `0004` | Blaster    | 2    | 3     | Fireball projectile       | Attacks apply Burn (DoT)          | **Inferno Blast:** AoE fire explosion (`fireball-impact`)            |
+| **Bulbasaur**  | `0001` | Support    | 2    | 2     | Vine/Seed hit             | Nearby allies +10% ATK            | **Synthesis Bloom:** Heals nearby allies (`bloom-heal`)              |
+| **Squirtle**   | `0007` | Defender   | 2    | 2     | Water Bolt projectile     | +25% DEF near water/walls         | **Tidal Surge:** Knockback + AoE splash (`tidal-wave`)               |
+| **Snorlax**    | `0143` | Defender   | 1    | 1     | Heavy melee slam          | -25% damage taken when stationary | **Body Slam:** AoE stun + knockback (`rock-shatter`)                 |
+| **Gengar**     | `0094` | Specialist | 3    | 2     | Shadow Bolt               | Bonus dmg to debuffed foes        | **Void Implosion:** AoE shadow burst (`void-implosion`)              |
+| **Geodude**    | `0074` | Defender   | 1    | 1     | Rock Smash melee          | +30% DEF adjacent to walls        | **Rock Tomb:** AoE rock shatter (`boulder-toss`)                     |
+| **Butterfree** | `0012` | Support    | 3    | 3     | Pollen bolt (slows)       | Slows last 50% longer             | **Sleep Powder:** AoE stun/slow (`bloom-heal`)                       |
+| **Eevee**      | `0133` | Brawler    | 3    | 1     | Quick Slash melee         | +20% Attack Speed                 | **Swift Fury:** Rapid multi-hit (`sword-combo`)                      |
+| **Lucario**    | `0448` | Brawler    | 3    | 1     | Aura Strike melee         | Crits every 4th hit               | **Aura Storm:** High-dmg AoE slash (`sword-combo`)                   |
 
 ---
 
@@ -78,8 +78,8 @@ Players start with **4 Active Pokémon** (`Pikachu`, `Charmander`, `Bulbasaur`, 
   - **Wave 2:** Rattata + Diglett + Zubat (tests wall bypasses & flying).
   - **Wave 3:** Heavy mixed assault (Rattata, Diglett, Zubat, Geodude surge).
 - **Between-Wave Roguelike Rewards (Pick 1 of 3):**
-  - **Upgrades:** *Sharp Claws* (+25% Team ATK), *Swift Boots* (+1 Move Range to all), *Quick Charge* (+30% Ult Charge), *Thick Hide* (+30% Team Max HP).
-  - **Artifacts:** *Fortification Core* (+40% Wall HP), *Temporal Gear* (+1 AP every 4 kills instead of 6), *Arcane Conduit* (+20% ATK Speed), *Commander's Insignia* (+25% Pokédollar bounties).
+  - **Upgrades:** _Sharp Claws_ (+25% Team ATK), _Swift Boots_ (+1 Move Range to all), _Quick Charge_ (+30% Ult Charge), _Thick Hide_ (+30% Team Max HP).
+  - **Artifacts:** _Fortification Core_ (+40% Wall HP), _Temporal Gear_ (+1 AP every 4 kills instead of 6), _Arcane Conduit_ (+20% ATK Speed), _Commander's Insignia_ (+25% Pokédollar bounties).
   - **Recruitment:** Recruit an unowned Pokémon from the 10-species pool.
 
 ---

@@ -5,7 +5,8 @@ import { execFileSync } from 'node:child_process';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PUBLIC_ASSETS = path.join(ROOT, 'public', 'assets');
 const MPWSP_SRC = '/Users/krding/Downloads/MPWSP01/tileset/tileset.png';
-const PVFX_SRC = '/Users/krding/Downloads/pvfx-foundry-thirteen-spritesheets/effects';
+const PVFX_SRC =
+  '/Users/krding/Downloads/pvfx-foundry-thirteen-spritesheets/effects';
 
 const POKEMON_IDS = [
   '0025', // Pikachu
@@ -51,7 +52,10 @@ function ensureDir(dir) {
 
 // 1. Copy MPWSP01 tileset
 ensureDir(path.join(PUBLIC_ASSETS, 'tiles'));
-fs.copyFileSync(MPWSP_SRC, path.join(PUBLIC_ASSETS, 'tiles', 'mpwsp01-tileset.png'));
+fs.copyFileSync(
+  MPWSP_SRC,
+  path.join(PUBLIC_ASSETS, 'tiles', 'mpwsp01-tileset.png'),
+);
 console.log('Copied MPWSP01 tileset.');
 
 // 2. Copy PVFX Foundry effects & build manifest
@@ -60,11 +64,19 @@ for (const eff of PVFX_EFFECTS) {
   const srcDir = path.join(PVFX_SRC, eff, 'lit', 'grid');
   const destDir = path.join(PUBLIC_ASSETS, 'vfx', eff);
   ensureDir(destDir);
-  fs.copyFileSync(path.join(srcDir, 'sprite-sheet.png'), path.join(destDir, 'sprite-sheet.png'));
-  const rawManifest = JSON.parse(fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'));
+  fs.copyFileSync(
+    path.join(srcDir, 'sprite-sheet.png'),
+    path.join(destDir, 'sprite-sheet.png'),
+  );
+  const rawManifest = JSON.parse(
+    fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'),
+  );
   const [frameWidth, frameHeight] = rawManifest.source_size;
   const frames = rawManifest.frames.length;
-  const frameRate = Math.max(8, Math.round(1000 / (rawManifest.frames[0]?.duration?.numerator_ms ?? 70)));
+  const frameRate = Math.max(
+    8,
+    Math.round(1000 / (rawManifest.frames[0]?.duration?.numerator_ms ?? 70)),
+  );
   vfxManifest[eff] = {
     path: `assets/vfx/${eff}/sprite-sheet.png`,
     frameWidth,
@@ -74,7 +86,10 @@ for (const eff of PVFX_EFFECTS) {
     loop: rawManifest.loop_mode === 'loop',
   };
 }
-fs.writeFileSync(path.join(PUBLIC_ASSETS, 'vfx', 'manifest.json'), JSON.stringify(vfxManifest, null, 2));
+fs.writeFileSync(
+  path.join(PUBLIC_ASSETS, 'vfx', 'manifest.json'),
+  JSON.stringify(vfxManifest, null, 2),
+);
 console.log(`Copied ${PVFX_EFFECTS.length} PVFX effects.`);
 
 // 3. Download PMDCollab sprites & parse AnimData.xml
@@ -84,14 +99,23 @@ function parseAnimXml(xml) {
   for (const block of animBlocks) {
     const name = block.match(/<Name>(.*?)<\/Name>/)?.[1];
     const fw = Number(block.match(/<FrameWidth>(\d+)<\/FrameWidth>/)?.[1] ?? 0);
-    const fh = Number(block.match(/<FrameHeight>(\d+)<\/FrameHeight>/)?.[1] ?? 0);
-    const durations = [...block.matchAll(/<Duration>(\d+)<\/Duration>/g)].map((m) => Number(m[1]));
+    const fh = Number(
+      block.match(/<FrameHeight>(\d+)<\/FrameHeight>/)?.[1] ?? 0,
+    );
+    const durations = [...block.matchAll(/<Duration>(\d+)<\/Duration>/g)].map(
+      (m) => Number(m[1]),
+    );
     if (name && fw > 0 && fh > 0 && durations.length > 0) {
       anims[name] = {
         frameWidth: fw,
         frameHeight: fh,
         frames: durations.length,
-        frameRate: Math.max(4, Math.round(60 / (durations.reduce((a, b) => a + b, 0) / durations.length))),
+        frameRate: Math.max(
+          4,
+          Math.round(
+            60 / (durations.reduce((a, b) => a + b, 0) / durations.length),
+          ),
+        ),
       };
     }
   }
@@ -103,7 +127,12 @@ for (const id of POKEMON_IDS) {
   const destDir = path.join(PUBLIC_ASSETS, 'pokemon', id);
   ensureDir(destDir);
   const baseUrl = `https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/${id}`;
-  const files = ['AnimData.xml', 'Walk-Anim.png', 'Idle-Anim.png', 'Attack-Anim.png'];
+  const files = [
+    'AnimData.xml',
+    'Walk-Anim.png',
+    'Idle-Anim.png',
+    'Attack-Anim.png',
+  ];
   for (const f of files) {
     const out = path.join(destDir, f);
     if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
@@ -119,5 +148,8 @@ for (const id of POKEMON_IDS) {
   };
   console.log(`Synced PMD sprite ${id}`);
 }
-fs.writeFileSync(path.join(PUBLIC_ASSETS, 'pokemon', 'manifest.json'), JSON.stringify(pokeManifest, null, 2));
+fs.writeFileSync(
+  path.join(PUBLIC_ASSETS, 'pokemon', 'manifest.json'),
+  JSON.stringify(pokeManifest, null, 2),
+);
 console.log('Done syncing all assets.');

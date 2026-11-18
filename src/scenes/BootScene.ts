@@ -60,7 +60,10 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     const vfxManifest =
-      (this.cache.json.get('vfx-manifest') as Record<string, VfxManifestEntry>) ?? {};
+      (this.cache.json.get('vfx-manifest') as Record<
+        string,
+        VfxManifestEntry
+      >) ?? {};
     const pokeManifest =
       (this.cache.json.get('poke-manifest') as Record<
         string,

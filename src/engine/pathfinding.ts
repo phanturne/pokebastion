@@ -68,36 +68,96 @@ const WATER_MOATS: readonly GridPoint[] = [];
 
 const TREE_TILES: readonly GridPoint[] = [
   // NW corner forest cluster
-  { gx: 0, gy: 0 }, { gx: 1, gy: 0 }, { gx: 2, gy: 0 }, { gx: 3, gy: 0 },
-  { gx: 0, gy: 1 }, { gx: 1, gy: 1 }, { gx: 2, gy: 1 }, { gx: 3, gy: 1 },
-  { gx: 0, gy: 2 }, { gx: 1, gy: 2 }, { gx: 2, gy: 2 },
+  { gx: 0, gy: 0 },
+  { gx: 1, gy: 0 },
+  { gx: 2, gy: 0 },
+  { gx: 3, gy: 0 },
+  { gx: 0, gy: 1 },
+  { gx: 1, gy: 1 },
+  { gx: 2, gy: 1 },
+  { gx: 3, gy: 1 },
+  { gx: 0, gy: 2 },
+  { gx: 1, gy: 2 },
+  { gx: 2, gy: 2 },
   // NE corner forest cluster
-  { gx: GRID_COLS - 1, gy: 0 }, { gx: GRID_COLS - 2, gy: 0 }, { gx: GRID_COLS - 3, gy: 0 }, { gx: GRID_COLS - 4, gy: 0 },
-  { gx: GRID_COLS - 1, gy: 1 }, { gx: GRID_COLS - 2, gy: 1 }, { gx: GRID_COLS - 3, gy: 1 }, { gx: GRID_COLS - 4, gy: 1 },
-  { gx: GRID_COLS - 1, gy: 2 }, { gx: GRID_COLS - 2, gy: 2 }, { gx: GRID_COLS - 3, gy: 2 },
+  { gx: GRID_COLS - 1, gy: 0 },
+  { gx: GRID_COLS - 2, gy: 0 },
+  { gx: GRID_COLS - 3, gy: 0 },
+  { gx: GRID_COLS - 4, gy: 0 },
+  { gx: GRID_COLS - 1, gy: 1 },
+  { gx: GRID_COLS - 2, gy: 1 },
+  { gx: GRID_COLS - 3, gy: 1 },
+  { gx: GRID_COLS - 4, gy: 1 },
+  { gx: GRID_COLS - 1, gy: 2 },
+  { gx: GRID_COLS - 2, gy: 2 },
+  { gx: GRID_COLS - 3, gy: 2 },
   // SW corner forest cluster
-  { gx: 0, gy: GRID_ROWS - 1 }, { gx: 1, gy: GRID_ROWS - 1 }, { gx: 2, gy: GRID_ROWS - 1 }, { gx: 3, gy: GRID_ROWS - 1 },
-  { gx: 0, gy: GRID_ROWS - 2 }, { gx: 1, gy: GRID_ROWS - 2 }, { gx: 2, gy: GRID_ROWS - 2 }, { gx: 3, gy: GRID_ROWS - 2 },
-  { gx: 0, gy: GRID_ROWS - 3 }, { gx: 1, gy: GRID_ROWS - 3 }, { gx: 2, gy: GRID_ROWS - 3 },
+  { gx: 0, gy: GRID_ROWS - 1 },
+  { gx: 1, gy: GRID_ROWS - 1 },
+  { gx: 2, gy: GRID_ROWS - 1 },
+  { gx: 3, gy: GRID_ROWS - 1 },
+  { gx: 0, gy: GRID_ROWS - 2 },
+  { gx: 1, gy: GRID_ROWS - 2 },
+  { gx: 2, gy: GRID_ROWS - 2 },
+  { gx: 3, gy: GRID_ROWS - 2 },
+  { gx: 0, gy: GRID_ROWS - 3 },
+  { gx: 1, gy: GRID_ROWS - 3 },
+  { gx: 2, gy: GRID_ROWS - 3 },
   // SE corner forest cluster
-  { gx: GRID_COLS - 1, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 1 }, { gx: GRID_COLS - 4, gy: GRID_ROWS - 1 },
-  { gx: GRID_COLS - 1, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 4, gy: GRID_ROWS - 2 },
-  { gx: GRID_COLS - 1, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 2, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 3, gy: GRID_ROWS - 3 },
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 2, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 3, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 4, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 2, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 3, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 4, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 1, gy: GRID_ROWS - 3 },
+  { gx: GRID_COLS - 2, gy: GRID_ROWS - 3 },
+  { gx: GRID_COLS - 3, gy: GRID_ROWS - 3 },
   // North & South mid-woods groves (leaving wide open portal stretches in between)
-  { gx: 6, gy: 2 }, { gx: 7, gy: 2 }, { gx: 7, gy: 1 }, { gx: 8, gy: 1 },
-  { gx: GRID_COLS - 7, gy: 2 }, { gx: GRID_COLS - 8, gy: 2 }, { gx: GRID_COLS - 8, gy: 1 }, { gx: GRID_COLS - 9, gy: 1 },
-  { gx: 6, gy: GRID_ROWS - 3 }, { gx: 7, gy: GRID_ROWS - 3 }, { gx: 7, gy: GRID_ROWS - 2 }, { gx: 8, gy: GRID_ROWS - 2 },
-  { gx: GRID_COLS - 7, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 8, gy: GRID_ROWS - 3 }, { gx: GRID_COLS - 8, gy: GRID_ROWS - 2 }, { gx: GRID_COLS - 9, gy: GRID_ROWS - 2 },
+  { gx: 6, gy: 2 },
+  { gx: 7, gy: 2 },
+  { gx: 7, gy: 1 },
+  { gx: 8, gy: 1 },
+  { gx: GRID_COLS - 7, gy: 2 },
+  { gx: GRID_COLS - 8, gy: 2 },
+  { gx: GRID_COLS - 8, gy: 1 },
+  { gx: GRID_COLS - 9, gy: 1 },
+  { gx: 6, gy: GRID_ROWS - 3 },
+  { gx: 7, gy: GRID_ROWS - 3 },
+  { gx: 7, gy: GRID_ROWS - 2 },
+  { gx: 8, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 7, gy: GRID_ROWS - 3 },
+  { gx: GRID_COLS - 8, gy: GRID_ROWS - 3 },
+  { gx: GRID_COLS - 8, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 9, gy: GRID_ROWS - 2 },
   // Organic 4-tree groves flanking the West & East approaches
-  { gx: 7, gy: 5 }, { gx: 8, gy: 5 }, { gx: 9, gy: 5 }, { gx: 8, gy: 6 },
-  { gx: 7, gy: 12 }, { gx: 8, gy: 12 }, { gx: 9, gy: 12 }, { gx: 8, gy: 11 },
-  { gx: 18, gy: 5 }, { gx: 19, gy: 5 }, { gx: 20, gy: 5 }, { gx: 19, gy: 6 },
-  { gx: 18, gy: 12 }, { gx: 19, gy: 12 }, { gx: 20, gy: 12 }, { gx: 19, gy: 11 },
+  { gx: 7, gy: 5 },
+  { gx: 8, gy: 5 },
+  { gx: 9, gy: 5 },
+  { gx: 8, gy: 6 },
+  { gx: 7, gy: 12 },
+  { gx: 8, gy: 12 },
+  { gx: 9, gy: 12 },
+  { gx: 8, gy: 11 },
+  { gx: 18, gy: 5 },
+  { gx: 19, gy: 5 },
+  { gx: 20, gy: 5 },
+  { gx: 19, gy: 6 },
+  { gx: 18, gy: 12 },
+  { gx: 19, gy: 12 },
+  { gx: 20, gy: 12 },
+  { gx: 19, gy: 11 },
   // Mid-field tactical tree pillars
-  { gx: 5, gy: 5 }, { gx: GRID_COLS - 6, gy: 5 },
-  { gx: 5, gy: GRID_ROWS - 6 }, { gx: GRID_COLS - 6, gy: GRID_ROWS - 6 },
-  { gx: 10, gy: 3 }, { gx: GRID_COLS - 11, gy: 3 },
-  { gx: 10, gy: GRID_ROWS - 4 }, { gx: GRID_COLS - 11, gy: GRID_ROWS - 4 },
+  { gx: 5, gy: 5 },
+  { gx: GRID_COLS - 6, gy: 5 },
+  { gx: 5, gy: GRID_ROWS - 6 },
+  { gx: GRID_COLS - 6, gy: GRID_ROWS - 6 },
+  { gx: 10, gy: 3 },
+  { gx: GRID_COLS - 11, gy: 3 },
+  { gx: 10, gy: GRID_ROWS - 4 },
+  { gx: GRID_COLS - 11, gy: GRID_ROWS - 4 },
 ];
 
 function key(gx: number, gy: number): string {
@@ -110,8 +170,7 @@ function inBounds(gx: number, gy: number): boolean {
 
 function isCoreCell(gx: number, gy: number): boolean {
   return (
-    (gx === CORE_X || gx === CORE_X + 1) &&
-    (gy === CORE_Y || gy === CORE_Y + 1)
+    (gx === CORE_X || gx === CORE_X + 1) && (gy === CORE_Y || gy === CORE_Y + 1)
   );
 }
 
@@ -300,7 +359,12 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
+      if (
+        !inBounds(nx, ny) ||
+        tiles[ny][nx] === 'water' ||
+        tiles[ny][nx] === 'tree'
+      )
+        continue;
       if (nextDist < distToCore[ny][nx]) {
         distToCore[ny][nx] = nextDist;
         coreQueue.push({ gx: nx, gy: ny });
@@ -314,7 +378,11 @@ export function findNearestBlockingWall(
   );
   distFromStart[start.gy][start.gx] = 0;
   const queue: GridPoint[] = [{ gx: start.gx, gy: start.gy }];
-  const candidates: Array<{ structure: GridStructure; dist: number; total: number }> = [];
+  const candidates: Array<{
+    structure: GridStructure;
+    dist: number;
+    total: number;
+  }> = [];
 
   for (let head = 0; head < queue.length; head++) {
     const cur = queue[head];
@@ -322,7 +390,12 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
+      if (
+        !inBounds(nx, ny) ||
+        tiles[ny][nx] === 'water' ||
+        tiles[ny][nx] === 'tree'
+      )
+        continue;
       if (distFromStart[ny][nx] !== -1) continue;
 
       distFromStart[ny][nx] = nextDist;
@@ -356,7 +429,12 @@ export function findNearestBlockingWall(
     for (const d of DIRS) {
       const nx = cur.gx + d.gx;
       const ny = cur.gy + d.gy;
-      if (!inBounds(nx, ny) || tiles[ny][nx] === 'water' || tiles[ny][nx] === 'tree') continue;
+      if (
+        !inBounds(nx, ny) ||
+        tiles[ny][nx] === 'water' ||
+        tiles[ny][nx] === 'tree'
+      )
+        continue;
       if (fallbackDist[ny][nx] !== -1) continue;
       const wall = wallMap.get(key(nx, ny));
       if (wall) return wall;
@@ -397,7 +475,12 @@ export function rollWavePortals(
   const isOpenBorder = (gx: number, gy: number) => {
     if (!inBounds(gx, gy)) return false;
     const t = tiles[gy][gx];
-    return t !== 'tree' && t !== 'water' && t !== 'core' && !occupied.has(key(gx, gy));
+    return (
+      t !== 'tree' &&
+      t !== 'water' &&
+      t !== 'core' &&
+      !occupied.has(key(gx, gy))
+    );
   };
 
   const candidatesForSide = (side: PortalSide): GridPoint[][] => {
@@ -453,7 +536,13 @@ export function rollWavePortals(
 
   return portals.length > 0
     ? portals
-    : [{ id: `portal_${wave}_west`, side: 'west', cells: [...SPAWN_WEST.slice(0, 2)] }];
+    : [
+        {
+          id: `portal_${wave}_west`,
+          side: 'west',
+          cells: [...SPAWN_WEST.slice(0, 2)],
+        },
+      ];
 }
 
 /**
@@ -478,7 +567,13 @@ export function isNoBuildTile(
     return true;
   }
   const tile = tiles[gy][gx];
-  if (tile === 'core' || tile === 'spawn' || tile === 'water' || tile === 'tree') return true;
+  if (
+    tile === 'core' ||
+    tile === 'spawn' ||
+    tile === 'water' ||
+    tile === 'tree'
+  )
+    return true;
   if (portals) {
     return isPortalBufferTile(gx, gy, portals);
   }

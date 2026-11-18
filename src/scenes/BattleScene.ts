@@ -18,7 +18,12 @@ import {
   rollWavePortals,
   SpawnPortal,
 } from '../engine/pathfinding';
-import { getRepairCost, getSellRefund, HEAL_COST, REVIVE_COST } from '../engine/rules';
+import {
+  getRepairCost,
+  getSellRefund,
+  HEAL_COST,
+  REVIVE_COST,
+} from '../engine/rules';
 import {
   ActiveUnit,
   GRID_COLS,
@@ -150,7 +155,8 @@ export class BattleScene extends Phaser.Scene {
   private speedMult: 1 | 2 = 1;
   private slowMo = false;
 
-  private selectedTool: StructureKind | 'move_struct' | 'sell_struct' | null = null;
+  private selectedTool: StructureKind | 'move_struct' | 'sell_struct' | null =
+    null;
   private selectedUnitUid: string | null = null;
   private selectedStructureUid: string | null = null;
   private movingStructureUid: string | null = null;
@@ -184,7 +190,8 @@ export class BattleScene extends Phaser.Scene {
   private portalTween: Phaser.Tweens.Tween | null = null;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
-  private cachedPreviewPaths: Array<{ points: GridPoint[]; color: number }> = [];
+  private cachedPreviewPaths: Array<{ points: GridPoint[]; color: number }> =
+    [];
   private cachedBlockingWalls: GridPoint[] = [];
   private pathDashOffset = 0;
   private buildGhostSprite!: Phaser.GameObjects.Image;
@@ -245,7 +252,10 @@ export class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0, 1);
     this.hoverReadoutContainer = this.add
-      .container(10, CANVAS_HEIGHT - 10, [this.hoverReadoutBg, this.hoverReadoutText])
+      .container(10, CANVAS_HEIGHT - 10, [
+        this.hoverReadoutBg,
+        this.hoverReadoutText,
+      ])
       .setDepth(100)
       .setVisible(false);
 
@@ -258,12 +268,15 @@ export class BattleScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     const clampedDelta = Math.min(delta, 50);
-    const timeScale = this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
+    const timeScale =
+      this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
     this.anims.globalTimeScale = timeScale;
     this.tweens.timeScale = timeScale;
 
     if (this.aimingUltUnitUid) {
-      const caster = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
+      const caster = this.units.find(
+        (u) => u.data.uid === this.aimingUltUnitUid,
+      );
       if (caster && !caster.data.fainted) {
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.008);
         this.ultCasterRing
@@ -294,7 +307,10 @@ export class BattleScene extends Phaser.Scene {
     this.updateUnits(simDtMs);
 
     if (this.lastPointerX >= 0 && this.lastPointerY >= 0) {
-      const hoverChanged = this.updateHoverTargets(this.lastPointerX, this.lastPointerY);
+      const hoverChanged = this.updateHoverTargets(
+        this.lastPointerX,
+        this.lastPointerY,
+      );
       if (hoverChanged || this.aimingUltUnitUid) {
         this.refreshHighlights();
       }
@@ -341,9 +357,13 @@ export class BattleScene extends Phaser.Scene {
     };
   }
 
-  public selectTool(tool: StructureKind | 'move_struct' | 'sell_struct' | null): void {
+  public selectTool(
+    tool: StructureKind | 'move_struct' | 'sell_struct' | null,
+  ): void {
     if (this.phase !== 'PREP' && tool !== null) {
-      this.setStatus('Structures can only be built, moved, or sold during Prep.');
+      this.setStatus(
+        'Structures can only be built, moved, or sold during Prep.',
+      );
       return;
     }
     this.selectedTool = this.selectedTool === tool ? null : tool;
@@ -394,7 +414,9 @@ export class BattleScene extends Phaser.Scene {
     if (!unit) return;
 
     if (this.phase === 'COMBAT' && unit.data.fainted) {
-      this.setStatus(`${POKEMON_SPECIES[unit.data.speciesId].name} is fainted.`);
+      this.setStatus(
+        `${POKEMON_SPECIES[unit.data.speciesId].name} is fainted.`,
+      );
       return;
     }
 
@@ -423,7 +445,9 @@ export class BattleScene extends Phaser.Scene {
     this.refreshHighlights();
 
     const waveDef = WAVE_DEFINITIONS[this.wave - 1];
-    this.setStatus(waveDef ? `${waveDef.title} begun!` : `Wave ${this.wave} begun!`);
+    this.setStatus(
+      waveDef ? `${waveDef.title} begun!` : `Wave ${this.wave} begun!`,
+    );
   }
 
   public toggleSpeed(): void {
@@ -446,7 +470,9 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit || unit.data.fainted) return;
     if (unit.data.ult < unit.data.ultMax) {
-      this.setStatus(`${POKEMON_SPECIES[unit.data.speciesId].name}'s Ultimate is not ready.`);
+      this.setStatus(
+        `${POKEMON_SPECIES[unit.data.speciesId].name}'s Ultimate is not ready.`,
+      );
       return;
     }
 
@@ -468,14 +494,20 @@ export class BattleScene extends Phaser.Scene {
     if (!entity.data.ruined && entity.data.hp >= entity.data.maxHp) return;
 
     const spec = STRUCTURE_SPECS[entity.data.kind];
-    const cost = getRepairCost(entity.data.kind, entity.data.hp, entity.data.maxHp);
+    const cost = getRepairCost(
+      entity.data.kind,
+      entity.data.hp,
+      entity.data.maxHp,
+    );
     if (this.gold < cost) {
       this.setStatus(`Need ₽${cost} to repair ${spec.name}.`);
       return;
     }
 
     if (entity.data.ruined && this.getUnitAt(entity.data.gx, entity.data.gy)) {
-      this.setStatus('Cannot repair while a Pokémon is standing on the rubble.');
+      this.setStatus(
+        'Cannot repair while a Pokémon is standing on the rubble.',
+      );
       return;
     }
 
@@ -501,11 +533,18 @@ export class BattleScene extends Phaser.Scene {
       if (!entity.data.ruined && entity.data.hp >= entity.data.maxHp) continue;
       sawDamaged = true;
 
-      if (entity.data.ruined && this.getUnitAt(entity.data.gx, entity.data.gy)) {
+      if (
+        entity.data.ruined &&
+        this.getUnitAt(entity.data.gx, entity.data.gy)
+      ) {
         continue;
       }
 
-      const cost = getRepairCost(entity.data.kind, entity.data.hp, entity.data.maxHp);
+      const cost = getRepairCost(
+        entity.data.kind,
+        entity.data.hp,
+        entity.data.maxHp,
+      );
       if (this.gold < cost) break;
 
       this.gold -= cost;
@@ -548,7 +587,9 @@ export class BattleScene extends Phaser.Scene {
 
     const cost = HEAL_COST;
     if (this.gold < cost) {
-      this.setStatus(`Need ₽${cost} to heal ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
+      this.setStatus(
+        `Need ₽${cost} to heal ${POKEMON_SPECIES[unit.data.speciesId].name}.`,
+      );
       return;
     }
 
@@ -563,7 +604,9 @@ export class BattleScene extends Phaser.Scene {
       '#4ade80',
     );
     this.refreshHoverReadout();
-    this.setStatus(`Healed ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`);
+    this.setStatus(
+      `Healed ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`,
+    );
   }
 
   public reviveUnit(uid: string): void {
@@ -572,7 +615,9 @@ export class BattleScene extends Phaser.Scene {
 
     const cost = REVIVE_COST;
     if (this.gold < cost) {
-      this.setStatus(`Need ₽${cost} to revive ${POKEMON_SPECIES[unit.data.speciesId].name}.`);
+      this.setStatus(
+        `Need ₽${cost} to revive ${POKEMON_SPECIES[unit.data.speciesId].name}.`,
+      );
       return;
     }
 
@@ -584,9 +629,16 @@ export class BattleScene extends Phaser.Scene {
     unit.sprite.clearTint();
     this.playUnitAnim(unit, 'Idle');
     this.updateUnitBars(unit);
-    this.spawnFloatingText(unit.sprite.x, unit.sprite.y - 24, 'REVIVED!', '#fde047');
+    this.spawnFloatingText(
+      unit.sprite.x,
+      unit.sprite.y - 24,
+      'REVIVED!',
+      '#fde047',
+    );
     this.refreshHoverReadout();
-    this.setStatus(`Revived ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`);
+    this.setStatus(
+      `Revived ${POKEMON_SPECIES[unit.data.speciesId].name} (-₽${cost}).`,
+    );
   }
 
   public swapReserve(activeUid: string, reserveSpeciesId: string): void {
@@ -621,7 +673,9 @@ export class BattleScene extends Phaser.Scene {
     this.playUnitAnim(unit, 'Idle');
     this.updateUnitBars(unit);
 
-    this.setStatus(`Swapped ${POKEMON_SPECIES[oldSpeciesId].name} for ${newSpecies.name}.`);
+    this.setStatus(
+      `Swapped ${POKEMON_SPECIES[oldSpeciesId].name} for ${newSpecies.name}.`,
+    );
   }
 
   public pickReward(rewardId: string): void {
@@ -634,9 +688,14 @@ export class BattleScene extends Phaser.Scene {
       if (choice.id === 'thick_hide') {
         for (const u of this.units) {
           const prevMax = u.data.maxHp;
-          u.data.maxHp = this.computeUnitMaxHp(POKEMON_SPECIES[u.data.speciesId].maxHp);
+          u.data.maxHp = this.computeUnitMaxHp(
+            POKEMON_SPECIES[u.data.speciesId].maxHp,
+          );
           if (!u.data.fainted) {
-            u.data.hp = Math.min(u.data.maxHp, u.data.hp + (u.data.maxHp - prevMax));
+            u.data.hp = Math.min(
+              u.data.maxHp,
+              u.data.hp + (u.data.maxHp - prevMax),
+            );
           }
           this.updateUnitBars(u);
         }
@@ -646,9 +705,14 @@ export class BattleScene extends Phaser.Scene {
       if (choice.id === 'fortification_core') {
         for (const s of this.structures) {
           const prevMax = s.data.maxHp;
-          s.data.maxHp = this.computeStructureMaxHp(STRUCTURE_SPECS[s.data.kind].maxHp);
+          s.data.maxHp = this.computeStructureMaxHp(
+            STRUCTURE_SPECS[s.data.kind].maxHp,
+          );
           if (!s.data.ruined) {
-            s.data.hp = Math.min(s.data.maxHp, s.data.hp + (s.data.maxHp - prevMax));
+            s.data.hp = Math.min(
+              s.data.maxHp,
+              s.data.hp + (s.data.maxHp - prevMax),
+            );
           }
           this.updateStructureBar(s);
         }
@@ -685,7 +749,9 @@ export class BattleScene extends Phaser.Scene {
   private renderTerrain(): void {
     const subSize = TILE_SIZE / 2; // 24px sub-tiles (16px * 1.5x) to match PMD sprite pixel density
     const tileAt = (gx: number, gy: number) =>
-      gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS ? this.tiles[gy][gx] : 'grass';
+      gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS
+        ? this.tiles[gy][gx]
+        : 'grass';
 
     for (let gy = 0; gy < GRID_ROWS; gy++) {
       for (let gx = 0; gx < GRID_COLS; gx++) {
@@ -694,7 +760,7 @@ export class BattleScene extends Phaser.Scene {
           for (let sx = 0; sx < 2; sx++) {
             const dx = sx === 0 ? -1 : 1;
             const dy = sy === 0 ? -1 : 1;
-            let frame = 0;
+            let frame: number;
 
             if (tile === 'water') {
               const sameH = tileAt(gx + dx, gy) === 'water';
@@ -741,18 +807,30 @@ export class BattleScene extends Phaser.Scene {
           gh = Math.imul(gh ^ (gh >>> 15), 0x85ebca6b);
           const gr = (gh >>> 0) % 100;
           if (gr < 4) {
-            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1').setDepth(0.5);
+            this.add
+              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1')
+              .setDepth(0.5);
           } else if (gr < 7) {
-            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2').setDepth(0.5);
+            this.add
+              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2')
+              .setDepth(0.5);
           } else if (gr === 7) {
-            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3').setDepth(0.5);
+            this.add
+              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3')
+              .setDepth(0.5);
           } else if (gr === 8) {
-            this.add.image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles').setDepth(0.5);
+            this.add
+              .image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles')
+              .setDepth(0.5);
           }
         } else if (tile === 'tree') {
           const isOak = (gx + gy) % 2 === 0;
           this.add
-            .image(tileCenterX(gx), tileCenterY(gy) + TILE_SIZE * 0.45, isOak ? 'tex:tree_oak' : 'tex:tree_pine')
+            .image(
+              tileCenterX(gx),
+              tileCenterY(gy) + TILE_SIZE * 0.45,
+              isOak ? 'tex:tree_oak' : 'tex:tree_pine',
+            )
             .setOrigin(0.5, 1)
             .setDepth(4 + gy * 0.1 + 0.02);
         }
@@ -761,16 +839,35 @@ export class BattleScene extends Phaser.Scene {
 
     // Wild tall-grass clusters & tree stumps for natural route diversity
     const tallGrassCoords: Array<[number, number]> = [
-      [3, 3], [4, 3], [3, 4],
-      [GRID_COLS - 4, 3], [GRID_COLS - 5, 3], [GRID_COLS - 4, 4],
-      [3, GRID_ROWS - 4], [4, GRID_ROWS - 4], [3, GRID_ROWS - 5],
-      [GRID_COLS - 4, GRID_ROWS - 4], [GRID_COLS - 5, GRID_ROWS - 4], [GRID_COLS - 4, GRID_ROWS - 5],
-      [11, 2], [12, 2], [15, 2], [16, 2],
-      [11, GRID_ROWS - 3], [12, GRID_ROWS - 3], [15, GRID_ROWS - 3], [16, GRID_ROWS - 3],
+      [3, 3],
+      [4, 3],
+      [3, 4],
+      [GRID_COLS - 4, 3],
+      [GRID_COLS - 5, 3],
+      [GRID_COLS - 4, 4],
+      [3, GRID_ROWS - 4],
+      [4, GRID_ROWS - 4],
+      [3, GRID_ROWS - 5],
+      [GRID_COLS - 4, GRID_ROWS - 4],
+      [GRID_COLS - 5, GRID_ROWS - 4],
+      [GRID_COLS - 4, GRID_ROWS - 5],
+      [11, 2],
+      [12, 2],
+      [15, 2],
+      [16, 2],
+      [11, GRID_ROWS - 3],
+      [12, GRID_ROWS - 3],
+      [15, GRID_ROWS - 3],
+      [16, GRID_ROWS - 3],
       // Extra meadow vegetation where the old road used to be
-      [4, 8], [4, 9], [5, 8],
-      [GRID_COLS - 5, 8], [GRID_COLS - 5, 9], [GRID_COLS - 6, 9],
-      [10, 7], [17, 10],
+      [4, 8],
+      [4, 9],
+      [5, 8],
+      [GRID_COLS - 5, 8],
+      [GRID_COLS - 5, 9],
+      [GRID_COLS - 6, 9],
+      [10, 7],
+      [17, 10],
     ];
     for (const [gx, gy] of tallGrassCoords) {
       if (this.tiles[gy]?.[gx] === 'grass') {
@@ -782,9 +879,12 @@ export class BattleScene extends Phaser.Scene {
     }
 
     const stumpCoords: Array<[number, number]> = [
-      [8, 2], [GRID_COLS - 9, 2],
-      [9, 5], [GRID_COLS - 10, 5],
-      [8, GRID_ROWS - 3], [GRID_COLS - 9, GRID_ROWS - 3],
+      [8, 2],
+      [GRID_COLS - 9, 2],
+      [9, 5],
+      [GRID_COLS - 10, 5],
+      [8, GRID_ROWS - 3],
+      [GRID_COLS - 9, GRID_ROWS - 3],
     ];
     for (const [gx, gy] of stumpCoords) {
       if (this.tiles[gy]?.[gx] === 'grass') {
@@ -825,11 +925,19 @@ export class BattleScene extends Phaser.Scene {
 
     for (const portal of this.activePortals) {
       const dirX = portal.side === 'west' ? 1 : portal.side === 'east' ? -1 : 0;
-      const dirY = portal.side === 'north' ? 1 : portal.side === 'south' ? -1 : 0;
+      const dirY =
+        portal.side === 'north' ? 1 : portal.side === 'south' ? -1 : 0;
 
       for (const pt of portal.cells) {
         const marker = this.add
-          .rectangle(tileCenterX(pt.gx), tileCenterY(pt.gy), TILE_SIZE - 4, TILE_SIZE - 4, 0xd946ef, 0.24)
+          .rectangle(
+            tileCenterX(pt.gx),
+            tileCenterY(pt.gy),
+            TILE_SIZE - 4,
+            TILE_SIZE - 4,
+            0xd946ef,
+            0.24,
+          )
           .setStrokeStyle(1.5, 0xf43f5e, 0.85)
           .setDepth(1.1);
         this.portalMarkers.push(marker);
@@ -842,18 +950,43 @@ export class BattleScene extends Phaser.Scene {
 
         this.portalGraphics.lineStyle(2, 0xffffff, 0.95);
         if (dirX !== 0) {
-          this.portalGraphics.lineBetween(cx - 4 * dirX, cy - 5, cx + 4 * dirX, cy);
-          this.portalGraphics.lineBetween(cx + 4 * dirX, cy, cx - 4 * dirX, cy + 5);
+          this.portalGraphics.lineBetween(
+            cx - 4 * dirX,
+            cy - 5,
+            cx + 4 * dirX,
+            cy,
+          );
+          this.portalGraphics.lineBetween(
+            cx + 4 * dirX,
+            cy,
+            cx - 4 * dirX,
+            cy + 5,
+          );
         } else {
-          this.portalGraphics.lineBetween(cx - 5, cy - 4 * dirY, cx, cy + 4 * dirY);
-          this.portalGraphics.lineBetween(cx, cy + 4 * dirY, cx + 5, cy - 4 * dirY);
+          this.portalGraphics.lineBetween(
+            cx - 5,
+            cy - 4 * dirY,
+            cx,
+            cy + 4 * dirY,
+          );
+          this.portalGraphics.lineBetween(
+            cx,
+            cy + 4 * dirY,
+            cx + 5,
+            cy - 4 * dirY,
+          );
         }
       }
 
       // Draw 1-tile no-build buffer around this portal
       const drawnBuffer = new Set<string>();
       for (const pt of portal.cells) {
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
           const bx = pt.gx + dx;
           const by = pt.gy + dy;
           if (bx < 0 || bx >= GRID_COLS || by < 0 || by >= GRID_ROWS) continue;
@@ -864,7 +997,12 @@ export class BattleScene extends Phaser.Scene {
           const x = bx * TILE_SIZE;
           const y = by * TILE_SIZE;
           this.portalGraphics.lineStyle(1, 0xfb7185, 0.28);
-          this.portalGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          this.portalGraphics.strokeRect(
+            x + 2,
+            y + 2,
+            TILE_SIZE - 4,
+            TILE_SIZE - 4,
+          );
         }
       }
     }
@@ -889,7 +1027,9 @@ export class BattleScene extends Phaser.Scene {
       .setDisplaySize(TILE_SIZE * 2, TILE_SIZE * 2)
       .setDepth(4 + (GRID_ROWS / 2) * 0.1);
 
-    this.add.rectangle(cx, cy + TILE_SIZE + 6, 60, 6, 0x0f172a, 0.85).setDepth(7);
+    this.add
+      .rectangle(cx, cy + TILE_SIZE + 6, 60, 6, 0x0f172a, 0.85)
+      .setDepth(7);
     this.coreHpBarFill = this.add
       .rectangle(cx - 29, cy + TILE_SIZE + 6, 58, 4, 0x22d3ee, 1)
       .setOrigin(0, 0.5)
@@ -993,13 +1133,17 @@ export class BattleScene extends Phaser.Scene {
     }
 
     const pt = worldToGrid(x, y);
-    const tileChanged = !this.hoverTile || this.hoverTile.gx !== pt.gx || this.hoverTile.gy !== pt.gy;
+    const tileChanged =
+      !this.hoverTile ||
+      this.hoverTile.gx !== pt.gx ||
+      this.hoverTile.gy !== pt.gy;
     const unit = this.getUnitAt(pt.gx, pt.gy);
     const struct = this.getStructureAt(pt.gx, pt.gy);
     const enemy =
       this.enemies.find(
         (e) => e.hp > 0 && Math.hypot(e.x - x, e.y - y) <= TILE_SIZE * 0.5,
-      ) ?? this.enemies.find((e) => e.hp > 0 && e.gx === pt.gx && e.gy === pt.gy);
+      ) ??
+      this.enemies.find((e) => e.hp > 0 && e.gx === pt.gx && e.gy === pt.gy);
 
     const nextUnitUid = unit?.data.uid ?? null;
     const nextEnemyUid = enemy?.uid ?? null;
@@ -1020,7 +1164,12 @@ export class BattleScene extends Phaser.Scene {
 
   private handlePointerMove(pointer: Phaser.Input.Pointer): void {
     const prevTile = this.hoverTile ? { ...this.hoverTile } : null;
-    if (pointer.x < 0 || pointer.x >= CANVAS_WIDTH || pointer.y < 0 || pointer.y >= CANVAS_HEIGHT) {
+    if (
+      pointer.x < 0 ||
+      pointer.x >= CANVAS_WIDTH ||
+      pointer.y < 0 ||
+      pointer.y >= CANVAS_HEIGHT
+    ) {
       this.lastPointerX = -1;
       this.lastPointerY = -1;
     } else {
@@ -1035,7 +1184,8 @@ export class BattleScene extends Phaser.Scene {
       (prevTile === null) !== (this.hoverTile === null) ||
       (prevTile !== null &&
         this.hoverTile !== null &&
-        (prevTile.gx !== this.hoverTile.gx || prevTile.gy !== this.hoverTile.gy));
+        (prevTile.gx !== this.hoverTile.gx ||
+          prevTile.gy !== this.hoverTile.gy));
 
     if (tileChanged && this.phase === 'PREP') {
       this.refreshPathPreview();
@@ -1045,7 +1195,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
-    if (pointer.x < 0 || pointer.x >= CANVAS_WIDTH || pointer.y < 0 || pointer.y >= CANVAS_HEIGHT) {
+    if (
+      pointer.x < 0 ||
+      pointer.x >= CANVAS_WIDTH ||
+      pointer.y < 0 ||
+      pointer.y >= CANVAS_HEIGHT
+    ) {
       return;
     }
 
@@ -1106,7 +1261,11 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (this.selectedUnitUid && !clickedStructure && this.isValidUnitTile(gx, gy)) {
+    if (
+      this.selectedUnitUid &&
+      !clickedStructure &&
+      this.isValidUnitTile(gx, gy)
+    ) {
       const unit = this.units.find((u) => u.data.uid === this.selectedUnitUid);
       if (unit) {
         this.moveUnitToTile(unit, gx, gy, false);
@@ -1149,7 +1308,9 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const moving = this.structures.find((s) => s.data.uid === this.movingStructureUid);
+    const moving = this.structures.find(
+      (s) => s.data.uid === this.movingStructureUid,
+    );
     if (!moving) {
       this.movingStructureUid = null;
       this.refreshHighlights();
@@ -1158,7 +1319,9 @@ export class BattleScene extends Phaser.Scene {
 
     if (clickedStructure) {
       this.movingStructureUid =
-        clickedStructure.data.uid === moving.data.uid ? null : clickedStructure.data.uid;
+        clickedStructure.data.uid === moving.data.uid
+          ? null
+          : clickedStructure.data.uid;
       this.refreshHighlights();
       this.emitSnapshot();
       return;
@@ -1201,7 +1364,8 @@ export class BattleScene extends Phaser.Scene {
       if (unit && !unit.data.fainted) {
         const dist = manhattanDist(unit.data.gx, unit.data.gy, gx, gy);
         const moveRange = this.getUnitMoveRange(unit);
-        const apCost = dist > 0 && dist <= moveRange ? 1 : dist <= moveRange * 2 ? 2 : 0;
+        const apCost =
+          dist > 0 && dist <= moveRange ? 1 : dist <= moveRange * 2 ? 2 : 0;
 
         if (apCost > 0 && this.isValidUnitTile(gx, gy)) {
           if (this.ap < apCost) {
@@ -1242,7 +1406,9 @@ export class BattleScene extends Phaser.Scene {
   private tryPlaceStructure(kind: StructureKind, gx: number, gy: number): void {
     const spec = STRUCTURE_SPECS[kind];
     if (isNoBuildTile(gx, gy, this.tiles, this.activePortals)) {
-      this.setStatus('Cannot build on spawn lanes, water moats, or the Bastion Core.');
+      this.setStatus(
+        'Cannot build on spawn lanes, water moats, or the Bastion Core.',
+      );
       return;
     }
     if (this.getStructureAt(gx, gy) || this.getUnitAt(gx, gy)) {
@@ -1272,7 +1438,9 @@ export class BattleScene extends Phaser.Scene {
       .image(cx, cy, `tex:${kind}`)
       .setDisplaySize(TILE_SIZE, TILE_SIZE)
       .setDepth(4 + gy * 0.1);
-    const hpBarBg = this.add.rectangle(cx, cy + 20, 36, 4, 0x0f172a, 0.85).setDepth(7);
+    const hpBarBg = this.add
+      .rectangle(cx, cy + 20, 36, 4, 0x0f172a, 0.85)
+      .setDepth(7);
     const hpBarFill = this.add
       .rectangle(cx - 17, cy + 20, 34, 2, 0x38bdf8, 1)
       .setOrigin(0, 0.5)
@@ -1301,7 +1469,9 @@ export class BattleScene extends Phaser.Scene {
     entity.sprite.destroy();
     entity.hpBarBg.destroy();
     entity.hpBarFill.destroy();
-    this.structures = this.structures.filter((s) => s.data.uid !== entity.data.uid);
+    this.structures = this.structures.filter(
+      (s) => s.data.uid !== entity.data.uid,
+    );
     if (this.selectedStructureUid === entity.data.uid) {
       this.selectedStructureUid = null;
     }
@@ -1328,7 +1498,10 @@ export class BattleScene extends Phaser.Scene {
     const { gx, gy } = this.hoverTile;
     if (!this.isValidBuildTile(gx, gy)) return null;
 
-    if (this.selectedTool === 'wood_wall' || this.selectedTool === 'stone_wall') {
+    if (
+      this.selectedTool === 'wood_wall' ||
+      this.selectedTool === 'stone_wall'
+    ) {
       return {
         addKey: keyOf(gx, gy),
         removeKey: null,
@@ -1346,7 +1519,9 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (this.selectedTool === 'move_struct' && this.movingStructureUid) {
-      const moving = this.structures.find((s) => s.data.uid === this.movingStructureUid);
+      const moving = this.structures.find(
+        (s) => s.data.uid === this.movingStructureUid,
+      );
       if (
         moving &&
         !moving.data.ruined &&
@@ -1368,7 +1543,11 @@ export class BattleScene extends Phaser.Scene {
   private getBlockedWallKeys(includeSpeculativeHover = false): Set<string> {
     const blocked = new Set<string>();
     for (const s of this.structures) {
-      if (!s.data.ruined && s.data.hp > 0 && STRUCTURE_SPECS[s.data.kind].blocksGround) {
+      if (
+        !s.data.ruined &&
+        s.data.hp > 0 &&
+        STRUCTURE_SPECS[s.data.kind].blocksGround
+      ) {
         blocked.add(keyOf(s.data.gx, s.data.gy));
       }
     }
@@ -1409,7 +1588,11 @@ export class BattleScene extends Phaser.Scene {
           continue;
         }
 
-        const blockingWall = findNearestBlockingWall(start, this.tiles, previewStructures);
+        const blockingWall = findNearestBlockingWall(
+          start,
+          this.tiles,
+          previewStructures,
+        );
         if (blockingWall) {
           const toWall = this.findPathToTile(
             start,
@@ -1419,7 +1602,10 @@ export class BattleScene extends Phaser.Scene {
           if (toWall.length > 1) {
             this.cachedPreviewPaths.push({ points: toWall, color: 0xf97316 });
           }
-          this.cachedBlockingWalls.push({ gx: blockingWall.gx, gy: blockingWall.gy });
+          this.cachedBlockingWalls.push({
+            gx: blockingWall.gx,
+            gy: blockingWall.gy,
+          });
         }
       }
     }
@@ -1435,7 +1621,13 @@ export class BattleScene extends Phaser.Scene {
     const drawnArrows = new Set<string>();
 
     for (const entry of this.cachedPreviewPaths) {
-      this.drawDashedPath(entry.points, entry.color, 0.95, drawnSegments, drawnArrows);
+      this.drawDashedPath(
+        entry.points,
+        entry.color,
+        0.95,
+        drawnSegments,
+        drawnArrows,
+      );
     }
 
     for (const bw of this.cachedBlockingWalls) {
@@ -1521,11 +1713,31 @@ export class BattleScene extends Phaser.Scene {
       const px = -dy;
       const py = dx;
       this.pathPreviewGraphics.lineStyle(4, 0x0f172a, 0.85);
-      this.pathPreviewGraphics.lineBetween(mx - dx * 4 + px * 4, my - dy * 4 + py * 4, mx + dx * 3, my + dy * 3);
-      this.pathPreviewGraphics.lineBetween(mx - dx * 4 - px * 4, my - dy * 4 - py * 4, mx + dx * 3, my + dy * 3);
+      this.pathPreviewGraphics.lineBetween(
+        mx - dx * 4 + px * 4,
+        my - dy * 4 + py * 4,
+        mx + dx * 3,
+        my + dy * 3,
+      );
+      this.pathPreviewGraphics.lineBetween(
+        mx - dx * 4 - px * 4,
+        my - dy * 4 - py * 4,
+        mx + dx * 3,
+        my + dy * 3,
+      );
       this.pathPreviewGraphics.lineStyle(2, color, 1);
-      this.pathPreviewGraphics.lineBetween(mx - dx * 4 + px * 4, my - dy * 4 + py * 4, mx + dx * 3, my + dy * 3);
-      this.pathPreviewGraphics.lineBetween(mx - dx * 4 - px * 4, my - dy * 4 - py * 4, mx + dx * 3, my + dy * 3);
+      this.pathPreviewGraphics.lineBetween(
+        mx - dx * 4 + px * 4,
+        my - dy * 4 + py * 4,
+        mx + dx * 3,
+        my + dy * 3,
+      );
+      this.pathPreviewGraphics.lineBetween(
+        mx - dx * 4 - px * 4,
+        my - dy * 4 - py * 4,
+        mx + dx * 3,
+        my + dy * 3,
+      );
     }
   }
 
@@ -1613,7 +1825,9 @@ export class BattleScene extends Phaser.Scene {
       while (d < dist) {
         const end = Math.min(d + dashLen, dist);
         const color =
-          secondaryColor !== null && stepIdx % 2 === 1 ? secondaryColor : primaryColor;
+          secondaryColor !== null && stepIdx % 2 === 1
+            ? secondaryColor
+            : primaryColor;
         g.lineStyle(lineWidth, color, alpha);
         g.lineBetween(x1 + ux * d, y1 + uy * d, x1 + ux * end, y1 + uy * end);
         d += dashLen + gapLen;
@@ -1665,7 +1879,11 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private drawStructureAuraPreview(kind: StructureKind, gx: number, gy: number): void {
+  private drawStructureAuraPreview(
+    kind: StructureKind,
+    gx: number,
+    gy: number,
+  ): void {
     if (kind === 'berry_bush') {
       const zx = (gx - 1) * TILE_SIZE;
       const zy = (gy - 1) * TILE_SIZE;
@@ -1692,7 +1910,9 @@ export class BattleScene extends Phaser.Scene {
 
     // Selected structure outline
     if (this.selectedStructureUid) {
-      const s = this.structures.find((st) => st.data.uid === this.selectedStructureUid);
+      const s = this.structures.find(
+        (st) => st.data.uid === this.selectedStructureUid,
+      );
       if (s) {
         this.highlightGraphics.lineStyle(2, 0xfbbf24, 0.95);
         this.highlightGraphics.strokeRect(
@@ -1706,7 +1926,9 @@ export class BattleScene extends Phaser.Scene {
 
     // Moving structure highlight
     if (this.movingStructureUid) {
-      const s = this.structures.find((st) => st.data.uid === this.movingStructureUid);
+      const s = this.structures.find(
+        (st) => st.data.uid === this.movingStructureUid,
+      );
       if (s) {
         this.highlightGraphics.fillStyle(0xfbbf24, 0.25);
         this.highlightGraphics.fillRect(
@@ -1735,7 +1957,12 @@ export class BattleScene extends Phaser.Scene {
 
       for (let gy = 0; gy < GRID_ROWS; gy++) {
         for (let gx = 0; gx < GRID_COLS; gx++) {
-          const dist = manhattanDist(selectedUnit.data.gx, selectedUnit.data.gy, gx, gy);
+          const dist = manhattanDist(
+            selectedUnit.data.gx,
+            selectedUnit.data.gy,
+            gx,
+            gy,
+          );
           if (dist === 0 || !this.isValidUnitTile(gx, gy)) continue;
 
           if (dist <= moveRange) {
@@ -1772,9 +1999,18 @@ export class BattleScene extends Phaser.Scene {
       }
 
       // Projected attack range + AP badge when hovering a valid movement destination
-      if (this.hoverTile && this.selectedTool === null && !this.aimingUltUnitUid) {
+      if (
+        this.hoverTile &&
+        this.selectedTool === null &&
+        !this.aimingUltUnitUid
+      ) {
         const { gx: hx, gy: hy } = this.hoverTile;
-        const dist = manhattanDist(selectedUnit.data.gx, selectedUnit.data.gy, hx, hy);
+        const dist = manhattanDist(
+          selectedUnit.data.gx,
+          selectedUnit.data.gy,
+          hx,
+          hy,
+        );
         const isValidDest =
           dist > 0 &&
           this.isValidUnitTile(hx, hy) &&
@@ -1784,7 +2020,11 @@ export class BattleScene extends Phaser.Scene {
           const apCost = this.phase === 'PREP' ? 0 : dist <= moveRange ? 1 : 2;
           const affordable = this.phase === 'PREP' || this.ap >= apCost;
 
-          this.highlightGraphics.lineStyle(2, affordable ? 0x67e8f9 : 0xef4444, 0.9);
+          this.highlightGraphics.lineStyle(
+            2,
+            affordable ? 0x67e8f9 : 0xef4444,
+            0.9,
+          );
           this.highlightGraphics.strokeRect(
             hx * TILE_SIZE + 3,
             hy * TILE_SIZE + 3,
@@ -1809,8 +2049,16 @@ export class BattleScene extends Phaser.Scene {
               : apCost === 1
                 ? '#22d3ee'
                 : '#fbbf24';
-          const bx = Phaser.Math.Clamp(hx * TILE_SIZE + TILE_SIZE - 4, 4, CANVAS_WIDTH - 42);
-          const by = Phaser.Math.Clamp(hy * TILE_SIZE - 6, 4, CANVAS_HEIGHT - 22);
+          const bx = Phaser.Math.Clamp(
+            hx * TILE_SIZE + TILE_SIZE - 4,
+            4,
+            CANVAS_WIDTH - 42,
+          );
+          const by = Phaser.Math.Clamp(
+            hy * TILE_SIZE - 6,
+            4,
+            CANVAS_HEIGHT - 22,
+          );
           this.moveCostBadge
             .setText(`${apCost} AP`)
             .setColor(badgeColor)
@@ -1821,8 +2069,14 @@ export class BattleScene extends Phaser.Scene {
     }
 
     // Hovered unit Chebyshev attack range perimeter
-    if (this.hoveredUnitUid && !this.aimingUltUnitUid && this.hoveredUnitUid !== this.selectedUnitUid) {
-      const hoveredUnit = this.units.find((u) => u.data.uid === this.hoveredUnitUid);
+    if (
+      this.hoveredUnitUid &&
+      !this.aimingUltUnitUid &&
+      this.hoveredUnitUid !== this.selectedUnitUid
+    ) {
+      const hoveredUnit = this.units.find(
+        (u) => u.data.uid === this.hoveredUnitUid,
+      );
       if (hoveredUnit) {
         const spec = POKEMON_SPECIES[hoveredUnit.data.speciesId];
         if (spec) {
@@ -1847,7 +2101,9 @@ export class BattleScene extends Phaser.Scene {
       this.highlightGraphics.lineStyle(2, 0xfbbf24, 0.9);
       this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
 
-      const caster = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
+      const caster = this.units.find(
+        (u) => u.data.uid === this.aimingUltUnitUid,
+      );
       const isHealUlt =
         caster !== undefined &&
         (caster.data.speciesId === '0001' || caster.data.speciesId === '0012');
@@ -1856,8 +2112,10 @@ export class BattleScene extends Phaser.Scene {
         for (const ally of this.units) {
           if (ally.data.fainted) continue;
           if (
-            Math.hypot(ally.data.gx - this.hoverTile.gx, ally.data.gy - this.hoverTile.gy) <=
-            ULT_RADIUS
+            Math.hypot(
+              ally.data.gx - this.hoverTile.gx,
+              ally.data.gy - this.hoverTile.gy,
+            ) <= ULT_RADIUS
           ) {
             this.drawTargetReticle(ally.sprite.x, ally.sprite.y, 0x4ade80);
           }
@@ -1866,13 +2124,20 @@ export class BattleScene extends Phaser.Scene {
         for (const enemy of this.enemies) {
           if (enemy.hp <= 0) continue;
           if (
-            Math.hypot(enemy.gx - this.hoverTile.gx, enemy.gy - this.hoverTile.gy) <= ULT_RADIUS
+            Math.hypot(
+              enemy.gx - this.hoverTile.gx,
+              enemy.gy - this.hoverTile.gy,
+            ) <= ULT_RADIUS
           ) {
             this.drawTargetReticle(enemy.x, enemy.y, 0xfde047);
           }
         }
       }
-    } else if (this.hoverTile && this.selectedTool !== null && this.phase === 'PREP') {
+    } else if (
+      this.hoverTile &&
+      this.selectedTool !== null &&
+      this.phase === 'PREP'
+    ) {
       const { gx, gy } = this.hoverTile;
       if (this.selectedTool === 'sell_struct') {
         const hoveredStruct = this.getStructureAt(gx, gy);
@@ -1897,11 +2162,21 @@ export class BattleScene extends Phaser.Scene {
       } else if (this.selectedTool === 'move_struct') {
         if (!this.movingStructureUid) {
           const canPick = Boolean(this.getStructureAt(gx, gy));
-          this.highlightGraphics.lineStyle(2, canPick ? 0xfbbf24 : 0x64748b, canPick ? 0.95 : 0.55);
+          this.highlightGraphics.lineStyle(
+            2,
+            canPick ? 0xfbbf24 : 0x64748b,
+            canPick ? 0.95 : 0.55,
+          );
         } else {
           const canPlace = this.isValidBuildTile(gx, gy);
-          this.highlightGraphics.lineStyle(2, canPlace ? 0x4ade80 : 0xef4444, 0.9);
-          const moving = this.structures.find((s) => s.data.uid === this.movingStructureUid);
+          this.highlightGraphics.lineStyle(
+            2,
+            canPlace ? 0x4ade80 : 0xef4444,
+            0.9,
+          );
+          const moving = this.structures.find(
+            (s) => s.data.uid === this.movingStructureUid,
+          );
           if (moving) {
             this.buildGhostSprite
               .setTexture(`tex:${moving.data.kind}`)
@@ -1920,7 +2195,11 @@ export class BattleScene extends Phaser.Scene {
         );
       } else {
         const canPlace = this.isValidBuildTile(gx, gy);
-        this.highlightGraphics.lineStyle(2, canPlace ? 0x4ade80 : 0xef4444, 0.9);
+        this.highlightGraphics.lineStyle(
+          2,
+          canPlace ? 0x4ade80 : 0xef4444,
+          0.9,
+        );
         this.highlightGraphics.strokeRect(
           gx * TILE_SIZE + 2,
           gy * TILE_SIZE + 2,
@@ -1939,14 +2218,20 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshHoverReadout(): void {
-    if (this.selectedTool !== null || this.aimingUltUnitUid || this.movingStructureUid) {
+    if (
+      this.selectedTool !== null ||
+      this.aimingUltUnitUid ||
+      this.movingStructureUid
+    ) {
       this.hoverReadoutContainer.setVisible(false);
       return;
     }
 
     let label = '';
     if (this.hoveredEnemyUid) {
-      const enemy = this.enemies.find((e) => e.uid === this.hoveredEnemyUid && e.hp > 0);
+      const enemy = this.enemies.find(
+        (e) => e.uid === this.hoveredEnemyUid && e.hp > 0,
+      );
       if (enemy) {
         const spec = ENEMY_SPECIES[enemy.speciesId];
         if (spec) {
@@ -1966,12 +2251,16 @@ export class BattleScene extends Phaser.Scene {
       if (unit) {
         const spec = POKEMON_SPECIES[unit.data.speciesId];
         if (spec) {
-          const trait = unit.data.fainted ? 'Fainted' : `${spec.pokeClass} · Rng ${spec.range}`;
+          const trait = unit.data.fainted
+            ? 'Fainted'
+            : `${spec.pokeClass} · Rng ${spec.range}`;
           label = `${spec.name}  HP ${Math.ceil(unit.data.hp)}/${unit.data.maxHp}  [${trait}]`;
         }
       }
     } else if (this.hoveredStructUid) {
-      const struct = this.structures.find((s) => s.data.uid === this.hoveredStructUid);
+      const struct = this.structures.find(
+        (s) => s.data.uid === this.hoveredStructUid,
+      );
       if (struct) {
         const spec = STRUCTURE_SPECS[struct.data.kind];
         if (spec) {
@@ -1994,7 +2283,10 @@ export class BattleScene extends Phaser.Scene {
 
     this.hoverReadoutText.setText(label);
     const bounds = this.hoverReadoutText.getBounds();
-    this.hoverReadoutBg.setSize(Math.max(120, Math.ceil(bounds.width) + 16), 24);
+    this.hoverReadoutBg.setSize(
+      Math.max(120, Math.ceil(bounds.width) + 16),
+      24,
+    );
     this.hoverReadoutContainer.setVisible(true);
   }
 
@@ -2023,8 +2315,12 @@ export class BattleScene extends Phaser.Scene {
 
     const cx = tileCenterX(gx);
     const cy = tileCenterY(gy);
-    const sprite = this.add.sprite(cx, cy, `pmd:${speciesId}:Idle`).setDepth(4 + gy * 0.1 + 0.04);
-    const hpBarBg = this.add.rectangle(cx, cy - 22, 36, 6, 0x0f172a, 0.85).setDepth(7);
+    const sprite = this.add
+      .sprite(cx, cy, `pmd:${speciesId}:Idle`)
+      .setDepth(4 + gy * 0.1 + 0.04);
+    const hpBarBg = this.add
+      .rectangle(cx, cy - 22, 36, 6, 0x0f172a, 0.85)
+      .setDepth(7);
     const hpBarFill = this.add
       .rectangle(cx - 17, cy - 23, 34, 3, 0x4ade80, 1)
       .setOrigin(0, 0.5)
@@ -2049,7 +2345,12 @@ export class BattleScene extends Phaser.Scene {
     return entity;
   }
 
-  private moveUnitToTile(unit: UnitEntity, gx: number, gy: number, animateDash: boolean): void {
+  private moveUnitToTile(
+    unit: UnitEntity,
+    gx: number,
+    gy: number,
+    animateDash: boolean,
+  ): void {
     const dx = gx - unit.data.gx;
     const dy = gy - unit.data.gy;
     unit.data.facingDir = vectorToPmdDir(dx, dy, unit.data.facingDir);
@@ -2093,13 +2394,18 @@ export class BattleScene extends Phaser.Scene {
   private updateUnitBars(unit: UnitEntity): void {
     const hpRatio = Phaser.Math.Clamp(unit.data.hp / unit.data.maxHp, 0, 1);
     unit.hpBarFill.width = 34 * hpRatio;
-    unit.hpBarFill.setFillStyle(hpRatio > 0.5 ? 0x4ade80 : hpRatio > 0.25 ? 0xfacc15 : 0xef4444);
+    unit.hpBarFill.setFillStyle(
+      hpRatio > 0.5 ? 0x4ade80 : hpRatio > 0.25 ? 0xfacc15 : 0xef4444,
+    );
 
     const ultRatio = Phaser.Math.Clamp(unit.data.ult / unit.data.ultMax, 0, 1);
     unit.ultBarFill.width = 34 * ultRatio;
   }
 
-  private playUnitAnim(unit: UnitEntity, animName: 'Idle' | 'Walk' | 'Attack'): void {
+  private playUnitAnim(
+    unit: UnitEntity,
+    animName: 'Idle' | 'Walk' | 'Attack',
+  ): void {
     const key = `anim:pmd:${unit.data.speciesId}:${animName}:${unit.data.facingDir}`;
     if (!this.anims.exists(key)) return;
 
@@ -2127,7 +2433,10 @@ export class BattleScene extends Phaser.Scene {
       if (unit.data.fainted) continue;
 
       unit.stationaryMs += simDtMs;
-      unit.data.attackCooldownMs = Math.max(0, unit.data.attackCooldownMs - simDtMs);
+      unit.data.attackCooldownMs = Math.max(
+        0,
+        unit.data.attackCooldownMs - simDtMs,
+      );
 
       const spec = POKEMON_SPECIES[unit.data.speciesId];
 
@@ -2143,7 +2452,11 @@ export class BattleScene extends Phaser.Scene {
 
       if (unit.data.attackCooldownMs > 0) continue;
 
-      const target = this.findNearestEnemyInRange(unit.data.gx, unit.data.gy, spec.range);
+      const target = this.findNearestEnemyInRange(
+        unit.data.gx,
+        unit.data.gy,
+        spec.range,
+      );
       if (!target) continue;
 
       unit.data.facingDir = vectorToPmdDir(
@@ -2175,7 +2488,10 @@ export class BattleScene extends Phaser.Scene {
       dmg = Math.round(dmg * 1.75);
       isCrit = true;
     }
-    if (unit.data.speciesId === '0094' && (target.burnTimerMs > 0 || target.slowTimerMs > 0)) {
+    if (
+      unit.data.speciesId === '0094' &&
+      (target.burnTimerMs > 0 || target.slowTimerMs > 0)
+    ) {
       dmg = Math.round(dmg * 1.35);
     }
 
@@ -2213,14 +2529,23 @@ export class BattleScene extends Phaser.Scene {
 
   private findAutoUltTarget(unit: UnitEntity): GridPoint | null {
     const spec = POKEMON_SPECIES[unit.data.speciesId];
-    const isHealUlt = unit.data.speciesId === '0001' || unit.data.speciesId === '0012';
+    const isHealUlt =
+      unit.data.speciesId === '0001' || unit.data.speciesId === '0012';
 
     if (isHealUlt) {
       let bestAlly: UnitEntity | null = null;
       let lowestRatio = 0.85;
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
-        if (chebyshevDist(unit.data.gx, unit.data.gy, ally.data.gx, ally.data.gy) > spec.range + 2) {
+        if (
+          chebyshevDist(
+            unit.data.gx,
+            unit.data.gy,
+            ally.data.gx,
+            ally.data.gy,
+          ) >
+          spec.range + 2
+        ) {
           continue;
         }
         const ratio = ally.data.hp / ally.data.maxHp;
@@ -2233,7 +2558,11 @@ export class BattleScene extends Phaser.Scene {
       if (unit.data.speciesId === '0001') return null;
     }
 
-    const nearest = this.findNearestEnemyInRange(unit.data.gx, unit.data.gy, spec.range + 2);
+    const nearest = this.findNearestEnemyInRange(
+      unit.data.gx,
+      unit.data.gy,
+      spec.range + 2,
+    );
     return nearest ? { gx: nearest.gx, gy: nearest.gy } : null;
   }
 
@@ -2253,7 +2582,11 @@ export class BattleScene extends Phaser.Scene {
   private castUltimate(unit: UnitEntity, gx: number, gy: number): void {
     const spec = POKEMON_SPECIES[unit.data.speciesId];
     unit.data.ult = 0;
-    unit.data.facingDir = vectorToPmdDir(gx - unit.data.gx, gy - unit.data.gy, unit.data.facingDir);
+    unit.data.facingDir = vectorToPmdDir(
+      gx - unit.data.gx,
+      gy - unit.data.gy,
+      unit.data.facingDir,
+    );
     this.playUnitAnim(unit, 'Attack');
 
     const tx = tileCenterX(gx);
@@ -2271,7 +2604,12 @@ export class BattleScene extends Phaser.Scene {
           ally.data.hp = Math.min(ally.data.maxHp, ally.data.hp + healAmount);
           const actualHeal = Math.round(ally.data.hp - prevHp);
           if (actualHeal > 0) {
-            this.spawnFloatingText(ally.sprite.x, ally.sprite.y - 24, `+${actualHeal}`, '#4ade80');
+            this.spawnFloatingText(
+              ally.sprite.x,
+              ally.sprite.y - 24,
+              `+${actualHeal}`,
+              '#4ade80',
+            );
           }
           this.updateUnitBars(ally);
         }
@@ -2291,7 +2629,10 @@ export class BattleScene extends Phaser.Scene {
           if (unit.data.speciesId === '0143') {
             enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
           }
-          if (unit.data.speciesId === '0007' || unit.data.speciesId === '0143') {
+          if (
+            unit.data.speciesId === '0007' ||
+            unit.data.speciesId === '0143'
+          ) {
             this.knockbackEnemy(enemy, tx, ty);
           }
           this.damageEnemy(enemy, ultDmg, unit, true);
@@ -2324,12 +2665,13 @@ export class BattleScene extends Phaser.Scene {
       const delay = group.delayMs ?? 0;
       for (let i = 0; i < group.count; i++) {
         const portal =
-          this.activePortals[(portalIdx + i) % Math.max(1, this.activePortals.length)];
+          this.activePortals[
+            (portalIdx + i) % Math.max(1, this.activePortals.length)
+          ];
         const point = portal
           ? portal.cells[i % portal.cells.length]
           : { gx: 0, gy: Math.floor(GRID_ROWS / 2) };
-        const side: 'west' | 'east' =
-          portal?.side === 'east' ? 'east' : 'west';
+        const side: 'west' | 'east' = portal?.side === 'east' ? 'east' : 'west';
         this.spawnQueue.push({
           spawnAtMs: delay + i * group.intervalMs,
           speciesId: group.speciesId,
@@ -2344,7 +2686,10 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private processSpawnQueue(): void {
-    while (this.spawnQueue.length > 0 && this.spawnQueue[0].spawnAtMs <= this.waveElapsedMs) {
+    while (
+      this.spawnQueue.length > 0 &&
+      this.spawnQueue[0].spawnAtMs <= this.waveElapsedMs
+    ) {
       const next = this.spawnQueue.shift()!;
       this.spawnEnemy(next.speciesId, next.point);
     }
@@ -2360,8 +2705,12 @@ export class BattleScene extends Phaser.Scene {
 
     const sprite = this.add
       .sprite(x, y, `pmd:${speciesId}:Walk`)
-      .setDepth(spec.movementType === 'fly' ? 6.2 : 4 + (y / TILE_SIZE) * 0.1 + 0.04);
-    const hpBarBg = this.add.rectangle(x, y - 20, 32, 4, 0x0f172a, 0.85).setDepth(7);
+      .setDepth(
+        spec.movementType === 'fly' ? 6.2 : 4 + (y / TILE_SIZE) * 0.1 + 0.04,
+      );
+    const hpBarBg = this.add
+      .rectangle(x, y - 20, 32, 4, 0x0f172a, 0.85)
+      .setDepth(7);
     const hpBarFill = this.add
       .rectangle(x - 15, y - 20, 30, 2, 0xf43f5e, 1)
       .setOrigin(0, 0.5)
@@ -2422,14 +2771,20 @@ export class BattleScene extends Phaser.Scene {
       // Barrel trap trigger for non-flying enemies
       if (spec.movementType !== 'fly') {
         const structHere = this.getStructureAt(enemy.gx, enemy.gy);
-        if (structHere && structHere.data.kind === 'barrel' && !structHere.data.ruined) {
+        if (
+          structHere &&
+          structHere.data.kind === 'barrel' &&
+          !structHere.data.ruined
+        ) {
           this.explodeBarrel(structHere);
           if (enemy.hp <= 0) continue;
         }
       }
 
       // Check adjacent attack targets: Core -> blocking unit -> blocking wall
-      const adjCore = CORE_CELLS.find((c) => manhattanDist(enemy.gx, enemy.gy, c.gx, c.gy) <= 1);
+      const adjCore = CORE_CELLS.find(
+        (c) => manhattanDist(enemy.gx, enemy.gy, c.gx, c.gy) <= 1,
+      );
       if (adjCore) {
         this.enemyAttackCore(enemy, adjCore);
         continue;
@@ -2445,9 +2800,15 @@ export class BattleScene extends Phaser.Scene {
 
       if (spec.movementType === 'ground' && enemy.targetWallUid) {
         const wall = this.structures.find(
-          (s) => s.data.uid === enemy.targetWallUid && !s.data.ruined && s.data.hp > 0,
+          (s) =>
+            s.data.uid === enemy.targetWallUid &&
+            !s.data.ruined &&
+            s.data.hp > 0,
         );
-        if (wall && manhattanDist(enemy.gx, enemy.gy, wall.data.gx, wall.data.gy) <= 1) {
+        if (
+          wall &&
+          manhattanDist(enemy.gx, enemy.gy, wall.data.gx, wall.data.gy) <= 1
+        ) {
           this.enemyAttackStructure(enemy, wall);
           continue;
         }
@@ -2553,7 +2914,11 @@ export class BattleScene extends Phaser.Scene {
   private enemyAttackCore(enemy: EnemyEntity, coreCell: GridPoint): void {
     const tx = tileCenterX(coreCell.gx);
     const ty = tileCenterY(coreCell.gy);
-    enemy.facingDir = vectorToPmdDir(tx - enemy.x, ty - enemy.y, enemy.facingDir);
+    enemy.facingDir = vectorToPmdDir(
+      tx - enemy.x,
+      ty - enemy.y,
+      enemy.facingDir,
+    );
     if (enemy.attackCooldownMs > 0) return;
 
     const spec = ENEMY_SPECIES[enemy.speciesId];
@@ -2592,7 +2957,12 @@ export class BattleScene extends Phaser.Scene {
     }
 
     unit.data.hp = Math.max(0, unit.data.hp - dmg);
-    this.spawnFloatingText(unit.sprite.x, unit.sprite.y - 24, `-${dmg}`, '#fb7185');
+    this.spawnFloatingText(
+      unit.sprite.x,
+      unit.sprite.y - 24,
+      `-${dmg}`,
+      '#fb7185',
+    );
 
     if (unit.data.hp <= 0) {
       unit.data.fainted = true;
@@ -2614,7 +2984,10 @@ export class BattleScene extends Phaser.Scene {
     this.emitSnapshot();
   }
 
-  private enemyAttackStructure(enemy: EnemyEntity, struct: StructureEntity): void {
+  private enemyAttackStructure(
+    enemy: EnemyEntity,
+    struct: StructureEntity,
+  ): void {
     enemy.facingDir = vectorToPmdDir(
       struct.sprite.x - enemy.x,
       struct.sprite.y - enemy.y,
@@ -2629,7 +3002,12 @@ export class BattleScene extends Phaser.Scene {
 
     const dmg = Math.round(spec.atk * spec.wallDmgMult);
     struct.data.hp = Math.max(0, struct.data.hp - dmg);
-    this.spawnFloatingText(struct.sprite.x, struct.sprite.y - 20, `-${dmg}`, '#fdba74');
+    this.spawnFloatingText(
+      struct.sprite.x,
+      struct.sprite.y - 20,
+      `-${dmg}`,
+      '#fdba74',
+    );
 
     if (struct.data.hp <= 0) {
       if (struct.data.kind === 'barrel') {
@@ -2670,9 +3048,14 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private handleEnemyKilled(enemy: EnemyEntity, attacker: UnitEntity | null): void {
+  private handleEnemyKilled(
+    enemy: EnemyEntity,
+    attacker: UnitEntity | null,
+  ): void {
     const spec = ENEMY_SPECIES[enemy.speciesId];
-    const bountyMult = this.artifacts.includes('commanders_insignia') ? 1.25 : 1;
+    const bountyMult = this.artifacts.includes('commanders_insignia')
+      ? 1.25
+      : 1;
     const bounty = Math.round(spec.bounty * bountyMult);
 
     this.gold += bounty;
@@ -2700,12 +3083,24 @@ export class BattleScene extends Phaser.Scene {
     this.emitSnapshot();
   }
 
-  private knockbackEnemy(enemy: EnemyEntity, fromX: number, fromY: number): void {
+  private knockbackEnemy(
+    enemy: EnemyEntity,
+    fromX: number,
+    fromY: number,
+  ): void {
     const dx = enemy.x - fromX;
     const dy = enemy.y - fromY;
     const dist = Math.hypot(dx, dy) || 1;
-    const nx = Phaser.Math.Clamp(enemy.x + (dx / dist) * 28, 12, CANVAS_WIDTH - 12);
-    const ny = Phaser.Math.Clamp(enemy.y + (dy / dist) * 28, 12, CANVAS_HEIGHT - 12);
+    const nx = Phaser.Math.Clamp(
+      enemy.x + (dx / dist) * 28,
+      12,
+      CANVAS_WIDTH - 12,
+    );
+    const ny = Phaser.Math.Clamp(
+      enemy.y + (dy / dist) * 28,
+      12,
+      CANVAS_HEIGHT - 12,
+    );
     const gridPos = worldToGrid(nx, ny);
     if (
       ENEMY_SPECIES[enemy.speciesId].movementType !== 'fly' &&
@@ -2765,17 +3160,37 @@ export class BattleScene extends Phaser.Scene {
 
     let healedAny = false;
     for (const struct of this.structures) {
-      if (struct.data.kind !== 'berry_bush' || struct.data.ruined || struct.data.hp <= 0) continue;
+      if (
+        struct.data.kind !== 'berry_bush' ||
+        struct.data.ruined ||
+        struct.data.hp <= 0
+      )
+        continue;
 
       for (const unit of this.units) {
         if (unit.data.fainted || unit.data.hp >= unit.data.maxHp) continue;
-        if (chebyshevDist(unit.data.gx, unit.data.gy, struct.data.gx, struct.data.gy) <= 1) {
+        if (
+          chebyshevDist(
+            unit.data.gx,
+            unit.data.gy,
+            struct.data.gx,
+            struct.data.gy,
+          ) <= 1
+        ) {
           const prev = unit.data.hp;
-          unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp + BERRY_HEAL_PER_SEC);
+          unit.data.hp = Math.min(
+            unit.data.maxHp,
+            unit.data.hp + BERRY_HEAL_PER_SEC,
+          );
           const diff = Math.round(unit.data.hp - prev);
           if (diff > 0) {
             this.updateUnitBars(unit);
-            this.spawnFloatingText(unit.sprite.x, unit.sprite.y - 24, `+${diff}`, '#4ade80');
+            this.spawnFloatingText(
+              unit.sprite.x,
+              unit.sprite.y - 24,
+              `+${diff}`,
+              '#4ade80',
+            );
             healedAny = true;
           }
         }
@@ -2835,7 +3250,9 @@ export class BattleScene extends Phaser.Scene {
 
   private generateRewardChoices(): RewardOption[] {
     const owned = new Set([...this.upgrades, ...this.artifacts]);
-    const pool = Phaser.Utils.Array.Shuffle(REWARD_POOL.filter((r) => !owned.has(r.id)));
+    const pool = Phaser.Utils.Array.Shuffle(
+      REWARD_POOL.filter((r) => !owned.has(r.id)),
+    );
 
     const activeSpecies = new Set(this.units.map((u) => u.data.speciesId));
     const reserveSpecies = new Set(this.reserveIds);
@@ -2908,11 +3325,19 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  private spawnOneShotVfx(vfxKey: string, x: number, y: number, scale = 0.9): void {
+  private spawnOneShotVfx(
+    vfxKey: string,
+    x: number,
+    y: number,
+    scale = 0.9,
+  ): void {
     const animKey = `anim:vfx:${vfxKey}`;
     if (!this.anims.exists(animKey)) return;
 
-    const fx = this.add.sprite(x, y, `vfx:${vfxKey}`).setDepth(8).setScale(scale);
+    const fx = this.add
+      .sprite(x, y, `vfx:${vfxKey}`)
+      .setDepth(8)
+      .setScale(scale);
     this.transientVfx.push(fx);
     fx.play(animKey);
     fx.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
@@ -2920,7 +3345,12 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  private spawnFloatingText(x: number, y: number, text: string, color: string): void {
+  private spawnFloatingText(
+    x: number,
+    y: number,
+    text: string,
+    color: string,
+  ): void {
     const label = this.add
       .text(x, y, text, {
         fontFamily: 'monospace',
@@ -2951,7 +3381,9 @@ export class BattleScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private computeUnitMaxHp(baseMaxHp: number): number {
-    return this.upgrades.includes('thick_hide') ? Math.round(baseMaxHp * 1.3) : baseMaxHp;
+    return this.upgrades.includes('thick_hide')
+      ? Math.round(baseMaxHp * 1.3)
+      : baseMaxHp;
   }
 
   private computeStructureMaxHp(baseMaxHp: number): number {
@@ -2974,7 +3406,12 @@ export class BattleScene extends Phaser.Scene {
         !other.data.fainted &&
         other.data.speciesId === '0001' &&
         other.data.uid !== unit.data.uid &&
-        chebyshevDist(other.data.gx, other.data.gy, unit.data.gx, unit.data.gy) <= 2,
+        chebyshevDist(
+          other.data.gx,
+          other.data.gy,
+          unit.data.gx,
+          unit.data.gy,
+        ) <= 2,
     );
     if (hasBulbasaurAura) mult += 0.1;
 
@@ -2983,10 +3420,16 @@ export class BattleScene extends Phaser.Scene {
 
   private getUnitDef(unit: UnitEntity): number {
     let def = POKEMON_SPECIES[unit.data.speciesId].def;
-    if (unit.data.speciesId === '0007' && this.isNearWaterOrWall(unit.data.gx, unit.data.gy)) {
+    if (
+      unit.data.speciesId === '0007' &&
+      this.isNearWaterOrWall(unit.data.gx, unit.data.gy)
+    ) {
       def = Math.round(def * 1.25);
     }
-    if (unit.data.speciesId === '0074' && this.isAdjacentToWall(unit.data.gx, unit.data.gy)) {
+    if (
+      unit.data.speciesId === '0074' &&
+      this.isAdjacentToWall(unit.data.gx, unit.data.gy)
+    ) {
       def = Math.round(def * 1.3);
     }
     return def;
@@ -3041,7 +3484,11 @@ export class BattleScene extends Phaser.Scene {
     return this.structures.find((s) => s.data.gx === gx && s.data.gy === gy);
   }
 
-  private findNearestEnemyInRange(gx: number, gy: number, range: number): EnemyEntity | null {
+  private findNearestEnemyInRange(
+    gx: number,
+    gy: number,
+    range: number,
+  ): EnemyEntity | null {
     let best: EnemyEntity | null = null;
     let bestDist = Infinity;
     for (const enemy of this.enemies) {
@@ -3075,7 +3522,9 @@ export class BattleScene extends Phaser.Scene {
   private updateCoreBar(): void {
     const ratio = Phaser.Math.Clamp(this.coreHp / this.coreMaxHp, 0, 1);
     this.coreHpBarFill.width = 70 * ratio;
-    this.coreHpBarFill.setFillStyle(ratio > 0.5 ? 0x22d3ee : ratio > 0.25 ? 0xfacc15 : 0xef4444);
+    this.coreHpBarFill.setFillStyle(
+      ratio > 0.5 ? 0x22d3ee : ratio > 0.25 ? 0xfacc15 : 0xef4444,
+    );
   }
 
   private updateStructureBar(entity: StructureEntity): void {

@@ -9,11 +9,19 @@ export const BASE_AP_KILL_THRESHOLD = 6;
 export const TEMPORAL_GEAR_KILL_THRESHOLD = 4;
 export const WAVE_AP_RECOVERY = 3;
 
-export function chebyshevDist(ax: number, ay: number, bx: number, by: number): number {
+export function chebyshevDist(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
-export function getEffectiveMoveRange(baseMoveRange: number, upgrades: string[]): number {
+export function getEffectiveMoveRange(
+  baseMoveRange: number,
+  upgrades: string[],
+): number {
   return baseMoveRange + (upgrades.includes('swift_boots') ? 1 : 0);
 }
 
@@ -38,7 +46,10 @@ export function getMovementCost(
   return null;
 }
 
-export function getEffectiveMaxHp(speciesId: string, upgrades: string[]): number {
+export function getEffectiveMaxHp(
+  speciesId: string,
+  upgrades: string[],
+): number {
   const base = POKEMON_SPECIES[speciesId]?.maxHp ?? 100;
   return upgrades.includes('thick_hide') ? Math.round(base * 1.3) : base;
 }
@@ -55,12 +66,18 @@ export function getEffectiveAtk(
   return Math.round(base * mult);
 }
 
-export function getEffectiveAttackIntervalMs(speciesId: string, artifacts: string[]): number {
+export function getEffectiveAttackIntervalMs(
+  speciesId: string,
+  artifacts: string[],
+): number {
   const base = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
   return artifacts.includes('arcane_conduit') ? Math.round(base * 0.8) : base;
 }
 
-export function getEffectiveStructureMaxHp(kind: StructureKind, artifacts: string[]): number {
+export function getEffectiveStructureMaxHp(
+  kind: StructureKind,
+  artifacts: string[],
+): number {
   const base = STRUCTURE_SPECS[kind].maxHp;
   const isWall = kind === 'wood_wall' || kind === 'stone_wall';
   if (isWall && artifacts.includes('fortification_core')) {
@@ -73,7 +90,11 @@ export function getSellRefund(kind: StructureKind): number {
   return Math.round(STRUCTURE_SPECS[kind].cost * SELL_REFUND_RATE);
 }
 
-export function getRepairCost(kind: StructureKind, hp?: number, maxHp?: number): number {
+export function getRepairCost(
+  kind: StructureKind,
+  hp?: number,
+  maxHp?: number,
+): number {
   const base = STRUCTURE_SPECS[kind].cost;
   if (hp === undefined || maxHp === undefined || maxHp <= 0) {
     return Math.round(base * REPAIR_COST_RATE);

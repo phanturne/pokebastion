@@ -12,7 +12,12 @@ import {
 } from '../src/engine/pathfinding';
 import { GridStructure } from '../src/types';
 
-function makeWall(uid: string, gx: number, gy: number, ruined = false): GridStructure {
+function makeWall(
+  uid: string,
+  gx: number,
+  gy: number,
+  ruined = false,
+): GridStructure {
   return {
     uid,
     kind: 'wood_wall',
@@ -33,7 +38,9 @@ describe('A* Pathfinding & Grid Rules', () => {
     expect(westPath).not.toBeNull();
     expect(eastPath).not.toBeNull();
     const lastWest = westPath![westPath!.length - 1];
-    expect(CORE_CELLS.some((c) => c.gx === lastWest.gx && c.gy === lastWest.gy)).toBe(true);
+    expect(
+      CORE_CELLS.some((c) => c.gx === lastWest.gx && c.gy === lastWest.gy),
+    ).toBe(true);
   });
 
   it('detours around partial walls and returns null when completely sealed', () => {
@@ -53,7 +60,8 @@ describe('A* Pathfinding & Grid Rules', () => {
     const diagPath = findPath({ gx: 10, gy: 0 }, grid, new Set(), 'ground');
     expect(diagPath).not.toBeNull();
     const hasDiagonal = diagPath!.some(
-      (pt, i) => i > 0 && pt.gx !== diagPath![i - 1].gx && pt.gy !== diagPath![i - 1].gy,
+      (pt, i) =>
+        i > 0 && pt.gx !== diagPath![i - 1].gx && pt.gy !== diagPath![i - 1].gy,
     );
     expect(hasDiagonal).toBe(true);
 
@@ -111,9 +119,15 @@ describe('A* Pathfinding & Grid Rules', () => {
 
   it('enforces no-build rules on core, 2-tile outer border, active portals, and trees', () => {
     const grid = createBaseGrid();
-    const portals = [{ id: 'p_w', side: 'west' as const, cells: SPAWN_WEST.slice(0, 2) }];
-    expect(isNoBuildTile(CORE_CELLS[0].gx, CORE_CELLS[0].gy, grid, portals)).toBe(true); // Core
-    expect(isNoBuildTile(SPAWN_WEST[1].gx, SPAWN_WEST[1].gy, grid, portals)).toBe(true); // Active portal
+    const portals = [
+      { id: 'p_w', side: 'west' as const, cells: SPAWN_WEST.slice(0, 2) },
+    ];
+    expect(
+      isNoBuildTile(CORE_CELLS[0].gx, CORE_CELLS[0].gy, grid, portals),
+    ).toBe(true); // Core
+    expect(
+      isNoBuildTile(SPAWN_WEST[1].gx, SPAWN_WEST[1].gy, grid, portals),
+    ).toBe(true); // Active portal
     expect(isNoBuildTile(1, 8, grid, portals)).toBe(true); // 2-tile outer border (west)
     expect(isNoBuildTile(14, 1, grid, portals)).toBe(true); // 2-tile outer border (north)
     expect(isNoBuildTile(26, 8, grid, portals)).toBe(true); // 2-tile outer border (east)

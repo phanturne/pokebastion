@@ -398,8 +398,20 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     title: 'Wave 1: Frontier Skirmish',
     desc: 'Rattata runners and Geodude wall-breakers advance from both flanks.',
     spawns: [
-      { speciesId: '0019', count: 6, side: 'both', intervalMs: 1400, delayMs: 0 },
-      { speciesId: '0074', count: 3, side: 'both', intervalMs: 2800, delayMs: 2500 },
+      {
+        speciesId: '0019',
+        count: 6,
+        side: 'both',
+        intervalMs: 1400,
+        delayMs: 0,
+      },
+      {
+        speciesId: '0074',
+        count: 3,
+        side: 'both',
+        intervalMs: 2800,
+        delayMs: 2500,
+      },
     ],
   },
   {
@@ -407,9 +419,27 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     title: 'Wave 2: Tunnel & Sky',
     desc: 'Diglett burrow under walls and Zubat swoop over moats alongside Rattata.',
     spawns: [
-      { speciesId: '0019', count: 6, side: 'both', intervalMs: 1200, delayMs: 0 },
-      { speciesId: '0050', count: 5, side: 'west', intervalMs: 1800, delayMs: 1500 },
-      { speciesId: '0041', count: 5, side: 'east', intervalMs: 1700, delayMs: 2000 },
+      {
+        speciesId: '0019',
+        count: 6,
+        side: 'both',
+        intervalMs: 1200,
+        delayMs: 0,
+      },
+      {
+        speciesId: '0050',
+        count: 5,
+        side: 'west',
+        intervalMs: 1800,
+        delayMs: 1500,
+      },
+      {
+        speciesId: '0041',
+        count: 5,
+        side: 'east',
+        intervalMs: 1700,
+        delayMs: 2000,
+      },
     ],
   },
   {
@@ -417,10 +447,34 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     title: 'Wave 3: Bastion Siege',
     desc: 'Full surge of Rattata, Diglett, Zubat, and Geodude from West and East.',
     spawns: [
-      { speciesId: '0019', count: 10, side: 'both', intervalMs: 950, delayMs: 0 },
-      { speciesId: '0074', count: 5, side: 'both', intervalMs: 2100, delayMs: 1200 },
-      { speciesId: '0050', count: 6, side: 'both', intervalMs: 1600, delayMs: 2200 },
-      { speciesId: '0041', count: 6, side: 'both', intervalMs: 1500, delayMs: 2800 },
+      {
+        speciesId: '0019',
+        count: 10,
+        side: 'both',
+        intervalMs: 950,
+        delayMs: 0,
+      },
+      {
+        speciesId: '0074',
+        count: 5,
+        side: 'both',
+        intervalMs: 2100,
+        delayMs: 1200,
+      },
+      {
+        speciesId: '0050',
+        count: 6,
+        side: 'both',
+        intervalMs: 1600,
+        delayMs: 2200,
+      },
+      {
+        speciesId: '0041',
+        count: 6,
+        side: 'both',
+        intervalMs: 1500,
+        delayMs: 2800,
+      },
     ],
   },
 ];

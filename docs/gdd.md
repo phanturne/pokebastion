@@ -100,6 +100,7 @@ The battlefield should offer multiple viable defensive strategies rather than on
 Most enemies prioritize reaching the core rather than attacking walls.
 
 Their general behavior:
+
 1. Identify a valid route toward the core.
 2. Navigate around walls and obstacles.
 3. Attack Pokémon or structures when their behavior or circumstances require it.
@@ -112,6 +113,7 @@ Walls and defensive structures influence enemy pathfinding. Enemies pick the sho
 If the player completely blocks every valid route to the core, enemies have no choice but to respond to the obstruction.
 
 Potential behaviors include:
+
 - Attack the nearest blocking wall.
 - Attack a designated defensive structure.
 - Use a special movement ability to bypass the obstruction.
@@ -144,11 +146,11 @@ Walls are used to manipulate enemy movement and create defensive chokepoints. Wa
 
 Potential wall types (flavored as natural obstacles and Pokémon-world barriers rather than modern military walls):
 
-| Wall Type                               | Characteristics                                          |
-| --------------------------------------- | -------------------------------------------------------- |
-| Wooden Barricade / Hedge                | Cheap, low durability                                    |
-| Reinforced Timber Wall                  | More expensive, higher durability                        |
-| Boulder / Rock Tomb                     | High durability, expensive to construct                  |
+| Wall Type                | Characteristics                         |
+| ------------------------ | --------------------------------------- |
+| Wooden Barricade / Hedge | Cheap, low durability                   |
+| Reinforced Timber Wall   | More expensive, higher durability       |
+| Boulder / Rock Tomb      | High durability, expensive to construct |
 
 ### Wall Durability
 
@@ -290,14 +292,14 @@ Ultimate abilities should create important tactical moments rather than simply p
 
 Every Pokémon belongs to **1 or 2 classes** (each with a specific **subclass**). Parent classes drive **class-based minor upgrades** and **class artifact synergies**, while subclasses define a Pokémon's baseline combat behavior on the grid.
 
-|Class|Purpose|Subclasses|
-|---|---|---|
-|**Defender**|Frontline tanking, blocking, and wall/core protection|**Bastion** (high HP/armor), **Wallguard** (fortifies/shields adjacent walls), **Juggernaut** (counterattacks/self-heal)|
-|**Brawler**|Close-range melee dueling and frontline damage|**Duelist** (single-target DPS), **Cleave** (hits multiple adjacent enemies), **Interceptor** (low AP cost to chase leaks)|
-|**Marksman**|Long-range attacks and priority targeting|**Sniper** (extreme range/anti-flyer), **Rapid-Fire** (high attack speed), **Artillery** (long-range splash)|
-|**Blaster**|Elemental AoE damage and crowd clearing|**Elemental AoE** (wide burst), **Chain** (bouncing attacks), **Status** (group Burn, Paralyze, Freeze, etc.)|
-|**Support**|Healing, buffs, shields, and AP/cooldown aid|**Healer** (HP & status restore), **Buffer** (speed/damage/type buffs), **Tactician** (AP & ultimate charge recovery)|
-|**Specialist**|Entry hazards, terrain control, mobility, and debuffs|**Hazard Setter** (_Spikes_, _Toxic Spikes_, _Sticky Web_, _Stealth Rock_), **Displacer** (push/pull/slow), **Ambusher** (cheap repositioning/teleport)|
+| Class          | Purpose                                               | Subclasses                                                                                                                                              |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Defender**   | Frontline tanking, blocking, and wall/core protection | **Bastion** (high HP/armor), **Wallguard** (fortifies/shields adjacent walls), **Juggernaut** (counterattacks/self-heal)                                |
+| **Brawler**    | Close-range melee dueling and frontline damage        | **Duelist** (single-target DPS), **Cleave** (hits multiple adjacent enemies), **Interceptor** (low AP cost to chase leaks)                              |
+| **Marksman**   | Long-range attacks and priority targeting             | **Sniper** (extreme range/anti-flyer), **Rapid-Fire** (high attack speed), **Artillery** (long-range splash)                                            |
+| **Blaster**    | Elemental AoE damage and crowd clearing               | **Elemental AoE** (wide burst), **Chain** (bouncing attacks), **Status** (group Burn, Paralyze, Freeze, etc.)                                           |
+| **Support**    | Healing, buffs, shields, and AP/cooldown aid          | **Healer** (HP & status restore), **Buffer** (speed/damage/type buffs), **Tactician** (AP & ultimate charge recovery)                                   |
+| **Specialist** | Entry hazards, terrain control, mobility, and debuffs | **Hazard Setter** (_Spikes_, _Toxic Spikes_, _Sticky Web_, _Stealth Rock_), **Displacer** (push/pull/slow), **Ambusher** (cheap repositioning/teleport) |
 
 A Pokémon's class does not need to be determined exclusively by its elemental type, and dual-class Pokémon can draw minor upgrades from both of their class pools.
 
@@ -316,10 +318,10 @@ Each Pokémon has a **Movement Range** stat that defines two movement rings on t
 
 For example, a Pokémon with a Movement Range of **2 tiles** pays:
 
-|Movement Ring|Distance|AP Cost|
-|---|---|---|
-|Standard Ring|1–2 tiles|1 AP|
-|Extended Ring|3–4 tiles|2 AP|
+| Movement Ring | Distance  | AP Cost |
+| ------------- | --------- | ------- |
+| Standard Ring | 1–2 tiles | 1 AP    |
+| Extended Ring | 3–4 tiles | 2 AP    |
 
 Different Pokémon have different movement characteristics:
 
@@ -408,14 +410,14 @@ Wild Pokémon are the primary enemies. Each species should have a distinctive co
 
 ## Enemy Examples
 
-|Enemy|Movement / Combat Behavior|
-|---|---|
-|Rattata|Ordinary ground movement|
-|Diglett|Can burrow underground and pass beneath walls, but cannot burrow through a moat|
-|Zubat|Flies over ground obstacles and walls|
-|Geodude|Can break certain destructible obstacles|
-|Abra|Can teleport past obstacles|
-|Tentacool|Can travel through water and aquatic terrain|
+| Enemy     | Movement / Combat Behavior                                                      |
+| --------- | ------------------------------------------------------------------------------- |
+| Rattata   | Ordinary ground movement                                                        |
+| Diglett   | Can burrow underground and pass beneath walls, but cannot burrow through a moat |
+| Zubat     | Flies over ground obstacles and walls                                           |
+| Geodude   | Can break certain destructible obstacles                                        |
+| Abra      | Can teleport past obstacles                                                     |
+| Tentacool | Can travel through water and aquatic terrain                                    |
 
 ## Enemy Design Philosophy
 
@@ -438,8 +440,8 @@ Waves are generated procedurally from a **strength budget** rather than hand-aut
 
 ### Wave Themes and Cadence
 
-- **Standard Waves (Regular Waves):** Draw from the map's biome pool using light sub-flavors (such as *Balanced*, *Vanguard*, or *Skirmish*) and varied spawn pacing (steady streams, surges, or multi-zone splits).
-- **Difficult Theme Waves (Every 5th Wave):** Roll a specialized theme (such as *Swarm*, *Air Raid*, *Siege*, or *Tunnelers*) that heavily weights one archetype, avoiding back-to-back repeats.
+- **Standard Waves (Regular Waves):** Draw from the map's biome pool using light sub-flavors (such as _Balanced_, _Vanguard_, or _Skirmish_) and varied spawn pacing (steady streams, surges, or multi-zone splits).
+- **Difficult Theme Waves (Every 5th Wave):** Roll a specialized theme (such as _Swarm_, _Air Raid_, _Siege_, or _Tunnelers_) that heavily weights one archetype, avoiding back-to-back repeats.
 - **Boss Waves (Every 10th Wave):** Feature a curated boss encounter from the map's boss pool, accompanied by support enemies.
 
 Upcoming wave themes and active spawn zones are **telegraphed during the preparation phase** so players can adapt their walls, roster, and positioning.
@@ -466,6 +468,7 @@ Each run should produce different team compositions and defensive builds.
 Players receive rewards after selected waves or encounters.
 
 Potential reward choices:
+
 - Pokémon upgrades.
 - Global artifacts.
 - Held items.
@@ -481,6 +484,7 @@ The player generally chooses from three randomized options.
 Players can recruit additional Pokémon throughout a run. New recruits fill any open active slots (up to 6) and then expand the 6-slot reserve roster, allowing players to adapt their team for upcoming waves and bosses.
 
 Potential recruitment methods:
+
 - Choose one of three random Pokémon after an encounter.
 - Complete special encounters.
 - Defeat elite enemies or bosses.
@@ -621,13 +625,13 @@ Maps are organized by **intrinsic difficulty** (e.g., Beginner, Intermediate, Ad
 
 Potential map mechanics:
 
-|Map|Unique Mechanics|
-|---|---|
-|Forest|Dense vegetation, multiple approaches, restricted visibility|
-|Cave|Narrow passages, destructible rocks, limited construction space|
-|Power Plant|Electrical hazards and interactive generators|
-|Water Route|Water channels, aquatic movement, bridges|
-|Ruins|Ancient mechanisms, switches, movable barriers|
+| Map         | Unique Mechanics                                                |
+| ----------- | --------------------------------------------------------------- |
+| Forest      | Dense vegetation, multiple approaches, restricted visibility    |
+| Cave        | Narrow passages, destructible rocks, limited construction space |
+| Power Plant | Electrical hazards and interactive generators                   |
+| Water Route | Water channels, aquatic movement, bridges                       |
+| Ruins       | Ancient mechanisms, switches, movable barriers                  |
 
 Different maps should encourage different defensive layouts and Pokémon compositions.
 
