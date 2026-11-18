@@ -72,24 +72,21 @@ export function getEffectiveMoveRange(
 }
 
 /**
- * Returns the AP cost to move from (fromX, fromY) to (toX, toY), or null if out of range / same tile.
- * During PREP phase, any reachable tile within 2x move range (or whole map) costs 0 AP;
- * during COMBAT, Standard Ring (<= moveRange) costs 1 AP and Extended Ring (<= 2 * moveRange) costs 2 AP.
+ * Returns the AP cost to move from (fromX, fromY) to (toX, toY), or null if same tile.
+ * During PREP phase, any reachable tile costs 0 AP;
+ * during COMBAT, moving to any valid tile costs 1 AP.
  */
 export function getMovementCost(
   fromX: number,
   fromY: number,
   toX: number,
   toY: number,
-  moveRange: number,
+  _moveRange: number,
   phase: GamePhase,
 ): number | null {
-  const dist = chebyshevDist(fromX, fromY, toX, toY);
-  if (dist === 0) return null;
+  if (fromX === toX && fromY === toY) return null;
   if (phase === 'PREP') return 0;
-  if (dist <= moveRange) return 1;
-  if (dist <= moveRange * 2) return 2;
-  return null;
+  return 1;
 }
 
 export function getEffectiveMaxHp(
