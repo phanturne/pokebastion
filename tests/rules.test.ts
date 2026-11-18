@@ -38,7 +38,6 @@ describe('Game Rules, AP Movement & Economy', () => {
 
   it('applies upgrades and artifacts to unit & structure stats', () => {
     expect(getEffectiveMoveRange(2, [])).toBe(2);
-    expect(getEffectiveMoveRange(2, ['swift_boots'])).toBe(3);
 
     expect(getEffectiveMaxHp('0025', [])).toBe(140);
     expect(getEffectiveMaxHp('0025', ['thick_hide'])).toBe(

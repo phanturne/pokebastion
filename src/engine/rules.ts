@@ -61,14 +61,10 @@ export function chebyshevDist(
 
 export function getEffectiveMoveRange(
   baseMoveRange: number,
-  upgrades: string[],
+  _upgrades: string[],
   branch?: PokemonBranch,
 ): number {
-  return (
-    baseMoveRange +
-    (upgrades.includes('swift_boots') ? 1 : 0) +
-    (branch?.moveRangeBonus ?? 0)
-  );
+  return baseMoveRange + (branch?.moveRangeBonus ?? 0);
 }
 
 /**
