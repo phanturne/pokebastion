@@ -7,16 +7,12 @@ export type GamePhase = 'PREP' | 'COMBAT' | 'REWARD' | 'VICTORY' | 'DEFEAT';
 export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn' | 'tree';
 
 export type PokemonClass =
-  | 'Defender'
-  | 'Brawler'
-  | 'Marksman'
-  | 'Blaster'
-  | 'Support'
-  | 'Specialist';
+  'Defender' | 'Brawler' | 'Marksman' | 'Blaster' | 'Support' | 'Specialist';
 
 export type MovementType = 'ground' | 'burrow' | 'fly';
 
-export type StructureKind = 'wood_wall' | 'stone_wall' | 'berry_bush' | 'barrel';
+export type StructureKind =
+  'wood_wall' | 'stone_wall' | 'berry_bush' | 'barrel';
 
 export interface PokemonSpecies {
   id: string; // PMDCollab 4-digit ID e.g. '0025'

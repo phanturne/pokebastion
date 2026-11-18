@@ -33,7 +33,13 @@
         height: 100%;
         background: var(--bg);
         color: var(--text);
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
         font-size: 13px;
         line-height: 1.4;
         overflow: auto;
@@ -243,7 +249,10 @@
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
-        transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+        transition:
+          background 0.12s,
+          border-color 0.12s,
+          opacity 0.12s;
       }
 
       .btn:hover:not(:disabled) {
@@ -255,7 +264,7 @@
       .tool-btn:focus-visible,
       .unit-chip:focus-visible,
       .reward-card:focus-visible,
-      input[type="checkbox"]:focus-visible {
+      input[type='checkbox']:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
@@ -375,7 +384,9 @@
         border-radius: 6px;
         color: var(--text);
         cursor: pointer;
-        transition: border-color 0.12s, background 0.12s;
+        transition:
+          border-color 0.12s,
+          background 0.12s;
       }
 
       .tool-btn:hover {
@@ -777,7 +788,9 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
-        transition: border-color 0.12s, transform 0.12s;
+        transition:
+          border-color 0.12s,
+          transform 0.12s;
       }
 
       .reward-card:hover {

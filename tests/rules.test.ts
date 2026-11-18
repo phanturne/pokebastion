@@ -37,16 +37,24 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(getEffectiveMoveRange(2, ['swift_boots'])).toBe(3);
 
     expect(getEffectiveMaxHp('0025', [])).toBe(140);
-    expect(getEffectiveMaxHp('0025', ['thick_hide'])).toBe(Math.round(140 * 1.3));
+    expect(getEffectiveMaxHp('0025', ['thick_hide'])).toBe(
+      Math.round(140 * 1.3),
+    );
 
     expect(getEffectiveAtk('0025', [])).toBe(26);
-    expect(getEffectiveAtk('0025', ['sharp_claws'], true)).toBe(Math.round(26 * 1.35));
+    expect(getEffectiveAtk('0025', ['sharp_claws'], true)).toBe(
+      Math.round(26 * 1.35),
+    );
 
     expect(getEffectiveAttackIntervalMs('0025', [])).toBe(900);
     expect(getEffectiveAttackIntervalMs('0025', ['arcane_conduit'])).toBe(720);
 
-    expect(getEffectiveStructureMaxHp('wood_wall', ['fortification_core'])).toBe(168);
-    expect(getEffectiveStructureMaxHp('berry_bush', ['fortification_core'])).toBe(150);
+    expect(
+      getEffectiveStructureMaxHp('wood_wall', ['fortification_core']),
+    ).toBe(168);
+    expect(
+      getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
+    ).toBe(150);
   });
 
   it('calculates sell refunds, repair costs, and AP/bounty artifacts', () => {
@@ -55,12 +63,21 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(getRepairCost('stone_wall', 150, 300)).toBe(13); // proportional 50% missing
     expect(getRepairCost('stone_wall', 300, 300)).toBe(0);
     expect(getApKillThreshold([])).toBe(BASE_AP_KILL_THRESHOLD);
-    expect(getApKillThreshold(['temporal_gear'])).toBe(TEMPORAL_GEAR_KILL_THRESHOLD);
+    expect(getApKillThreshold(['temporal_gear'])).toBe(
+      TEMPORAL_GEAR_KILL_THRESHOLD,
+    );
     expect(getBountyGold(20, ['commanders_insignia'])).toBe(25);
   });
 
   it('generates 3 unique reward choices without duplicating owned upgrades/artifacts', () => {
-    const ownedSpecies = new Set(['0025', '0004', '0001', '0143', '0007', '0074']);
+    const ownedSpecies = new Set([
+      '0025',
+      '0004',
+      '0001',
+      '0143',
+      '0007',
+      '0074',
+    ]);
     const choices = generateRewardChoices(
       ownedSpecies,
       ['sharp_claws'],

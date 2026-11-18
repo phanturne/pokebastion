@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { BattleScene } from '../scenes/BattleScene';
 import { POKEMON_SPECIES, REWARD_POOL, STRUCTURE_SPECS } from '../data/pokemon';
 import {
   HEAL_COST,
@@ -91,8 +92,8 @@ export class HudOverlay {
     this.game.events.on('snapshot', (snap: GameSnapshot) => this.render(snap));
   }
 
-  private scene(): any {
-    return this.game.scene.getScene('BattleScene') as any;
+  private scene(): BattleScene | undefined {
+    return this.game.scene.getScene('BattleScene') as BattleScene | undefined;
   }
 
   private cancelActiveAction(): void {
@@ -108,7 +109,9 @@ export class HudOverlay {
 
   private bindEvents(): void {
     const onClick = (ev: Event) => {
-      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-action]');
+      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+        '[data-action]',
+      );
       if (!target) return;
       const action = target.dataset.action;
       const id = target.dataset.id ?? '';
@@ -141,7 +144,9 @@ export class HudOverlay {
           break;
         case 'select-tool': {
           const tool = id as ToolId;
-          scene.selectTool?.(this.lastSnap?.selectedTool === tool ? null : tool);
+          scene.selectTool?.(
+            this.lastSnap?.selectedTool === tool ? null : tool,
+          );
           break;
         }
         case 'repair-struct':
@@ -177,7 +182,8 @@ export class HudOverlay {
           break;
         case 'swap-reserve': {
           const activeUid =
-            this.lastSnap?.selectedUnitUid ?? this.lastSnap?.activeUnits[0]?.uid;
+            this.lastSnap?.selectedUnitUid ??
+            this.lastSnap?.activeUnits[0]?.uid;
           if (activeUid) scene.swapReserve?.(activeUid, id);
           break;
         }
@@ -198,7 +204,9 @@ export class HudOverlay {
     };
 
     const onToolEnter = (ev: Event) => {
-      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-tool-tip]');
+      const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+        '[data-tool-tip]',
+      );
       if (!target) return;
       const tipId = target.dataset.toolTip as ToolId | undefined;
       if (tipId && tipId !== this.hoveredTool) {
@@ -209,11 +217,13 @@ export class HudOverlay {
 
     const onToolLeave = (ev: Event) => {
       const mouseOrFocus = ev as MouseEvent | FocusEvent;
-      const leaving = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-tool-tip]');
-      if (!leaving) return;
-      const next = (mouseOrFocus.relatedTarget as HTMLElement | null)?.closest<HTMLElement>(
+      const leaving = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
         '[data-tool-tip]',
       );
+      if (!leaving) return;
+      const next = (
+        mouseOrFocus.relatedTarget as HTMLElement | null
+      )?.closest<HTMLElement>('[data-tool-tip]');
       if (!next && this.hoveredTool !== null) {
         this.hoveredTool = null;
         this.updateShopTooltip();
@@ -322,7 +332,9 @@ export class HudOverlay {
       parts.push(activeModeBar);
     }
 
-    parts.push(`<div class="status-banner">${escapeHtml(snap.statusMessage || 'Ready.')}</div>`);
+    parts.push(
+      `<div class="status-banner">${escapeHtml(snap.statusMessage || 'Ready.')}</div>`,
+    );
 
     if (snap.phase === 'PREP') {
       parts.push(`
@@ -353,7 +365,9 @@ export class HudOverlay {
 
   private renderActiveModeBar(snap: GameSnapshot): string {
     if (snap.aimingUltUnitUid !== null) {
-      const aimingUnit = snap.activeUnits.find((u) => u.uid === snap.aimingUltUnitUid);
+      const aimingUnit = snap.activeUnits.find(
+        (u) => u.uid === snap.aimingUltUnitUid,
+      );
       const sp = aimingUnit ? POKEMON_SPECIES[aimingUnit.speciesId] : null;
       const ultName = sp ? sp.ultName : 'Ultimate';
       return `
@@ -366,7 +380,7 @@ export class HudOverlay {
 
     if (snap.selectedTool === null) return '';
 
-    let text = '';
+    let text: string;
     let barClass = 'active-mode-bar';
     if (snap.selectedTool === 'move_struct') {
       text = 'Moving Structure — Click structure, then grass tile';
@@ -463,9 +477,12 @@ export class HudOverlay {
       .join('');
 
     const moveActive = snap.selectedTool === 'move_struct' ? 'active' : '';
-    const sellActive = snap.selectedTool === 'sell_struct' ? 'active-danger' : '';
+    const sellActive =
+      snap.selectedTool === 'sell_struct' ? 'active-danger' : '';
 
-    const damagedStructs = snap.structures.filter((s) => s.ruined || s.hp < s.maxHp);
+    const damagedStructs = snap.structures.filter(
+      (s) => s.ruined || s.hp < s.maxHp,
+    );
     const totalRepairCost = damagedStructs.reduce(
       (sum, s) => sum + getRepairCost(s.kind, s.hp, s.maxHp),
       0,
@@ -532,8 +549,10 @@ export class HudOverlay {
     const spec = STRUCTURE_SPECS[struct.kind];
     const hpPct = pct(struct.hp, struct.maxHp).toFixed(1);
     const repairCost = getRepairCost(struct.kind, struct.hp, struct.maxHp);
-    const needsRepair = (struct.ruined || struct.hp < struct.maxHp) && repairCost > 0;
-    const canRepair = snap.phase === 'PREP' && needsRepair && snap.gold >= repairCost;
+    const needsRepair =
+      (struct.ruined || struct.hp < struct.maxHp) && repairCost > 0;
+    const canRepair =
+      snap.phase === 'PREP' && needsRepair && snap.gold >= repairCost;
     const isBarrel = struct.kind === 'barrel' && !struct.ruined;
     const showDetonate = isBarrel && snap.phase === 'COMBAT';
 
@@ -574,10 +593,7 @@ export class HudOverlay {
     `;
   }
 
-  private renderSelectedPokemon(
-    snap: GameSnapshot,
-    unit: ActiveUnit,
-  ): string {
+  private renderSelectedPokemon(snap: GameSnapshot, unit: ActiveUnit): string {
     const species = POKEMON_SPECIES[unit.speciesId];
     if (!species) return '';
 
@@ -605,7 +621,10 @@ export class HudOverlay {
     const mov = getEffectiveMoveRange(species.moveRange, snap.upgrades);
 
     const canHeal =
-      snap.phase === 'PREP' && !unit.fainted && unit.hp < unit.maxHp && snap.gold >= HEAL_COST;
+      snap.phase === 'PREP' &&
+      !unit.fainted &&
+      unit.hp < unit.maxHp &&
+      snap.gold >= HEAL_COST;
     const canRevive =
       snap.phase === 'PREP' && unit.fainted && snap.gold >= REVIVE_COST;
 
@@ -751,7 +770,8 @@ export class HudOverlay {
     const selectedActive =
       snap.activeUnits.find((u) => u.uid === snap.selectedUnitUid) ?? null;
     const selectedActiveName = selectedActive
-      ? (POKEMON_SPECIES[selectedActive.speciesId]?.name ?? selectedActive.speciesId)
+      ? (POKEMON_SPECIES[selectedActive.speciesId]?.name ??
+        selectedActive.speciesId)
       : null;
     const canSwap = snap.phase === 'PREP' && Boolean(selectedActive);
 
