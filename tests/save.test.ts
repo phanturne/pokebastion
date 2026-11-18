@@ -49,4 +49,62 @@ describe('PlayerSave & Unlock State', () => {
     const save = loadPlayerSave(corruptStorage);
     expect(getUnlockedIds(save).sort()).toEqual(['0001', '0004', '0007']);
   });
+
+  it('handles null/missing storage, invalid schemas, starter protection, throwing setItem, and custom starters', () => {
+    // null storage and missing key
+    expect(getUnlockedIds(loadPlayerSave(null)).sort()).toEqual([
+      '0001',
+      '0004',
+      '0007',
+    ]);
+    expect(
+      getUnlockedIds(loadPlayerSave({ getItem: () => null })).sort(),
+    ).toEqual(['0001', '0004', '0007']);
+
+    // wrong version & non-object pokemon
+    expect(
+      getUnlockedIds(
+        loadPlayerSave({
+          getItem: () => JSON.stringify({ version: 2, pokemon: {} }),
+        }),
+      ).sort(),
+    ).toEqual(['0001', '0004', '0007']);
+    expect(
+      getUnlockedIds(
+        loadPlayerSave({
+          getItem: () => JSON.stringify({ version: 1, pokemon: 'bad' }),
+        }),
+      ).sort(),
+    ).toEqual(['0001', '0004', '0007']);
+
+    // invalid entry ignored & starter unlocked: false cannot lock a starter
+    const withInvalid = loadPlayerSave({
+      getItem: () =>
+        JSON.stringify({
+          version: 1,
+          pokemon: {
+            '0001': { unlocked: false },
+            '0025': 'invalid_entry',
+            '0150': { unlocked: true, shiny: true },
+          },
+        }),
+    });
+    expect(isPokemonUnlocked(withInvalid, '0001')).toBe(true);
+    expect(isPokemonUnlocked(withInvalid, '0025')).toBe(false);
+    expect(isPokemonUnlocked(withInvalid, '0150')).toBe(true);
+
+    // persistPlayerSave with null storage or throwing setItem
+    expect(() => persistPlayerSave(withInvalid, null)).not.toThrow();
+    expect(() =>
+      persistPlayerSave(withInvalid, {
+        setItem: () => {
+          throw new Error('QuotaExceededError');
+        },
+      }),
+    ).not.toThrow();
+
+    // createDefaultSave with custom starters
+    const custom = createDefaultSave(['0025', '0150']);
+    expect(getUnlockedIds(custom).sort()).toEqual(['0025', '0150']);
+  });
 });

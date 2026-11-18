@@ -3,6 +3,7 @@ import { POKEMON_SPECIES, REWARD_POOL } from '../src/data/pokemon';
 import {
   BASE_AP_KILL_THRESHOLD,
   DRAFT_BUDGET,
+  MAX_ACTIVE_UNITS,
   TEMPORAL_GEAR_KILL_THRESHOLD,
   canDraftSpecies,
   chebyshevDist,
@@ -210,5 +211,77 @@ describe('Game Rules, AP Movement & Economy', () => {
       [{ uid: 'u1', speciesId: '0007' }],
     );
     expect(withBranch.some((c) => c.kind === 'branch')).toBe(true);
+    expect(withBranch).toHaveLength(3);
+  });
+
+  it('covers moveRange branch bonus, attackInterval stacking, def/range fallbacks, draft limits, and minor upgrade deduplication', () => {
+    // getEffectiveMoveRange with branch.moveRangeBonus + matching minor upgrade
+    expect(
+      getEffectiveMoveRange(
+        2,
+        ['specialist_nimble_step'],
+        { id: 'test_b', name: 'Test', desc: 'Test', moveRangeBonus: 2 },
+        '0094',
+      ),
+    ).toBe(5);
+
+    // getEffectiveAttackIntervalMs with artifact + branch.attackIntervalMult + heldItems
+    expect(
+      getEffectiveAttackIntervalMs(
+        '0448',
+        ['arcane_conduit'],
+        'lucario_steel',
+        ['storm_conductor'],
+      ),
+    ).toBe(Math.round(850 * 0.8 * 0.8 * 0.87));
+
+    // getEffectiveRange & getEffectiveDef stacking + unknown speciesId fallbacks
+    expect(getEffectiveRange('9999')).toBe(1);
+    expect(getEffectiveDef('9999')).toBe(0);
+    expect(
+      getEffectiveDef(
+        '0007',
+        'squirtle_bastion',
+        ['guardian_charm'],
+        ['defender_iron_plate'],
+      ),
+    ).toBe(18 + 8 + 5 + 5);
+    expect(
+      getEffectiveRange('0448', 'lucario_sphere', ['marksman_eagle_eye']),
+    ).toBe(2); // marksman_eagle_eye does not apply to Brawler Lucario
+
+    // canDraftSpecies at MAX_ACTIVE_UNITS and unknown speciesId, plus getDraftCost unknown
+    expect(
+      canDraftSpecies(
+        ['0007', '0004', '0001', '0025', '0074', '0143'],
+        '0094',
+        100,
+        MAX_ACTIVE_UNITS,
+      ),
+    ).toBe(false);
+    expect(canDraftSpecies([], '9999')).toBe(false);
+    expect(getDraftCost(['9999', '0007'])).toBe(3);
+
+    // getRepairCost negative HP clamping
+    expect(getRepairCost('stone_wall', -50, 300)).toBe(25);
+
+    // generateRewardChoices minor upgrade deduplication across multiple same-class species
+    const allSpecies = new Set(Object.keys(POKEMON_SPECIES));
+    const allBaseUpgrades = REWARD_POOL.filter((r) => r.kind === 'upgrade').map(
+      (r) => r.id,
+    );
+    const allBaseArtifacts = REWARD_POOL.filter(
+      (r) => r.kind === 'artifact',
+    ).map((r) => r.id);
+    const deduped = generateRewardChoices(
+      allSpecies,
+      allBaseUpgrades,
+      allBaseArtifacts,
+      () => 0.3,
+      [],
+      true,
+    );
+    expect(deduped).toHaveLength(3);
+    expect(new Set(deduped.map((c) => c.id)).size).toBe(3);
   });
 });

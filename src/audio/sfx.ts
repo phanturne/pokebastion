@@ -104,33 +104,52 @@ const SPECIES_ULT_SFX: Record<string, SfxKey> = {
   '0448': 'ult_melee',
 };
 
-export function getSpeciesAttackSfx(speciesId: string): SfxKey {
-  const mapped = SPECIES_ATTACK_SFX[speciesId];
-  if (mapped) return mapped;
-  const vfx = POKEMON_SPECIES[speciesId]?.basicVfx ?? '';
-  if (vfx.includes('lightning')) return 'atk_electric';
-  if (vfx.includes('fire') || vfx.includes('explosion')) return 'atk_fire';
-  if (vfx.includes('water')) return 'atk_water';
-  if (
-    vfx.includes('shadow') ||
-    vfx.includes('nature') ||
-    vfx.includes('holy')
-  ) {
-    return 'atk_magic';
+const ATTACK_VFX_RULES: ReadonlyArray<[readonly string[], SfxKey]> = [
+  [['lightning'], 'atk_electric'],
+  [['fire', 'explosion'], 'atk_fire'],
+  [['water'], 'atk_water'],
+  [['shadow', 'nature', 'holy'], 'atk_magic'],
+];
+
+const ULT_VFX_RULES: ReadonlyArray<[readonly string[], SfxKey]> = [
+  [['lightning'], 'ult_electric'],
+  [['fire', 'explosion'], 'ult_fire'],
+  [['water'], 'ult_water'],
+  [['heal'], 'ult_heal'],
+  [['rock', 'boulder'], 'crumble'],
+];
+
+function matchVfxSfx(
+  vfx: string,
+  rules: ReadonlyArray<[readonly string[], SfxKey]>,
+  fallback: SfxKey,
+): SfxKey {
+  for (const [tokens, sfx] of rules) {
+    if (tokens.some((t) => vfx.includes(t))) return sfx;
   }
-  return 'atk_melee';
+  return fallback;
+}
+
+export function getSpeciesAttackSfx(speciesId: string): SfxKey {
+  return (
+    SPECIES_ATTACK_SFX[speciesId] ??
+    matchVfxSfx(
+      POKEMON_SPECIES[speciesId]?.basicVfx ?? '',
+      ATTACK_VFX_RULES,
+      'atk_melee',
+    )
+  );
 }
 
 export function getSpeciesUltSfx(speciesId: string): SfxKey {
-  const mapped = SPECIES_ULT_SFX[speciesId];
-  if (mapped) return mapped;
-  const vfx = POKEMON_SPECIES[speciesId]?.ultVfx ?? '';
-  if (vfx.includes('lightning')) return 'ult_electric';
-  if (vfx.includes('fire') || vfx.includes('explosion')) return 'ult_fire';
-  if (vfx.includes('water')) return 'ult_water';
-  if (vfx.includes('heal')) return 'ult_heal';
-  if (vfx.includes('rock') || vfx.includes('boulder')) return 'crumble';
-  return 'ult_melee';
+  return (
+    SPECIES_ULT_SFX[speciesId] ??
+    matchVfxSfx(
+      POKEMON_SPECIES[speciesId]?.ultVfx ?? '',
+      ULT_VFX_RULES,
+      'ult_melee',
+    )
+  );
 }
 
 export class SfxPlayer {

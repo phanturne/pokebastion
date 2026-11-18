@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",

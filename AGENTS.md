@@ -17,9 +17,22 @@ npm run lint
 npm run format:check
 npm test
 npm run build
+npm run test:e2e   # Playwright browser smoke suite (when changing UI, Phaser scenes, or combat flow)
 ```
 
 - Husky's `.husky/pre-commit` runs `npx lint-staged` (`eslint --fix` + `prettier --write`) on staged files.
+
+## Testing Guidelines (3-Layer Pyramid)
+
+When adding new Pokémon, items, artifacts, maps, or combat mechanics:
+
+1. **Unit Tests (`tests/`, Vitest):**
+   - Put all stat math, damage/effect formulas, pathfinding, economy, and save logic as pure functions in `src/engine/` (`combat.ts`, `rules.ts`, `pathfinding.ts`, `save.ts`) with zero Phaser/DOM imports.
+   - Verify every new item, artifact, branch special, and unit/enemy formula with deterministic table-driven Vitest tests (e.g., `tests/combat.test.ts`, `tests/rules.test.ts`).
+2. **Data & Manifest Integrity (`tests/dataIntegrity.test.ts`):**
+   - Every new species, enemy, VFX, and audio key must pass `tests/dataIntegrity.test.ts` (valid manifests, finite positive stats, unique IDs, valid SFX/VFX mappings).
+3. **E2E Smoke Tests (`e2e/`, Playwright):**
+   - Do **not** write an E2E test per Pokémon or per item. Keep `e2e/game.spec.ts` focused on one smoke test per integration hook (boot/modals, draft/build/shop/inspector, wave combat → reward, 1 AP walk/defeat/restart/save) with `pageerror` and `console.error` guards.
 
 ## Architecture & Coding Conventions
 
