@@ -9,18 +9,20 @@ const game = new Phaser.Game({
   pixelArt: true,
   backgroundColor: '#11161d',
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 896,
-    height: 576,
-    expandParent: false,
+    mode: Phaser.Scale.RESIZE,
+    width: window.innerWidth,
+    height: window.innerHeight,
   },
   scene: [BootScene, BattleScene],
 });
 
 const host = document.getElementById('phaser-host');
 if (host && typeof ResizeObserver !== 'undefined') {
-  new ResizeObserver(() => game.scale.refresh()).observe(host);
+  new ResizeObserver(() => {
+    if (host.clientWidth > 0 && host.clientHeight > 0) {
+      game.scale.resize(host.clientWidth, host.clientHeight);
+    }
+  }).observe(host);
 }
 
 new HudOverlay(game);

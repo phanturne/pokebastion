@@ -3,12 +3,59 @@ export const GRID_ROWS = 18;
 export const TILE_SIZE = 32;
 
 export type GamePhase =
-  'DRAFT' | 'PREP' | 'COMBAT' | 'REWARD' | 'VICTORY' | 'DEFEAT';
+  | 'HOME'
+  | 'MAP_SELECT'
+  | 'DRAFT'
+  | 'PREP'
+  | 'COMBAT'
+  | 'REWARD'
+  | 'VICTORY'
+  | 'DEFEAT';
+
+export type MapDifficulty = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
 
 export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn' | 'tree';
 
 export type PokemonClass =
   'Defender' | 'Brawler' | 'Marksman' | 'Blaster' | 'Support' | 'Specialist';
+
+export type PokemonSubclass =
+  | 'Bastion'
+  | 'Wallguard'
+  | 'Juggernaut'
+  | 'Duelist'
+  | 'Cleave'
+  | 'Interceptor'
+  | 'Sniper'
+  | 'Rapid-Fire'
+  | 'Artillery'
+  | 'Elemental AoE'
+  | 'Chain'
+  | 'Status'
+  | 'Healer'
+  | 'Buffer'
+  | 'Tactician'
+  | 'Hazard Setter'
+  | 'Displacer'
+  | 'Ambusher';
+
+export type PokemonRarity =
+  'Common' | 'Uncommon' | 'Rare' | 'Epic' | 'Legendary';
+
+export interface MinorUpgradeSpec {
+  id: string;
+  title: string;
+  desc: string;
+  targetClass: PokemonClass;
+  targetSubclass?: PokemonSubclass;
+  hpMult?: number;
+  atkMult?: number;
+  defBonus?: number;
+  rangeBonus?: number;
+  attackIntervalMult?: number;
+  moveRangeBonus?: number;
+  ultChargeMult?: number;
+}
 
 export type MovementType = 'ground' | 'burrow' | 'fly';
 
@@ -38,6 +85,8 @@ export interface PokemonBranch {
 export interface HeldItemSpec {
   id: string;
   name: string;
+  rarity?: PokemonRarity;
+  spriteSlug?: string;
   cost: number;
   desc: string;
   atkMult?: number;
@@ -47,10 +96,22 @@ export interface HeldItemSpec {
   special?: 'bloodthirsty' | 'storm_conductor' | 'guardian_charm';
 }
 
+export interface ArtifactSpec {
+  id: string;
+  name: string;
+  rarity: PokemonRarity;
+  spriteSlug: string;
+  desc: string;
+  targetClass?: PokemonClass;
+}
+
 export interface PokemonSpecies {
   id: string; // PMDCollab 4-digit ID e.g. '0025'
   name: string;
+  rarity?: PokemonRarity;
   pokeClass: PokemonClass;
+  secondaryClass?: PokemonClass;
+  subclass?: PokemonSubclass;
   draftCost: number;
   unlockedStarter?: boolean;
   color: string;
@@ -135,6 +196,7 @@ export interface RewardOption {
   desc: string;
   speciesId?: string;
   unitUid?: string;
+  targetClass?: PokemonClass;
 }
 
 export interface GameSnapshot {
@@ -156,6 +218,8 @@ export interface GameSnapshot {
   activeUnits: ActiveUnit[];
   reserveIds: string[];
   draftIds: string[];
+  unlockedIds: string[];
+  selectedMapId: string;
   draftBudget: number;
   heldItemInventory: string[];
   structures: GridStructure[];

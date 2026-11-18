@@ -1,0 +1,408 @@
+import { ArtifactSpec, HeldItemSpec, PokemonRarity } from '../types';
+
+export type CatalogHeldItemSpec = HeldItemSpec & {
+  rarity: PokemonRarity;
+  spriteSlug: string;
+};
+
+/**
+ * Full Held Item catalog (24 items across Common -> Legendary).
+ * `spriteSlug` maps directly to PokeAPI / PokéSprite item filenames (`<slug>.png`).
+ */
+export const HELD_ITEM_CATALOG: Record<string, CatalogHeldItemSpec> = {
+  // Common (30-40g)
+  muscle_band: {
+    id: 'muscle_band',
+    name: 'Muscle Band',
+    rarity: 'Common',
+    spriteSlug: 'muscle-band',
+    cost: 35,
+    desc: '+10% ATK for physical/melee pressure.',
+    atkMult: 1.1,
+  },
+  wise_glasses: {
+    id: 'wise_glasses',
+    name: 'Wise Glasses',
+    rarity: 'Common',
+    spriteSlug: 'wise-glasses',
+    cost: 35,
+    desc: '+10% ATK for ranged and elemental attacks.',
+    atkMult: 1.1,
+  },
+  iron_plate_vest: {
+    id: 'iron_plate_vest',
+    name: 'Metal Coat',
+    rarity: 'Common',
+    spriteSlug: 'metal-coat',
+    cost: 35,
+    desc: '+5 DEF.',
+    defBonus: 5,
+  },
+  oran_charm: {
+    id: 'oran_charm',
+    name: 'Oran Berry',
+    rarity: 'Common',
+    spriteSlug: 'oran-berry',
+    cost: 30,
+    desc: '+12% Max HP.',
+    hpMult: 1.12,
+  },
+  quick_claw: {
+    id: 'quick_claw',
+    name: 'Quick Claw',
+    rarity: 'Common',
+    spriteSlug: 'quick-claw',
+    cost: 40,
+    desc: '+10% Attack Speed.',
+    attackIntervalMult: 0.91,
+  },
+
+  // Uncommon (45-65g)
+  bloodthirsty_edge: {
+    id: 'bloodthirsty_edge',
+    name: 'Bloodthirsty Edge',
+    rarity: 'Uncommon',
+    spriteSlug: 'razor-fang',
+    cost: 55,
+    desc: '+15% ATK; deals +35% bonus damage to enemies below 50% HP.',
+    atkMult: 1.15,
+    special: 'bloodthirsty',
+  },
+  storm_conductor: {
+    id: 'storm_conductor',
+    name: 'Storm Conductor',
+    rarity: 'Uncommon',
+    spriteSlug: 'magnet',
+    cost: 60,
+    desc: '+15% Attack Speed; basic attacks chain 40% damage to 1 nearby foe.',
+    attackIntervalMult: 0.87,
+    special: 'storm_conductor',
+  },
+  guardian_charm: {
+    id: 'guardian_charm',
+    name: 'Guardian Charm',
+    rarity: 'Uncommon',
+    spriteSlug: 'focus-band',
+    cost: 50,
+    desc: '+20% Max HP, +5 DEF; heals 5% Max HP on wave clear.',
+    hpMult: 1.2,
+    defBonus: 5,
+    special: 'guardian_charm',
+  },
+  expert_belt: {
+    id: 'expert_belt',
+    name: 'Expert Belt',
+    rarity: 'Uncommon',
+    spriteSlug: 'expert-belt',
+    cost: 55,
+    desc: '+18% ATK.',
+    atkMult: 1.18,
+  },
+  rocky_helmet: {
+    id: 'rocky_helmet',
+    name: 'Rocky Helmet',
+    rarity: 'Uncommon',
+    spriteSlug: 'rocky-helmet',
+    cost: 55,
+    desc: '+8 DEF and +10% Max HP.',
+    defBonus: 8,
+    hpMult: 1.1,
+  },
+  shell_bell: {
+    id: 'shell_bell',
+    name: 'Shell Bell',
+    rarity: 'Uncommon',
+    spriteSlug: 'shell-bell',
+    cost: 50,
+    desc: '+15% Max HP and +8% Attack Speed.',
+    hpMult: 1.15,
+    attackIntervalMult: 0.93,
+  },
+
+  // Rare (70-90g)
+  choice_band: {
+    id: 'choice_band',
+    name: 'Choice Band',
+    rarity: 'Rare',
+    spriteSlug: 'choice-band',
+    cost: 80,
+    desc: '+28% ATK.',
+    atkMult: 1.28,
+  },
+  choice_scarf: {
+    id: 'choice_scarf',
+    name: 'Choice Scarf',
+    rarity: 'Rare',
+    spriteSlug: 'choice-scarf',
+    cost: 80,
+    desc: '+25% Attack Speed.',
+    attackIntervalMult: 0.8,
+  },
+  assault_vest: {
+    id: 'assault_vest',
+    name: 'Assault Vest',
+    rarity: 'Rare',
+    spriteSlug: 'assault-vest',
+    cost: 85,
+    desc: '+25% Max HP and +10 DEF.',
+    hpMult: 1.25,
+    defBonus: 10,
+  },
+  scope_lens: {
+    id: 'scope_lens',
+    name: 'Scope Lens',
+    rarity: 'Rare',
+    spriteSlug: 'scope-lens',
+    cost: 75,
+    desc: '+18% ATK and +12% Attack Speed.',
+    atkMult: 1.18,
+    attackIntervalMult: 0.89,
+  },
+  eviolite: {
+    id: 'eviolite',
+    name: 'Eviolite',
+    rarity: 'Rare',
+    spriteSlug: 'eviolite',
+    cost: 75,
+    desc: '+22% Max HP and +12 DEF.',
+    hpMult: 1.22,
+    defBonus: 12,
+  },
+  leftovers: {
+    id: 'leftovers',
+    name: 'Leftovers',
+    rarity: 'Rare',
+    spriteSlug: 'leftovers',
+    cost: 80,
+    desc: '+30% Max HP; restores HP between waves.',
+    hpMult: 1.3,
+    special: 'guardian_charm',
+  },
+
+  // Epic (95-120g)
+  life_orb: {
+    id: 'life_orb',
+    name: 'Life Orb',
+    rarity: 'Epic',
+    spriteSlug: 'life-orb',
+    cost: 110,
+    desc: '+35% ATK and +15% Attack Speed.',
+    atkMult: 1.35,
+    attackIntervalMult: 0.87,
+  },
+  kings_rock: {
+    id: 'kings_rock',
+    name: "King's Rock",
+    rarity: 'Epic',
+    spriteSlug: 'kings-rock',
+    cost: 105,
+    desc: '+20% ATK, +20% Attack Speed, and chain shock.',
+    atkMult: 1.2,
+    attackIntervalMult: 0.83,
+    special: 'storm_conductor',
+  },
+  weakness_policy: {
+    id: 'weakness_policy',
+    name: 'Weakness Policy',
+    rarity: 'Epic',
+    spriteSlug: 'weakness-policy',
+    cost: 105,
+    desc: '+25% ATK, +20% Max HP, and +35% execute damage.',
+    atkMult: 1.25,
+    hpMult: 1.2,
+    special: 'bloodthirsty',
+  },
+  focus_sash: {
+    id: 'focus_sash',
+    name: 'Focus Sash',
+    rarity: 'Epic',
+    spriteSlug: 'focus-sash',
+    cost: 100,
+    desc: '+35% Max HP and +12 DEF.',
+    hpMult: 1.35,
+    defBonus: 12,
+  },
+
+  // Legendary (140-160g)
+  sacred_crown: {
+    id: 'sacred_crown',
+    name: 'Adamant Orb',
+    rarity: 'Legendary',
+    spriteSlug: 'adamant-orb',
+    cost: 150,
+    desc: '+40% ATK, +25% Attack Speed, and +15% Max HP.',
+    atkMult: 1.4,
+    attackIntervalMult: 0.8,
+    hpMult: 1.15,
+  },
+  lustrous_aegis: {
+    id: 'lustrous_aegis',
+    name: 'Lustrous Orb',
+    rarity: 'Legendary',
+    spriteSlug: 'lustrous-orb',
+    cost: 150,
+    desc: '+45% Max HP, +16 DEF, and +20% ATK.',
+    hpMult: 1.45,
+    defBonus: 16,
+    atkMult: 1.2,
+  },
+  griseous_core: {
+    id: 'griseous_core',
+    name: 'Griseous Core',
+    rarity: 'Legendary',
+    spriteSlug: 'griseous-orb',
+    cost: 160,
+    desc: '+35% ATK, +30% Attack Speed, and chain lightning.',
+    atkMult: 1.35,
+    attackIntervalMult: 0.77,
+    special: 'storm_conductor',
+  },
+};
+
+/**
+ * Full Artifact / Relic catalog (18 team-wide relics across Common -> Legendary).
+ * `spriteSlug` maps directly to PokeAPI / PokéSprite item filenames (`<slug>.png`).
+ */
+export const ARTIFACT_CATALOG: Record<string, ArtifactSpec> = {
+  // Common
+  light_clay: {
+    id: 'light_clay',
+    name: 'Light Clay',
+    rarity: 'Common',
+    spriteSlug: 'light-clay',
+    desc: '+20% Max HP for all allied structures.',
+  },
+  macho_brace: {
+    id: 'macho_brace',
+    name: 'Macho Brace',
+    rarity: 'Common',
+    spriteSlug: 'macho-brace',
+    desc: 'All Brawlers and Defenders gain +10% ATK.',
+    targetClass: 'Brawler',
+  },
+  soothe_bell: {
+    id: 'soothe_bell',
+    name: 'Soothe Bell',
+    rarity: 'Common',
+    spriteSlug: 'soothe-bell',
+    desc: 'All Supports heal +15% more with Ultimates.',
+    targetClass: 'Support',
+  },
+
+  // Uncommon
+  fortification_core: {
+    id: 'fortification_core',
+    name: 'Fortification Core',
+    rarity: 'Uncommon',
+    spriteSlug: 'hard-stone',
+    desc: '+40% Max HP for all structures.',
+  },
+  commanders_insignia: {
+    id: 'commanders_insignia',
+    name: "Commander's Insignia",
+    rarity: 'Uncommon',
+    spriteSlug: 'amulet-coin',
+    desc: '+25% Pokédollar bounties from defeated enemies.',
+  },
+  terrain_extender: {
+    id: 'terrain_extender',
+    name: 'Terrain Extender',
+    rarity: 'Uncommon',
+    spriteSlug: 'terrain-extender',
+    desc: 'All Specialists gain +15% Ult charge rate.',
+    targetClass: 'Specialist',
+  },
+  wide_lens: {
+    id: 'wide_lens',
+    name: 'Wide Lens',
+    rarity: 'Uncommon',
+    spriteSlug: 'wide-lens',
+    desc: 'All Marksmen gain +10% ATK and accuracy.',
+    targetClass: 'Marksman',
+  },
+
+  // Rare
+  temporal_gear: {
+    id: 'temporal_gear',
+    name: 'Temporal Gear',
+    rarity: 'Rare',
+    spriteSlug: 'time-flute',
+    desc: 'Gain +1 AP every 4 enemy kills instead of 6.',
+  },
+  arcane_conduit: {
+    id: 'arcane_conduit',
+    name: 'Arcane Conduit',
+    rarity: 'Rare',
+    spriteSlug: 'spell-tag',
+    desc: '+20% Attack Speed for all allied Pokémon.',
+  },
+  exp_share: {
+    id: 'exp_share',
+    name: 'Exp. Share',
+    rarity: 'Rare',
+    spriteSlug: 'exp-share',
+    desc: 'Allied Pokémon gain +20% faster Ultimate charge.',
+  },
+  heavy_duty_boots: {
+    id: 'heavy_duty_boots',
+    name: 'Heavy-Duty Boots',
+    rarity: 'Rare',
+    spriteSlug: 'heavy-duty-boots',
+    desc: '+1 Move Range for all allied Pokémon during Combat.',
+  },
+  safety_goggles: {
+    id: 'safety_goggles',
+    name: 'Safety Goggles',
+    rarity: 'Rare',
+    spriteSlug: 'safety-goggles',
+    desc: 'All Blasters gain +15% ATK and +10% Max HP.',
+    targetClass: 'Blaster',
+  },
+
+  // Epic
+  loaded_dice: {
+    id: 'loaded_dice',
+    name: 'Loaded Dice',
+    rarity: 'Epic',
+    spriteSlug: 'loaded-dice',
+    desc: 'Chain and multi-hit effects deal +30% bonus damage.',
+  },
+  protective_pads: {
+    id: 'protective_pads',
+    name: 'Protective Pads',
+    rarity: 'Epic',
+    spriteSlug: 'protective-pads',
+    desc: 'All Defenders gain +10 DEF and +20% Max HP.',
+    targetClass: 'Defender',
+  },
+  amulet_coin_relic: {
+    id: 'amulet_coin_relic',
+    name: 'Golden Nugget',
+    rarity: 'Epic',
+    spriteSlug: 'big-nugget',
+    desc: '+50 Pokédollars on wave clear and +15% structure sell refund.',
+  },
+  shiny_charm: {
+    id: 'shiny_charm',
+    name: 'Shiny Charm',
+    rarity: 'Epic',
+    spriteSlug: 'shiny-charm',
+    desc: 'Adds a 4th reward choice after each wave.',
+  },
+
+  // Legendary
+  sacred_ash: {
+    id: 'sacred_ash',
+    name: 'Sacred Ash',
+    rarity: 'Legendary',
+    spriteSlug: 'sacred-ash',
+    desc: 'Automatically revives fainted allied Pokémon at 50% HP on wave clear.',
+  },
+  mega_bracelet: {
+    id: 'mega_bracelet',
+    name: 'Mega Bracelet',
+    rarity: 'Legendary',
+    spriteSlug: 'mega-ring',
+    desc: 'All specialized Pokémon gain +20% ATK, +20% Max HP, and +15% Attack Speed.',
+  },
+};

@@ -262,5 +262,11 @@ describe('A* Pathfinding & Grid Rules', () => {
     expect(
       findUnitPath({ gx: 5, gy: 8 }, { gx: 7, gy: 8 }, grid, enclosed),
     ).toBeNull();
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 1, gy: 8 }, grid, new Set()),
+    ).toBeNull();
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 5, gy: 1 }, grid, new Set()),
+    ).toBeNull();
   });
 });

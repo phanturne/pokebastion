@@ -227,6 +227,14 @@ function isUnitPassable(
   blockedStructures: Set<string>,
 ): boolean {
   if (!inBounds(gx, gy)) return false;
+  if (
+    gx < BORDER_NO_BUILD_DEPTH ||
+    gx >= GRID_COLS - BORDER_NO_BUILD_DEPTH ||
+    gy < BORDER_NO_BUILD_DEPTH ||
+    gy >= GRID_ROWS - BORDER_NO_BUILD_DEPTH
+  ) {
+    return false;
+  }
   const tile = tiles[gy][gx];
   if (tile === 'water' || tile === 'tree' || tile === 'core') return false;
   if (blockedStructures.has(key(gx, gy))) return false;

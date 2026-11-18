@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
+import { ensureSpeciesSpritesLoaded } from './BootScene';
 import {
   getSpeciesAttackSfx,
   getSpeciesUltSfx,
   SfxKey,
   SfxPlayer,
 } from '../audio/sfx';
+import { MAP_BY_ID, createGridForMap } from '../data/maps';
 import {
   ENEMY_SPECIES,
   HELD_ITEMS,
@@ -14,8 +16,15 @@ import {
   WAVE_DEFINITIONS,
 } from '../data/pokemon';
 import {
+  getUnlockedIds,
+  isPokemonUnlocked,
+  loadPlayerSave,
+  persistPlayerSave,
+  PlayerSave,
+  unlockPokemon,
+} from '../engine/save';
+import {
   CORE_CELLS,
-  createBaseGrid,
   findNearestBlockingWall,
   findPath,
   findUnitPath,
@@ -168,7 +177,12 @@ function vectorToPmdDir(dx: number, dy: number, fallback = 0): number {
 
 export class BattleScene extends Phaser.Scene {
   private tiles: TileKind[][] = [];
-  private phase: GamePhase = 'PREP';
+  private selectedMapId = 'viridian_outpost';
+  private terrainLayer?: Phaser.GameObjects.Group;
+  private arenaGroundRT?: Phaser.GameObjects.RenderTexture;
+  private borderBakedImg?: Phaser.GameObjects.Image;
+  private phase: GamePhase = 'HOME';
+  private playerSave: PlayerSave = loadPlayerSave();
   private wave = 1;
   private readonly maxWaves = WAVE_DEFINITIONS.length;
   private coreHp = CORE_MAX_HP;
@@ -209,6 +223,21 @@ export class BattleScene extends Phaser.Scene {
   private hoveredEnemyUid: string | null = null;
   private hoveredStructUid: string | null = null;
   private lastPointerX = -1;
+  private isDraggingCamera = false;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private dragStartScrollX = 0;
+  private dragStartScrollY = 0;
+  private panKeys?: {
+    w: Phaser.Input.Keyboard.Key;
+    a: Phaser.Input.Keyboard.Key;
+    s: Phaser.Input.Keyboard.Key;
+    d: Phaser.Input.Keyboard.Key;
+    up: Phaser.Input.Keyboard.Key;
+    left: Phaser.Input.Keyboard.Key;
+    down: Phaser.Input.Keyboard.Key;
+    right: Phaser.Input.Keyboard.Key;
+  };
   private lastPointerY = -1;
 
   private coreHpBarFill!: Phaser.GameObjects.Rectangle;
@@ -240,7 +269,8 @@ export class BattleScene extends Phaser.Scene {
     this.registry.set('battleScene', this);
     this.sfx = new SfxPlayer(this);
 
-    this.tiles = createBaseGrid();
+    this.terrainLayer = this.add.group();
+    this.tiles = createGridForMap(this.selectedMapId);
     this.renderTerrain();
     this.renderGridAndMarkers();
     this.renderBastionCore();
@@ -282,22 +312,103 @@ export class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0, 1);
     this.hoverReadoutContainer = this.add
-      .container(10, CANVAS_HEIGHT - 10, [
+      .container(10, this.scale.height - 10, [
         this.hoverReadoutBg,
         this.hoverReadoutText,
       ])
       .setDepth(100)
+      .setScrollFactor(0)
       .setVisible(false);
+
+    const borderPx = 14 * TILE_SIZE;
+    const worldW = CANVAS_WIDTH + borderPx * 2;
+    const worldH = CANVAS_HEIGHT + borderPx * 2;
+    const getMinZoom = (w: number, h: number) =>
+      Math.max(w / worldW, h / worldH, 0.95);
+
+    const cam = this.cameras.main;
+    cam.setBounds(-borderPx, -borderPx, worldW, worldH);
+    cam.setZoom(
+      Math.max(getMinZoom(this.scale.width, this.scale.height), 1.65),
+    );
+    cam.centerOn(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+
+    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+      this.hoverReadoutContainer.setPosition(10, gameSize.height - 10);
+      const minZ = getMinZoom(gameSize.width, gameSize.height);
+      if (cam.zoom < minZ) {
+        cam.setZoom(minZ);
+      }
+    });
 
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', this.handlePointerMove, this);
     this.input.on('pointerdown', this.handlePointerDown, this);
+    this.input.on('pointerup', this.handlePointerUp, this);
+    this.input.on(
+      'wheel',
+      (
+        _pointer: Phaser.Input.Pointer,
+        _gameObjects: unknown,
+        _deltaX: number,
+        deltaY: number,
+      ) => {
+        const minZ = getMinZoom(this.scale.width, this.scale.height);
+        const nextZoom = Phaser.Math.Clamp(
+          cam.zoom - deltaY * 0.001,
+          minZ,
+          2.5,
+        );
+        cam.setZoom(nextZoom);
+      },
+    );
+
+    if (this.input.keyboard) {
+      this.panKeys = {
+        w: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W, false),
+        a: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A, false),
+        s: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S, false),
+        d: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D, false),
+        up: this.input.keyboard.addKey(
+          Phaser.Input.Keyboard.KeyCodes.UP,
+          false,
+        ),
+        left: this.input.keyboard.addKey(
+          Phaser.Input.Keyboard.KeyCodes.LEFT,
+          false,
+        ),
+        down: this.input.keyboard.addKey(
+          Phaser.Input.Keyboard.KeyCodes.DOWN,
+          false,
+        ),
+        right: this.input.keyboard.addKey(
+          Phaser.Input.Keyboard.KeyCodes.RIGHT,
+          false,
+        ),
+      };
+    }
 
     this.initNewRunState();
   }
 
   update(time: number, delta: number): void {
     const clampedDelta = Math.min(delta, 50);
+    if (this.panKeys) {
+      const cam = this.cameras.main;
+      const panSpeed = (360 / cam.zoom) * (clampedDelta / 1000);
+      if (this.panKeys.a.isDown || this.panKeys.left.isDown) {
+        cam.scrollX -= panSpeed;
+      }
+      if (this.panKeys.d.isDown || this.panKeys.right.isDown) {
+        cam.scrollX += panSpeed;
+      }
+      if (this.panKeys.w.isDown || this.panKeys.up.isDown) {
+        cam.scrollY -= panSpeed;
+      }
+      if (this.panKeys.s.isDown || this.panKeys.down.isDown) {
+        cam.scrollY += panSpeed;
+      }
+    }
     const timeScale =
       this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
     this.anims.globalTimeScale = timeScale;
@@ -384,6 +495,8 @@ export class BattleScene extends Phaser.Scene {
       })),
       reserveIds: [...this.reserveIds],
       draftIds: [...this.draftIds],
+      unlockedIds: getUnlockedIds(this.playerSave),
+      selectedMapId: this.selectedMapId,
       draftBudget: DRAFT_BUDGET,
       heldItemInventory: [...this.heldItemInventory],
       structures: this.structures.map((s) => ({ ...s.data })),
@@ -694,12 +807,56 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
+  public startPlayFromHome(): void {
+    if (this.phase !== 'HOME') return;
+    this.phase = 'MAP_SELECT';
+    this.setStatus('Select a battlefield map.');
+  }
+
+  public goToMapSelect(): void {
+    if (this.phase !== 'HOME' && this.phase !== 'DRAFT') return;
+    this.phase = 'MAP_SELECT';
+    this.setStatus('Select a battlefield map.');
+  }
+
+  public selectMapAndDraft(mapId: string): void {
+    if (this.phase !== 'MAP_SELECT') return;
+    const spec = MAP_BY_ID[mapId];
+    if (!spec || spec.comingSoon) return;
+    if (this.selectedMapId !== mapId) {
+      this.selectedMapId = mapId;
+      this.tiles = createGridForMap(mapId);
+      this.renderTerrain();
+      this.refreshPathPreview();
+    }
+    this.phase = 'DRAFT';
+    this.setStatus(
+      `${MAP_BY_ID[mapId].name}: Draft your starting Pokémon (10-point budget).`,
+    );
+  }
+
+  public backToMapSelect(): void {
+    if (this.phase !== 'DRAFT') return;
+    this.phase = 'MAP_SELECT';
+    this.setStatus('Select a battlefield map.');
+  }
+
+  public returnToHome(): void {
+    this.restartRun();
+  }
+
   public toggleDraftSpecies(speciesId: string): void {
     if (this.phase !== 'DRAFT') return;
     const idx = this.draftIds.indexOf(speciesId);
     if (idx !== -1) {
       this.draftIds.splice(idx, 1);
       this.emitSnapshot();
+      return;
+    }
+    if (!isPokemonUnlocked(this.playerSave, speciesId)) {
+      this.setStatus(
+        `${POKEMON_SPECIES[speciesId]?.name ?? speciesId} is locked. Recruit it in a run to unlock!`,
+      );
       return;
     }
     if (!canDraftSpecies(this.draftIds, speciesId, DRAFT_BUDGET)) {
@@ -971,6 +1128,9 @@ export class BattleScene extends Phaser.Scene {
       if (!this.reserveIds.includes(choice.speciesId)) {
         this.reserveIds.push(choice.speciesId);
       }
+      if (unlockPokemon(this.playerSave, choice.speciesId)) {
+        persistPlayerSave(this.playerSave);
+      }
     }
 
     this.rewardChoices = [];
@@ -1001,15 +1161,81 @@ export class BattleScene extends Phaser.Scene {
   // ---------------------------------------------------------------------------
 
   private renderTerrain(): void {
+    this.terrainLayer?.clear(true, true);
+    this.arenaGroundRT?.destroy();
+    this.borderBakedImg?.destroy();
+
+    const borderPad = 14;
+    const borderPx = borderPad * TILE_SIZE;
+    const worldW = CANVAS_WIDTH + borderPx * 2;
+    const worldH = CANVAS_HEIGHT + borderPx * 2;
+
+    this.arenaGroundRT = this.add
+      .renderTexture(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      .setOrigin(0, 0)
+      .setDepth(0);
+
+    // Bake border grass + trees once into a half-res pre-blurred CanvasTexture
+    // (eliminates ~150+ tree display objects and WebGL postFX FBO allocations)
+    const bakeBorder = !this.textures.exists('border-baked');
+    const borderScale = 2;
+    const bw = Math.ceil(worldW / borderScale);
+    const bh = Math.ceil(worldH / borderScale);
+    let borderOff: HTMLCanvasElement | null = null;
+    let bctx: CanvasRenderingContext2D | null = null;
+    if (bakeBorder) {
+      borderOff = document.createElement('canvas');
+      borderOff.width = bw;
+      borderOff.height = bh;
+      bctx = borderOff.getContext('2d');
+    }
+
+    const drawToBorder = (
+      texKey: string,
+      frame: number | undefined,
+      cx: number,
+      cy: number,
+      scale = 1,
+      originX = 0.5,
+      originY = 0.5,
+    ) => {
+      if (!bctx) return;
+      const tex = this.textures.get(texKey);
+      const fr = frame !== undefined ? tex.get(frame) : tex.get();
+      const src = tex.getSourceImage() as CanvasImageSource;
+      const dw = (fr.width * scale) / borderScale;
+      const dh = (fr.height * scale) / borderScale;
+      const dx = (cx + borderPx) / borderScale - dw * originX;
+      const dy = (cy + borderPx) / borderScale - dh * originY;
+      bctx.drawImage(
+        src,
+        fr.cutX,
+        fr.cutY,
+        fr.cutWidth,
+        fr.cutHeight,
+        dx,
+        dy,
+        dw,
+        dh,
+      );
+    };
+
+    const stamp = this.make.image({ key: 'ekat-route224', add: false });
+
+    const addTerrain = (img: Phaser.GameObjects.Image) => {
+      this.terrainLayer?.add(img);
+      return img;
+    };
     const subSize = TILE_SIZE / 2; // 24px sub-tiles (16px * 1.5x) to match PMD sprite pixel density
     const tileAt = (gx: number, gy: number) =>
       gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS
         ? this.tiles[gy][gx]
         : 'grass';
 
-    for (let gy = 0; gy < GRID_ROWS; gy++) {
-      for (let gx = 0; gx < GRID_COLS; gx++) {
-        const tile = this.tiles[gy][gx];
+    for (let gy = -borderPad; gy < GRID_ROWS + borderPad; gy++) {
+      for (let gx = -borderPad; gx < GRID_COLS + borderPad; gx++) {
+        const inArena = gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS;
+        const tile = inArena ? this.tiles[gy][gx] : 'grass';
         for (let sy = 0; sy < 2; sy++) {
           for (let sx = 0; sx < 2; sx++) {
             const dx = sx === 0 ? -1 : 1;
@@ -1044,49 +1270,111 @@ export class BattleScene extends Phaser.Scene {
               frame = h % 100 < 22 ? 1 : 0;
             }
 
-            this.add
-              .image(
-                gx * TILE_SIZE + sx * subSize + subSize / 2,
-                gy * TILE_SIZE + sy * subSize + subSize / 2,
-                'ekat-route224',
-                frame,
-              )
-              .setScale(1)
-              .setDepth(0);
+            const wx = gx * TILE_SIZE + sx * subSize + subSize / 2;
+            const wy = gy * TILE_SIZE + sy * subSize + subSize / 2;
+            if (inArena) {
+              stamp.setTexture('ekat-route224', frame).setScale(1);
+              this.arenaGroundRT.draw(stamp, wx, wy);
+              const onArenaEdge =
+                gx === 0 ||
+                gx === GRID_COLS - 1 ||
+                gy === 0 ||
+                gy === GRID_ROWS - 1;
+              if (onArenaEdge) {
+                drawToBorder('ekat-route224', 0, wx, wy, 1, 0.5, 0.5);
+              }
+            } else {
+              drawToBorder('ekat-route224', frame, wx, wy, 1, 0.5, 0.5);
+            }
           }
         }
 
-        if (tile === 'grass') {
+        if (!inArena) {
+          let bh2 = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
+          bh2 = Math.imul(bh2 ^ (bh2 >>> 15), 0x85ebca6b);
+          const br = (bh2 >>> 0) % 100;
+          const distFromArena = Math.max(
+            gx < 0 ? -gx : gx >= GRID_COLS ? gx - GRID_COLS + 1 : 0,
+            gy < 0 ? -gy : gy >= GRID_ROWS ? gy - GRID_ROWS + 1 : 0,
+          );
+          const treeChance = distFromArena >= 2 ? 32 : 12;
+          if (br < treeChance) {
+            const isOak = (((gx + gy) % 2) + 2) % 2 === 0;
+            drawToBorder(
+              isOak ? 'tex:tree_oak' : 'tex:tree_pine',
+              undefined,
+              tileCenterX(gx),
+              tileCenterY(gy) + TILE_SIZE * 0.45,
+              1,
+              0.5,
+              1,
+            );
+          } else if (br < treeChance + 14) {
+            drawToBorder(
+              'deco:tallgrass',
+              undefined,
+              tileCenterX(gx),
+              tileCenterY(gy),
+              1.35,
+            );
+          } else if (br < treeChance + 19) {
+            drawToBorder(
+              'deco:stump',
+              undefined,
+              tileCenterX(gx),
+              tileCenterY(gy),
+              1.2,
+            );
+          } else if (br < treeChance + 24) {
+            drawToBorder(
+              'deco:sprout1',
+              undefined,
+              tileCenterX(gx),
+              tileCenterY(gy),
+              1,
+            );
+          }
+        } else if (tile === 'grass') {
           let gh = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
           gh = Math.imul(gh ^ (gh >>> 15), 0x85ebca6b);
           const gr = (gh >>> 0) % 100;
           if (gr < 4) {
-            this.add
-              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1')
-              .setDepth(0.5);
+            addTerrain(
+              this.add
+                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout1')
+                .setDepth(0.5),
+            );
           } else if (gr < 7) {
-            this.add
-              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2')
-              .setDepth(0.5);
+            addTerrain(
+              this.add
+                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout2')
+                .setDepth(0.5),
+            );
           } else if (gr === 7) {
-            this.add
-              .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3')
-              .setDepth(0.5);
+            addTerrain(
+              this.add
+                .image(tileCenterX(gx), tileCenterY(gy), 'deco:sprout3')
+                .setDepth(0.5),
+            );
           } else if (gr === 8) {
-            this.add
-              .image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles')
-              .setDepth(0.5);
+            addTerrain(
+              this.add
+                .image(tileCenterX(gx), tileCenterY(gy), 'deco:pebbles')
+                .setDepth(0.5),
+            );
           }
         } else if (tile === 'tree') {
           const isOak = (gx + gy) % 2 === 0;
-          this.add
-            .image(
-              tileCenterX(gx),
-              tileCenterY(gy) + TILE_SIZE * 0.45,
-              isOak ? 'tex:tree_oak' : 'tex:tree_pine',
-            )
-            .setOrigin(0.5, 1)
-            .setDepth(4 + gy * 0.1 + 0.02);
+          addTerrain(
+            this.add
+              .image(
+                tileCenterX(gx),
+                tileCenterY(gy) + TILE_SIZE * 0.45,
+                isOak ? 'tex:tree_oak' : 'tex:tree_pine',
+              )
+              .setOrigin(0.5, 1)
+              .setDepth(4 + gy * 0.1 + 0.02),
+          );
         }
       }
     }
@@ -1125,10 +1413,12 @@ export class BattleScene extends Phaser.Scene {
     ];
     for (const [gx, gy] of tallGrassCoords) {
       if (this.tiles[gy]?.[gx] === 'grass') {
-        this.add
-          .image(tileCenterX(gx), tileCenterY(gy), 'deco:tallgrass')
-          .setScale(1.4)
-          .setDepth(0.6);
+        addTerrain(
+          this.add
+            .image(tileCenterX(gx), tileCenterY(gy), 'deco:tallgrass')
+            .setScale(1.4)
+            .setDepth(0.6),
+        );
       }
     }
 
@@ -1142,12 +1432,30 @@ export class BattleScene extends Phaser.Scene {
     ];
     for (const [gx, gy] of stumpCoords) {
       if (this.tiles[gy]?.[gx] === 'grass') {
-        this.add
-          .image(tileCenterX(gx), tileCenterY(gy), 'deco:stump')
-          .setScale(1.25)
-          .setDepth(0.8);
+        addTerrain(
+          this.add
+            .image(tileCenterX(gx), tileCenterY(gy), 'deco:stump')
+            .setScale(1.25)
+            .setDepth(0.8),
+        );
       }
     }
+    stamp.destroy();
+
+    if (bakeBorder && borderOff) {
+      const borderTex = this.textures.createCanvas('border-baked', bw, bh);
+      if (borderTex) {
+        const ctx = borderTex.getContext();
+        ctx.filter = 'blur(2px)';
+        ctx.drawImage(borderOff, 0, 0);
+        borderTex.refresh();
+      }
+    }
+    this.borderBakedImg = this.add
+      .image(-borderPx, -borderPx, 'border-baked')
+      .setOrigin(0, 0)
+      .setScale(borderScale)
+      .setDepth(-1);
   }
 
   private renderGridAndMarkers(): void {
@@ -1160,10 +1468,46 @@ export class BattleScene extends Phaser.Scene {
       gridG.lineBetween(0, gy * TILE_SIZE, CANVAS_WIDTH, gy * TILE_SIZE);
     }
 
-    // Subtle 2-tile outer no-build perimeter boundary (Wilderness / Portal Zone)
-    const pad = 2 * TILE_SIZE;
-    gridG.lineStyle(1.5, 0xfb7185, 0.35);
-    gridG.strokeRect(pad, pad, CANVAS_WIDTH - pad * 2, CANVAS_HEIGHT - pad * 2);
+    // Quarter-resolution blurred wilderness fog (16x less VRAM)
+    const borderPx = 14 * TILE_SIZE;
+    const worldW = CANVAS_WIDTH + borderPx * 2;
+    const worldH = CANVAS_HEIGHT + borderPx * 2;
+    const fogScale = 4;
+    const fogW = Math.ceil(worldW / fogScale);
+    const fogH = Math.ceil(worldH / fogScale);
+    if (!this.textures.exists('arena-fog')) {
+      const fogTex = this.textures.createCanvas('arena-fog', fogW, fogH);
+      if (fogTex) {
+        const ctx = fogTex.getContext();
+        const off = document.createElement('canvas');
+        off.width = fogW;
+        off.height = fogH;
+        const octx = off.getContext('2d');
+        if (octx) {
+          octx.fillStyle = 'rgba(8, 13, 22, 0.45)';
+          octx.fillRect(0, 0, fogW, fogH);
+          octx.globalCompositeOperation = 'destination-out';
+          octx.filter = 'blur(5px)';
+          octx.fillStyle = '#000';
+          octx.beginPath();
+          octx.roundRect(
+            borderPx / fogScale,
+            borderPx / fogScale,
+            CANVAS_WIDTH / fogScale,
+            CANVAS_HEIGHT / fogScale,
+            24 / fogScale,
+          );
+          octx.fill();
+          ctx.drawImage(off, 0, 0);
+          fogTex.refresh();
+        }
+      }
+    }
+    this.add
+      .image(-borderPx, -borderPx, 'arena-fog')
+      .setOrigin(0, 0)
+      .setScale(fogScale)
+      .setDepth(8);
 
     this.portalGraphics = this.add.graphics().setDepth(1.2);
   }
@@ -1291,7 +1635,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private initNewRunState(): void {
-    this.phase = 'DRAFT';
+    this.phase = 'HOME';
+    this.playerSave = loadPlayerSave();
     this.wave = 1;
     this.coreHp = CORE_MAX_HP;
     this.coreMaxHp = CORE_MAX_HP;
@@ -1326,7 +1671,9 @@ export class BattleScene extends Phaser.Scene {
     this.refreshPortalVisuals();
     this.refreshPathPreview();
     this.refreshHighlights();
-    this.setStatus('Draft your starting Pokémon (10-point budget).');
+    this.setStatus(
+      'Welcome to PokéBastion TD! Press Play to draft your team or open the Pokédex.',
+    );
   }
 
   private clearDynamicEntities(): void {
@@ -1415,21 +1762,32 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handlePointerMove(pointer: Phaser.Input.Pointer): void {
+    if (pointer.isDown && !pointer.rightButtonDown()) {
+      const dx = pointer.x - this.dragStartX;
+      const dy = pointer.y - this.dragStartY;
+      if (!this.isDraggingCamera && Math.hypot(dx, dy) > 6) {
+        this.isDraggingCamera = true;
+      }
+      if (this.isDraggingCamera) {
+        const cam = this.cameras.main;
+        cam.scrollX = this.dragStartScrollX - dx / cam.zoom;
+        cam.scrollY = this.dragStartScrollY - dy / cam.zoom;
+        return;
+      }
+    }
+
+    const wx = pointer.worldX;
+    const wy = pointer.worldY;
     const prevTile = this.hoverTile ? { ...this.hoverTile } : null;
-    if (
-      pointer.x < 0 ||
-      pointer.x >= CANVAS_WIDTH ||
-      pointer.y < 0 ||
-      pointer.y >= CANVAS_HEIGHT
-    ) {
+    if (wx < 0 || wx >= CANVAS_WIDTH || wy < 0 || wy >= CANVAS_HEIGHT) {
       this.lastPointerX = -1;
       this.lastPointerY = -1;
     } else {
-      this.lastPointerX = pointer.x;
-      this.lastPointerY = pointer.y;
+      this.lastPointerX = wx;
+      this.lastPointerY = wy;
     }
 
-    const changed = this.updateHoverTargets(pointer.x, pointer.y);
+    const changed = this.updateHoverTargets(wx, wy);
     if (!changed) return;
 
     const tileChanged =
@@ -1447,23 +1805,33 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
-    if (
-      pointer.x < 0 ||
-      pointer.x >= CANVAS_WIDTH ||
-      pointer.y < 0 ||
-      pointer.y >= CANVAS_HEIGHT
-    ) {
-      return;
-    }
-
     if (pointer.rightButtonDown()) {
       this.cancelActiveSelections();
       return;
     }
 
+    const cam = this.cameras.main;
+    this.isDraggingCamera = false;
+    this.dragStartX = pointer.x;
+    this.dragStartY = pointer.y;
+    this.dragStartScrollX = cam.scrollX;
+    this.dragStartScrollY = cam.scrollY;
+  }
+
+  private handlePointerUp(pointer: Phaser.Input.Pointer): void {
+    const wasDragging = this.isDraggingCamera;
+    this.isDraggingCamera = false;
+    if (wasDragging || pointer.rightButtonReleased()) return;
+
+    const wx = pointer.worldX;
+    const wy = pointer.worldY;
+    if (wx < 0 || wx >= CANVAS_WIDTH || wy < 0 || wy >= CANVAS_HEIGHT) {
+      return;
+    }
+
     if (this.phase !== 'PREP' && this.phase !== 'COMBAT') return;
 
-    const { gx, gy } = worldToGrid(pointer.x, pointer.y);
+    const { gx, gy } = worldToGrid(wx, wy);
 
     if (this.aimingUltUnitUid) {
       this.executeAimedUlt(gx, gy);
@@ -2119,6 +2487,28 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
+  private drawNonPlaceableTile(gx: number, gy: number): void {
+    const x = gx * TILE_SIZE + 2;
+    const y = gy * TILE_SIZE + 2;
+    const size = TILE_SIZE - 4;
+    const pad = 7;
+    this.highlightGraphics.fillStyle(0x0f172a, 0.36);
+    this.highlightGraphics.fillRect(x, y, size, size);
+    this.highlightGraphics.lineStyle(1.4, 0x94a3b8, 0.35);
+    this.highlightGraphics.lineBetween(
+      gx * TILE_SIZE + pad,
+      gy * TILE_SIZE + pad,
+      (gx + 1) * TILE_SIZE - pad,
+      (gy + 1) * TILE_SIZE - pad,
+    );
+    this.highlightGraphics.lineBetween(
+      (gx + 1) * TILE_SIZE - pad,
+      gy * TILE_SIZE + pad,
+      gx * TILE_SIZE + pad,
+      (gy + 1) * TILE_SIZE - pad,
+    );
+  }
+
   private drawTargetReticle(cx: number, cy: number, color: number): void {
     const r = 18;
     const arm = 6;
@@ -2214,10 +2604,11 @@ export class BattleScene extends Phaser.Scene {
 
       for (let gy = 0; gy < GRID_ROWS; gy++) {
         for (let gx = 0; gx < GRID_COLS; gx++) {
-          if (
-            (gx === selectedUnit.data.gx && gy === selectedUnit.data.gy) ||
-            !this.isValidUnitTile(gx, gy)
-          ) {
+          if (gx === selectedUnit.data.gx && gy === selectedUnit.data.gy) {
+            continue;
+          }
+          if (!this.isValidUnitTile(gx, gy)) {
+            this.drawNonPlaceableTile(gx, gy);
             continue;
           }
 
@@ -2324,6 +2715,22 @@ export class BattleScene extends Phaser.Scene {
             0.8,
             1.8,
           );
+        }
+      }
+    }
+
+    // Non-placeable tile overlay (grayed + light X) when placing or moving a structure
+    const isPlacingStruct =
+      this.phase === 'PREP' &&
+      this.selectedTool !== null &&
+      this.selectedTool !== 'sell_struct' &&
+      (this.selectedTool !== 'move_struct' || Boolean(this.movingStructureUid));
+    if (isPlacingStruct) {
+      for (let gy = 0; gy < GRID_ROWS; gy++) {
+        for (let gx = 0; gx < GRID_COLS; gx++) {
+          if (!this.isValidBuildTile(gx, gy)) {
+            this.drawNonPlaceableTile(gx, gy);
+          }
         }
       }
     }
@@ -2582,6 +2989,11 @@ export class BattleScene extends Phaser.Scene {
     };
     this.units.push(entity);
     this.playUnitAnim(entity, 'Idle');
+    ensureSpeciesSpritesLoaded(this, speciesId, () => {
+      if (sprite.scene && !data.fainted) {
+        this.playUnitAnim(entity, 'Idle');
+      }
+    });
     this.updateUnitBars(entity);
     return entity;
   }
@@ -3893,9 +4305,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private isValidUnitTile(gx: number, gy: number): boolean {
-    if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return false;
-    const tile = this.tiles[gy][gx];
-    if (tile === 'water' || tile === 'core' || tile === 'tree') return false;
+    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals)) return false;
     if (this.getUnitAt(gx, gy)) return false;
     if (
       this.units.some(

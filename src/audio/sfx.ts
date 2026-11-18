@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { POKEMON_SPECIES } from '../data/pokemon';
 import type { GamePhase } from '../types';
 
 export type BgmKey = 'bgm_prep' | 'bgm_combat';
@@ -104,11 +105,32 @@ const SPECIES_ULT_SFX: Record<string, SfxKey> = {
 };
 
 export function getSpeciesAttackSfx(speciesId: string): SfxKey {
-  return SPECIES_ATTACK_SFX[speciesId] ?? 'atk_melee';
+  const mapped = SPECIES_ATTACK_SFX[speciesId];
+  if (mapped) return mapped;
+  const vfx = POKEMON_SPECIES[speciesId]?.basicVfx ?? '';
+  if (vfx.includes('lightning')) return 'atk_electric';
+  if (vfx.includes('fire') || vfx.includes('explosion')) return 'atk_fire';
+  if (vfx.includes('water')) return 'atk_water';
+  if (
+    vfx.includes('shadow') ||
+    vfx.includes('nature') ||
+    vfx.includes('holy')
+  ) {
+    return 'atk_magic';
+  }
+  return 'atk_melee';
 }
 
 export function getSpeciesUltSfx(speciesId: string): SfxKey {
-  return SPECIES_ULT_SFX[speciesId] ?? 'ult_melee';
+  const mapped = SPECIES_ULT_SFX[speciesId];
+  if (mapped) return mapped;
+  const vfx = POKEMON_SPECIES[speciesId]?.ultVfx ?? '';
+  if (vfx.includes('lightning')) return 'ult_electric';
+  if (vfx.includes('fire') || vfx.includes('explosion')) return 'ult_fire';
+  if (vfx.includes('water')) return 'ult_water';
+  if (vfx.includes('heal')) return 'ult_heal';
+  if (vfx.includes('rock') || vfx.includes('boulder')) return 'crumble';
+  return 'ult_melee';
 }
 
 export class SfxPlayer {
