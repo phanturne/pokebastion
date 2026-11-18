@@ -80,8 +80,10 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     expect(box!.width).toBeGreaterThan(200);
     expect(box!.height).toBeGreaterThan(200);
 
-    // Home modal visible
-    await expect(page.locator('[data-action="home-play"]')).toBeVisible();
+    // Home modal visible (allow extra time for BootScene asset preload on CI)
+    await expect(page.locator('[data-action="home-play"]')).toBeVisible({
+      timeout: 25_000,
+    });
 
     // Open & filter Pokédex, then close with Escape
     await page.locator('[data-action="open-pokedex"]').click();
