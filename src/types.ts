@@ -2,7 +2,8 @@ export const GRID_COLS = 28;
 export const GRID_ROWS = 18;
 export const TILE_SIZE = 32;
 
-export type GamePhase = 'PREP' | 'COMBAT' | 'REWARD' | 'VICTORY' | 'DEFEAT';
+export type GamePhase =
+  'DRAFT' | 'PREP' | 'COMBAT' | 'REWARD' | 'VICTORY' | 'DEFEAT';
 
 export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn' | 'tree';
 
@@ -14,10 +15,44 @@ export type MovementType = 'ground' | 'burrow' | 'fly';
 export type StructureKind =
   'wood_wall' | 'stone_wall' | 'berry_bush' | 'barrel';
 
+export interface PokemonBranch {
+  id: string;
+  name: string;
+  desc: string;
+  atkMult?: number;
+  hpMult?: number;
+  defBonus?: number;
+  rangeBonus?: number;
+  attackIntervalMult?: number;
+  moveRangeBonus?: number;
+  ultMult?: number;
+  special?:
+    | 'burn_spread'
+    | 'chain_hit'
+    | 'lifesteal'
+    | 'slow_hit'
+    | 'thorns'
+    | 'crit_boost';
+}
+
+export interface HeldItemSpec {
+  id: string;
+  name: string;
+  cost: number;
+  desc: string;
+  atkMult?: number;
+  hpMult?: number;
+  defBonus?: number;
+  attackIntervalMult?: number;
+  special?: 'bloodthirsty' | 'storm_conductor' | 'guardian_charm';
+}
+
 export interface PokemonSpecies {
   id: string; // PMDCollab 4-digit ID e.g. '0025'
   name: string;
   pokeClass: PokemonClass;
+  draftCost: number;
+  unlockedStarter?: boolean;
   color: string;
   maxHp: number;
   atk: number;
@@ -35,10 +70,14 @@ export interface PokemonSpecies {
   impactVfx: string;
   ultVfx: string;
   isMelee: boolean;
+  branches: [PokemonBranch, PokemonBranch, PokemonBranch];
 }
 
 export interface EnemySpecies {
   id: string; // PMDCollab 4-digit ID
+  spriteId?: string;
+  spriteScale?: number;
+  spriteTint?: number;
   name: string;
   color: string;
   maxHp: number;
@@ -74,6 +113,8 @@ export interface GridStructure {
 export interface ActiveUnit {
   uid: string;
   speciesId: string;
+  branchId: string | null;
+  heldItems: string[];
   gx: number;
   gy: number;
   hp: number;
@@ -89,10 +130,11 @@ export interface ActiveUnit {
 
 export interface RewardOption {
   id: string;
-  kind: 'upgrade' | 'artifact' | 'recruit';
+  kind: 'upgrade' | 'artifact' | 'recruit' | 'branch';
   title: string;
   desc: string;
   speciesId?: string;
+  unitUid?: string;
 }
 
 export interface GameSnapshot {
@@ -112,9 +154,13 @@ export interface GameSnapshot {
   aimingUltUnitUid: string | null;
   activeUnits: ActiveUnit[];
   reserveIds: string[];
+  draftIds: string[];
+  draftBudget: number;
+  heldItemInventory: string[];
   structures: GridStructure[];
   artifacts: string[];
   upgrades: string[];
   rewardChoices: RewardOption[];
+  pendingBranchUnitUid: string | null;
   statusMessage: string;
 }

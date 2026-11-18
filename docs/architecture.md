@@ -31,7 +31,7 @@ pokebastion/
 │   ├── types.ts                  # Domain types & grid constants (28×18 @ 32px)
 │   ├── main.ts                   # Phaser.Scale.FIT bootstrap (896×576) + HudOverlay
 │   ├── data/
-│   │   └── pokemon.ts            # 10 Pokémon, 4 enemies, 4 structures, 8 rewards, 3 waves
+│   │   └── pokemon.ts            # 10 Pokémon (3 branches each), 3 held items, 10 enemies, 4 structures, 8 rewards, 10 waves
 │   ├── engine/                   # Pure TypeScript rules (zero Phaser imports)
 │   │   ├── pathfinding.ts        # 8-dir A* (ground/burrow/fly), wall fallback, portals, no-build rules
 │   │   └── rules.ts              # AP movement rings, stat/artifact math, economy, reward rolls

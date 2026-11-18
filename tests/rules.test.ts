@@ -2,16 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { POKEMON_SPECIES, REWARD_POOL } from '../src/data/pokemon';
 import {
   BASE_AP_KILL_THRESHOLD,
+  DRAFT_BUDGET,
   TEMPORAL_GEAR_KILL_THRESHOLD,
+  canDraftSpecies,
   chebyshevDist,
   computeProjectileLaunch,
   generateRewardChoices,
   getApKillThreshold,
   getBountyGold,
+  getDraftCost,
   getEffectiveAtk,
   getEffectiveAttackIntervalMs,
+  getEffectiveDef,
   getEffectiveMaxHp,
   getEffectiveMoveRange,
+  getEffectiveRange,
   getEffectiveStructureMaxHp,
   getMovementCost,
   getRepairCost,
@@ -179,5 +184,36 @@ describe('Game Rules, AP Movement & Economy', () => {
       () => 0.5,
     );
     expect(exhausted).toEqual([]);
+  });
+
+  it('enforces 10-point starter draft budget and branch/held-item modifiers', () => {
+    const starters = ['0007', '0004', '0001']; // 3 + 3 + 3 = 9 pts
+    expect(getDraftCost(starters)).toBe(9);
+    expect(canDraftSpecies(starters, '0007', DRAFT_BUDGET)).toBe(false); // duplicate
+    expect(canDraftSpecies(starters, '0074', DRAFT_BUDGET)).toBe(false); // 9 + 2 > 10
+
+    // Branch + held item stacking
+    expect(
+      getEffectiveAtk('0004', [], false, 'charmander_charizard', [
+        'bloodthirsty_edge',
+      ]),
+    ).toBe(Math.round(24 * 1.3 * 1.15));
+    expect(
+      getEffectiveDef('0007', 'squirtle_bastion', ['guardian_charm']),
+    ).toBe(18 + 8 + 5);
+    expect(getEffectiveRange('0007', 'squirtle_blastoise')).toBe(3);
+    expect(
+      getEffectiveMaxHp('0007', [], 'squirtle_bastion', ['guardian_charm']),
+    ).toBe(Math.round(220 * 1.3 * 1.2));
+
+    // Branch reward option is offered when unbranched active units exist
+    const withBranch = generateRewardChoices(
+      new Set(['0007', '0004', '0001']),
+      [],
+      [],
+      () => 0.1,
+      [{ uid: 'u1', speciesId: '0007' }],
+    );
+    expect(withBranch.some((c) => c.kind === 'branch')).toBe(true);
   });
 });

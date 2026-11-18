@@ -3,10 +3,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ENEMY_SPECIES,
+  HELD_ITEMS,
   INITIAL_ACTIVE_IDS,
   INITIAL_RESERVE_IDS,
   POKEMON_SPECIES,
   REWARD_POOL,
+  STARTER_UNLOCKED_IDS,
   STRUCTURE_SPECS,
   WAVE_DEFINITIONS,
 } from '../src/data/pokemon';
@@ -34,23 +36,32 @@ describe('Data & Asset Manifest Integrity', () => {
       expect(pokeManifest[sp.id].Walk).not.toBeNull();
       expect(pokeManifest[sp.id].Idle).not.toBeNull();
       expect(pokeManifest[sp.id].Attack).not.toBeNull();
+      expect(
+        fs.existsSync(path.join(PUBLIC_ASSETS, 'pokemon', sp.id, 'Normal.png')),
+      ).toBe(true);
 
       expect(vfxManifest[sp.basicVfx]).toBeDefined();
       expect(vfxManifest[sp.impactVfx]).toBeDefined();
       expect(vfxManifest[sp.ultVfx]).toBeDefined();
+
+      expect(sp.draftCost).toBeGreaterThan(0);
+      expect(sp.branches).toHaveLength(3);
+      const branchIds = new Set(sp.branches.map((b) => b.id));
+      expect(branchIds.size).toBe(3);
     }
   });
 
-  it('has 4 enemy species with valid PMD sprites, PVFX hit keys, and wave references', () => {
+  it('has 10 enemy species (base + evolved) with valid PMD sprites, PVFX hit keys, and 10 waves', () => {
     const enemies = Object.values(ENEMY_SPECIES);
-    expect(enemies).toHaveLength(4);
+    expect(enemies).toHaveLength(10);
 
     for (const en of enemies) {
-      expect(pokeManifest[en.id]).toBeDefined();
+      const spriteKey = en.spriteId ?? en.id;
+      expect(pokeManifest[spriteKey]).toBeDefined();
       expect(vfxManifest[en.hitVfx]).toBeDefined();
     }
 
-    expect(WAVE_DEFINITIONS).toHaveLength(3);
+    expect(WAVE_DEFINITIONS).toHaveLength(10);
     for (const wave of WAVE_DEFINITIONS) {
       expect(wave.spawns.length).toBeGreaterThan(0);
       for (const grp of wave.spawns) {
@@ -60,10 +71,19 @@ describe('Data & Asset Manifest Integrity', () => {
     }
   });
 
-  it('has valid initial squad, structure specs, and reward pool', () => {
-    for (const id of [...INITIAL_ACTIVE_IDS, ...INITIAL_RESERVE_IDS]) {
+  it('has valid starters, held items, structure specs, and reward pool', () => {
+    for (const id of [
+      ...INITIAL_ACTIVE_IDS,
+      ...INITIAL_RESERVE_IDS,
+      ...STARTER_UNLOCKED_IDS,
+    ]) {
       expect(POKEMON_SPECIES[id]).toBeDefined();
     }
+    for (const id of ['0007', '0004', '0001']) {
+      expect(POKEMON_SPECIES[id].draftCost).toBe(3);
+      expect(POKEMON_SPECIES[id].unlockedStarter).toBe(true);
+    }
+    expect(Object.keys(HELD_ITEMS)).toHaveLength(3);
     expect(Object.keys(STRUCTURE_SPECS)).toHaveLength(4);
     expect(REWARD_POOL.length).toBeGreaterThanOrEqual(6);
   });

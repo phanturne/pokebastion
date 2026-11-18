@@ -1,5 +1,15 @@
-import { POKEMON_SPECIES, REWARD_POOL, STRUCTURE_SPECS } from '../data/pokemon';
-import { GamePhase, RewardOption, StructureKind } from '../types';
+import {
+  HELD_ITEMS,
+  POKEMON_SPECIES,
+  REWARD_POOL,
+  STRUCTURE_SPECS,
+} from '../data/pokemon';
+import {
+  GamePhase,
+  PokemonBranch,
+  RewardOption,
+  StructureKind,
+} from '../types';
 
 export const HEAL_COST = 15;
 export const REVIVE_COST = 35;
@@ -8,6 +18,37 @@ export const REPAIR_COST_RATE = 0.5;
 export const BASE_AP_KILL_THRESHOLD = 6;
 export const TEMPORAL_GEAR_KILL_THRESHOLD = 4;
 export const WAVE_AP_RECOVERY = 3;
+export const DRAFT_BUDGET = 10;
+export const MAX_ACTIVE_UNITS = 6;
+export const MAX_HELD_ITEMS = 3;
+
+export function getDraftCost(speciesIds: string[]): number {
+  return speciesIds.reduce(
+    (sum, id) => sum + (POKEMON_SPECIES[id]?.draftCost ?? 0),
+    0,
+  );
+}
+
+export function canDraftSpecies(
+  currentIds: string[],
+  speciesId: string,
+  budget = DRAFT_BUDGET,
+  maxUnits = MAX_ACTIVE_UNITS,
+): boolean {
+  const sp = POKEMON_SPECIES[speciesId];
+  if (!sp) return false;
+  if (currentIds.includes(speciesId)) return false;
+  if (currentIds.length >= maxUnits) return false;
+  return getDraftCost(currentIds) + sp.draftCost <= budget;
+}
+
+export function getBranchSpec(
+  speciesId: string,
+  branchId: string | null,
+): PokemonBranch | undefined {
+  if (!branchId) return undefined;
+  return POKEMON_SPECIES[speciesId]?.branches.find((b) => b.id === branchId);
+}
 
 export function chebyshevDist(
   ax: number,
@@ -21,8 +62,13 @@ export function chebyshevDist(
 export function getEffectiveMoveRange(
   baseMoveRange: number,
   upgrades: string[],
+  branch?: PokemonBranch,
 ): number {
-  return baseMoveRange + (upgrades.includes('swift_boots') ? 1 : 0);
+  return (
+    baseMoveRange +
+    (upgrades.includes('swift_boots') ? 1 : 0) +
+    (branch?.moveRangeBonus ?? 0)
+  );
 }
 
 /**
@@ -49,29 +95,79 @@ export function getMovementCost(
 export function getEffectiveMaxHp(
   speciesId: string,
   upgrades: string[],
+  branchId: string | null = null,
+  heldItems: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.maxHp ?? 100;
-  return upgrades.includes('thick_hide') ? Math.round(base * 1.3) : base;
+  let mult = upgrades.includes('thick_hide') ? 1.3 : 1;
+  const branch = getBranchSpec(speciesId, branchId);
+  if (branch?.hpMult) mult *= branch.hpMult;
+  for (const itemId of heldItems) {
+    const item = HELD_ITEMS[itemId];
+    if (item?.hpMult) mult *= item.hpMult;
+  }
+  return Math.round(base * mult);
 }
 
 export function getEffectiveAtk(
   speciesId: string,
   upgrades: string[],
   hasBulbasaurAura = false,
+  branchId: string | null = null,
+  heldItems: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.atk ?? 20;
   let mult = 1;
   if (upgrades.includes('sharp_claws')) mult += 0.25;
   if (hasBulbasaurAura) mult += 0.1;
+  const branch = getBranchSpec(speciesId, branchId);
+  if (branch?.atkMult) mult *= branch.atkMult;
+  for (const itemId of heldItems) {
+    const item = HELD_ITEMS[itemId];
+    if (item?.atkMult) mult *= item.atkMult;
+  }
   return Math.round(base * mult);
+}
+
+export function getEffectiveDef(
+  speciesId: string,
+  branchId: string | null = null,
+  heldItems: string[] = [],
+): number {
+  let def = POKEMON_SPECIES[speciesId]?.def ?? 0;
+  const branch = getBranchSpec(speciesId, branchId);
+  if (branch?.defBonus) def += branch.defBonus;
+  for (const itemId of heldItems) {
+    const item = HELD_ITEMS[itemId];
+    if (item?.defBonus) def += item.defBonus;
+  }
+  return def;
+}
+
+export function getEffectiveRange(
+  speciesId: string,
+  branchId: string | null = null,
+): number {
+  const base = POKEMON_SPECIES[speciesId]?.range ?? 1;
+  const branch = getBranchSpec(speciesId, branchId);
+  return base + (branch?.rangeBonus ?? 0);
 }
 
 export function getEffectiveAttackIntervalMs(
   speciesId: string,
   artifacts: string[],
+  branchId: string | null = null,
+  heldItems: string[] = [],
 ): number {
-  const base = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
-  return artifacts.includes('arcane_conduit') ? Math.round(base * 0.8) : base;
+  let interval = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
+  if (artifacts.includes('arcane_conduit')) interval *= 0.8;
+  const branch = getBranchSpec(speciesId, branchId);
+  if (branch?.attackIntervalMult) interval *= branch.attackIntervalMult;
+  for (const itemId of heldItems) {
+    const item = HELD_ITEMS[itemId];
+    if (item?.attackIntervalMult) interval *= item.attackIntervalMult;
+  }
+  return Math.round(interval);
 }
 
 export function getEffectiveStructureMaxHp(
@@ -125,6 +221,7 @@ export function generateRewardChoices(
   ownedUpgrades: string[],
   ownedArtifacts: string[],
   rng: () => number = Math.random,
+  unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
 ): RewardOption[] {
   const availableRewards = REWARD_POOL.filter(
     (r) =>
@@ -148,7 +245,22 @@ export function generateRewardChoices(
   const choices: RewardOption[] = [];
   const shuffledPool = shuffle(availableRewards);
 
-  if (unownedSpecies.length > 0) {
+  if (unbranchedUnits.length > 0) {
+    const pickedUnit = shuffle(unbranchedUnits)[0];
+    const sp = POKEMON_SPECIES[pickedUnit.speciesId];
+    if (sp) {
+      choices.push({
+        id: `branch_${pickedUnit.uid}`,
+        kind: 'branch',
+        title: `Specialize ${sp.name}`,
+        desc: `Choose 1 of 3 evolution/specialization branches for ${sp.name}.`,
+        speciesId: pickedUnit.speciesId,
+        unitUid: pickedUnit.uid,
+      });
+    }
+  }
+
+  if (unownedSpecies.length > 0 && choices.length < 3) {
     const pick = shuffle(unownedSpecies)[0];
     choices.push({
       id: `recruit_${pick.id}`,
