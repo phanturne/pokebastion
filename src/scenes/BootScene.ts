@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { BGM_ASSETS, SFX_ASSETS } from '../audio/sfx';
+import { ENEMY_SPECIES, STARTER_UNLOCKED_IDS } from '../data/pokemon';
+import { loadPlayerSave } from '../engine/save';
 
 interface VfxManifestEntry {
   path: string;
@@ -10,9 +12,9 @@ interface VfxManifestEntry {
   loop: boolean;
 }
 
-type PokeAnimName = 'Walk' | 'Idle' | 'Attack';
+export type PokeAnimName = 'Walk' | 'Idle' | 'Attack';
 
-interface PokeAnimEntry {
+export interface PokeAnimEntry {
   frameWidth: number;
   frameHeight: number;
   frames: number;
@@ -21,6 +23,79 @@ interface PokeAnimEntry {
 
 const POKE_ANIMS: readonly PokeAnimName[] = ['Walk', 'Idle', 'Attack'];
 const PMD_DIRECTIONS = 8;
+
+export function registerSpeciesAnimations(
+  scene: Phaser.Scene,
+  id: string,
+  anims: Record<PokeAnimName, PokeAnimEntry>,
+): void {
+  for (const animName of POKE_ANIMS) {
+    const anim = anims[animName];
+    if (!anim || anim.frames <= 0) continue;
+
+    const sheetKey = `pmd:${id}:${animName}`;
+    if (!scene.textures.exists(sheetKey)) continue;
+    const repeat = animName === 'Attack' ? 0 : -1;
+
+    for (let dir = 0; dir < PMD_DIRECTIONS; dir++) {
+      const animKey = `anim:pmd:${id}:${animName}:${dir}`;
+      if (scene.anims.exists(animKey)) continue;
+
+      const start = dir * anim.frames;
+      const end = start + anim.frames - 1;
+      scene.anims.create({
+        key: animKey,
+        frames: scene.anims.generateFrameNumbers(sheetKey, { start, end }),
+        frameRate: anim.frameRate,
+        repeat,
+      });
+    }
+  }
+}
+
+export function ensureSpeciesSpritesLoaded(
+  scene: Phaser.Scene,
+  id: string,
+  onReady?: () => void,
+): void {
+  if (scene.textures.exists(`pmd:${id}:Idle`)) {
+    onReady?.();
+    return;
+  }
+  const pokeManifest =
+    (scene.cache.json.get('poke-manifest') as Record<
+      string,
+      Record<PokeAnimName, PokeAnimEntry>
+    >) ?? {};
+  const anims = pokeManifest[id];
+  if (!anims) return;
+
+  let queued = false;
+  for (const animName of POKE_ANIMS) {
+    const anim = anims[animName];
+    const key = `pmd:${id}:${animName}`;
+    if (!anim || scene.textures.exists(key)) continue;
+    queued = true;
+    scene.load.spritesheet(key, `assets/pokemon/${id}/${animName}-Anim.png`, {
+      frameWidth: anim.frameWidth,
+      frameHeight: anim.frameHeight,
+    });
+  }
+
+  if (!queued) {
+    registerSpeciesAnimations(scene, id, anims);
+    onReady?.();
+    return;
+  }
+
+  scene.load.once('complete', () => {
+    registerSpeciesAnimations(scene, id, anims);
+    onReady?.();
+  });
+  if (!scene.load.isLoading()) {
+    scene.load.start();
+  }
+}
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -87,7 +162,18 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
-    for (const [id, anims] of Object.entries(pokeManifest)) {
+    const save = loadPlayerSave();
+    const preloadIds = new Set<string>(STARTER_UNLOCKED_IDS);
+    for (const [id, entry] of Object.entries(save.pokemon)) {
+      if (entry.unlocked) preloadIds.add(id);
+    }
+    for (const en of Object.values(ENEMY_SPECIES)) {
+      preloadIds.add(en.spriteId ?? en.id);
+    }
+
+    for (const id of preloadIds) {
+      const anims = pokeManifest[id];
+      if (!anims) continue;
       for (const animName of POKE_ANIMS) {
         const anim = anims[animName];
         if (!anim) continue;
@@ -103,7 +189,7 @@ export class BootScene extends Phaser.Scene {
     }
 
     this.load.once('complete', () => {
-      this.registerAnimations(vfxManifest, pokeManifest);
+      this.registerAnimations(vfxManifest, pokeManifest, preloadIds);
       this.scene.start('BattleScene');
     });
 
@@ -113,6 +199,7 @@ export class BootScene extends Phaser.Scene {
   private registerAnimations(
     vfxManifest: Record<string, VfxManifestEntry>,
     pokeManifest: Record<string, Record<PokeAnimName, PokeAnimEntry>>,
+    preloadIds: Set<string>,
   ): void {
     for (const [effectKey, entry] of Object.entries(vfxManifest)) {
       const animKey = `anim:vfx:${effectKey}`;
@@ -129,28 +216,9 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
-    for (const [id, anims] of Object.entries(pokeManifest)) {
-      for (const animName of POKE_ANIMS) {
-        const anim = anims[animName];
-        if (!anim || anim.frames <= 0) continue;
-
-        const sheetKey = `pmd:${id}:${animName}`;
-        const repeat = animName === 'Attack' ? 0 : -1;
-
-        for (let dir = 0; dir < PMD_DIRECTIONS; dir++) {
-          const animKey = `anim:pmd:${id}:${animName}:${dir}`;
-          if (this.anims.exists(animKey)) continue;
-
-          const start = dir * anim.frames;
-          const end = start + anim.frames - 1;
-          this.anims.create({
-            key: animKey,
-            frames: this.anims.generateFrameNumbers(sheetKey, { start, end }),
-            frameRate: anim.frameRate,
-            repeat,
-          });
-        }
-      }
+    for (const id of preloadIds) {
+      const anims = pokeManifest[id];
+      if (anims) registerSpeciesAnimations(this, id, anims);
     }
   }
 

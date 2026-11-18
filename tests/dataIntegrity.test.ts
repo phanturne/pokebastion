@@ -33,9 +33,9 @@ describe('Data & Asset Manifest Integrity', () => {
     fs.readFileSync(path.join(PUBLIC_ASSETS, 'pokemon/manifest.json'), 'utf8'),
   ) as Record<string, { Walk: unknown; Idle: unknown; Attack: unknown }>;
 
-  it('has 10 playable Pokémon with valid PMD sprites and PVFX keys', () => {
+  it('has 152 playable Pokémon (Gen 1 + Lucario) with valid PMD sprites and PVFX keys', () => {
     const species = Object.values(POKEMON_SPECIES);
-    expect(species).toHaveLength(10);
+    expect(species).toHaveLength(152);
 
     for (const sp of species) {
       expect(pokeManifest[sp.id]).toBeDefined();

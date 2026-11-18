@@ -1,3 +1,4 @@
+import { CLASS_MINOR_UPGRADES, CLASS_MINOR_UPGRADE_MAP } from '../data/classes';
 import {
   HELD_ITEMS,
   POKEMON_SPECIES,
@@ -6,7 +7,9 @@ import {
 } from '../data/pokemon';
 import {
   GamePhase,
+  MinorUpgradeSpec,
   PokemonBranch,
+  PokemonSpecies,
   RewardOption,
   StructureKind,
 } from '../types';
@@ -59,12 +62,60 @@ export function chebyshevDist(
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
+export function doesMinorUpgradeMatchSpecies(
+  upgrade: MinorUpgradeSpec,
+  species: Pick<PokemonSpecies, 'pokeClass' | 'secondaryClass' | 'subclass'>,
+): boolean {
+  const matchesClass =
+    species.pokeClass === upgrade.targetClass ||
+    species.secondaryClass === upgrade.targetClass;
+  if (!matchesClass) return false;
+  if (upgrade.targetSubclass && species.subclass !== upgrade.targetSubclass) {
+    return false;
+  }
+  return true;
+}
+
+export function getEligibleMinorUpgrades(
+  species: Pick<PokemonSpecies, 'pokeClass' | 'secondaryClass' | 'subclass'>,
+  ownedUpgradeIds: string[] = [],
+): MinorUpgradeSpec[] {
+  return CLASS_MINOR_UPGRADES.filter(
+    (u) =>
+      !ownedUpgradeIds.includes(u.id) &&
+      doesMinorUpgradeMatchSpecies(u, species),
+  );
+}
+
+function getMatchingMinorUpgrades(
+  speciesId: string,
+  upgrades: string[],
+): MinorUpgradeSpec[] {
+  const sp = POKEMON_SPECIES[speciesId];
+  if (!sp || upgrades.length === 0) return [];
+  const matched: MinorUpgradeSpec[] = [];
+  for (const id of upgrades) {
+    const spec = CLASS_MINOR_UPGRADE_MAP[id];
+    if (spec && doesMinorUpgradeMatchSpecies(spec, sp)) {
+      matched.push(spec);
+    }
+  }
+  return matched;
+}
+
 export function getEffectiveMoveRange(
   baseMoveRange: number,
-  _upgrades: string[],
+  upgrades: string[],
   branch?: PokemonBranch,
+  speciesId?: string,
 ): number {
-  return baseMoveRange + (branch?.moveRangeBonus ?? 0);
+  let bonus = branch?.moveRangeBonus ?? 0;
+  if (speciesId) {
+    for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+      if (u.moveRangeBonus) bonus += u.moveRangeBonus;
+    }
+  }
+  return baseMoveRange + bonus;
 }
 
 /**
@@ -99,6 +150,9 @@ export function getEffectiveMaxHp(
     const item = HELD_ITEMS[itemId];
     if (item?.hpMult) mult *= item.hpMult;
   }
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.hpMult) mult *= u.hpMult;
+  }
   return Math.round(base * mult);
 }
 
@@ -119,6 +173,9 @@ export function getEffectiveAtk(
     const item = HELD_ITEMS[itemId];
     if (item?.atkMult) mult *= item.atkMult;
   }
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.atkMult) mult *= u.atkMult;
+  }
   return Math.round(base * mult);
 }
 
@@ -126,6 +183,7 @@ export function getEffectiveDef(
   speciesId: string,
   branchId: string | null = null,
   heldItems: string[] = [],
+  upgrades: string[] = [],
 ): number {
   let def = POKEMON_SPECIES[speciesId]?.def ?? 0;
   const branch = getBranchSpec(speciesId, branchId);
@@ -134,16 +192,24 @@ export function getEffectiveDef(
     const item = HELD_ITEMS[itemId];
     if (item?.defBonus) def += item.defBonus;
   }
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.defBonus) def += u.defBonus;
+  }
   return def;
 }
 
 export function getEffectiveRange(
   speciesId: string,
   branchId: string | null = null,
+  upgrades: string[] = [],
 ): number {
-  const base = POKEMON_SPECIES[speciesId]?.range ?? 1;
+  let range = POKEMON_SPECIES[speciesId]?.range ?? 1;
   const branch = getBranchSpec(speciesId, branchId);
-  return base + (branch?.rangeBonus ?? 0);
+  if (branch?.rangeBonus) range += branch.rangeBonus;
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.rangeBonus) range += u.rangeBonus;
+  }
+  return range;
 }
 
 export function getEffectiveAttackIntervalMs(
@@ -151,6 +217,7 @@ export function getEffectiveAttackIntervalMs(
   artifacts: string[],
   branchId: string | null = null,
   heldItems: string[] = [],
+  upgrades: string[] = [],
 ): number {
   let interval = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
   if (artifacts.includes('arcane_conduit')) interval *= 0.8;
@@ -159,6 +226,9 @@ export function getEffectiveAttackIntervalMs(
   for (const itemId of heldItems) {
     const item = HELD_ITEMS[itemId];
     if (item?.attackIntervalMult) interval *= item.attackIntervalMult;
+  }
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.attackIntervalMult) interval *= u.attackIntervalMult;
   }
   return Math.round(interval);
 }
@@ -215,12 +285,33 @@ export function generateRewardChoices(
   ownedArtifacts: string[],
   rng: () => number = Math.random,
   unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
+  includeClassMinorUpgrades = false,
 ): RewardOption[] {
-  const availableRewards = REWARD_POOL.filter(
+  const availableRewards: RewardOption[] = REWARD_POOL.filter(
     (r) =>
       (r.kind === 'upgrade' && !ownedUpgrades.includes(r.id)) ||
       (r.kind === 'artifact' && !ownedArtifacts.includes(r.id)),
   );
+
+  if (includeClassMinorUpgrades) {
+    const minorPool = new Map<string, RewardOption>();
+    for (const speciesId of ownedSpeciesIds) {
+      const sp = POKEMON_SPECIES[speciesId];
+      if (!sp) continue;
+      for (const u of getEligibleMinorUpgrades(sp, ownedUpgrades)) {
+        if (!minorPool.has(u.id)) {
+          minorPool.set(u.id, {
+            id: u.id,
+            kind: 'upgrade',
+            title: u.title,
+            desc: u.desc,
+            targetClass: u.targetClass,
+          });
+        }
+      }
+    }
+    availableRewards.push(...minorPool.values());
+  }
 
   const shuffle = <T>(arr: T[]): T[] => {
     const copy = [...arr];

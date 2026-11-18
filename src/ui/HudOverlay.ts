@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import type { BattleScene } from '../scenes/BattleScene';
+import { CLASS_MINOR_UPGRADES } from '../data/classes';
+import { MAP_CATALOG, createGridForMap } from '../data/maps';
 import {
   HELD_ITEMS,
   POKEMON_SPECIES,
@@ -11,6 +13,7 @@ import {
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   REVIVE_COST,
+  doesMinorUpgradeMatchSpecies,
   getBranchSpec,
   getDraftCost,
   getEffectiveAtk,
@@ -25,6 +28,8 @@ import {
   ActiveUnit,
   GameSnapshot,
   GridStructure,
+  MapDifficulty,
+  PokemonBranch,
   PokemonSpecies,
   RewardOption,
   StructureKind,
@@ -74,7 +79,7 @@ function renderPokeIcon(speciesId: string, size: 'sm' | 'lg' = 'sm'): string {
   const cls = size === 'lg' ? 'poke-icon-wrap lg' : 'poke-icon-wrap';
   return `
     <span class="${cls}" aria-hidden="true">
-      <img src="assets/pokemon/${escapeHtml(speciesId)}/Normal.png" alt="" width="${px}" height="${px}" />
+      <img src="assets/pokemon/${escapeHtml(speciesId)}/Normal.png" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" />
     </span>
   `;
 }
@@ -174,6 +179,86 @@ function renderDraftSnowflake(sp: PokemonSpecies): string {
   `;
 }
 
+const SPECIAL_LABELS: Record<NonNullable<PokemonBranch['special']>, string> = {
+  burn_spread: 'Burn Spread',
+  chain_hit: 'Chain Hit',
+  lifesteal: 'Lifesteal',
+  slow_hit: 'Slow Hit',
+  thorns: 'Thorns',
+  crit_boost: 'Crit Boost',
+};
+
+function formatBranchChips(b: PokemonBranch): string {
+  const chips: string[] = [];
+  if (b.atkMult) chips.push(`+${Math.round((b.atkMult - 1) * 100)}% ATK`);
+  if (b.hpMult) chips.push(`+${Math.round((b.hpMult - 1) * 100)}% HP`);
+  if (b.defBonus) chips.push(`+${b.defBonus} DEF`);
+  if (b.rangeBonus) chips.push(`+${b.rangeBonus} RNG`);
+  if (b.attackIntervalMult) {
+    chips.push(`+${Math.round((1 / b.attackIntervalMult - 1) * 100)}% SPD`);
+  }
+  if (b.moveRangeBonus) chips.push(`+${b.moveRangeBonus} MOV`);
+  if (b.ultMult) chips.push(`+${Math.round((b.ultMult - 1) * 100)}% ULT`);
+  if (b.special) chips.push(SPECIAL_LABELS[b.special]);
+  return chips
+    .map((c) => `<span class="branch-chip">${escapeHtml(c)}</span>`)
+    .join('');
+}
+
+function renderBranchTree(
+  sp: PokemonSpecies,
+  activeBranchId: string | null,
+  activeUpgrades: string[],
+): string {
+  const pathsHtml = sp.branches
+    .map((b, idx) => {
+      const chosen = activeBranchId === b.id;
+      const locked = Boolean(activeBranchId && !chosen);
+      const stateBadge = chosen
+        ? '<span class="tag branch-tag">Active</span>'
+        : locked
+          ? '<span class="tag locked-tag">Locked</span>'
+          : `<span class="tag">Path ${idx + 1}</span>`;
+      return `
+        <div class="expanded-branch-card ${chosen ? 'chosen' : ''} ${locked ? 'locked' : ''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+            <strong>${escapeHtml(b.name)}</strong>
+            ${stateBadge}
+          </div>
+          <div class="branch-chip-row">${formatBranchChips(b)}</div>
+          <span>${escapeHtml(b.desc)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  const matchingMinor = CLASS_MINOR_UPGRADES.filter((u) =>
+    doesMinorUpgradeMatchSpecies(u, sp),
+  );
+  const minorHtml = matchingMinor
+    .map((u) => {
+      const owned = activeUpgrades.includes(u.id);
+      return `
+        <div class="minor-pool-item ${owned ? 'owned' : ''}" title="${escapeHtml(u.desc)}">
+          <span class="minor-pool-name">${escapeHtml(u.title)}</span>
+          <span class="tag ${owned ? 'starter-tag' : ''}">${owned ? 'Active' : 'Random Pool'}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="expanded-branches-grid">${pathsHtml}</div>
+    <div class="minor-pool-box">
+      <div class="branch-header">
+        <span>${escapeHtml(sp.pokeClass)}${sp.subclass ? ` · ${escapeHtml(sp.subclass)}` : ''} Minor Upgrades</span>
+        <span class="card-hint">Randomly offered between waves</span>
+      </div>
+      <div class="minor-pool-grid">${minorHtml}</div>
+    </div>
+  `;
+}
+
 const HELD_ITEM_ICONS: Record<string, string> = {
   bloodthirsty_edge: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
     <rect x="10" y="2" width="4" height="4" fill="#f85149"/>
@@ -229,6 +314,10 @@ export class HudOverlay {
 
   private lastSnap: GameSnapshot | null = null;
   private showCredits = false;
+  private showPokedex = false;
+  private pokedexFilter: 'all' | 'unlocked' | 'locked' = 'all';
+  private inspectedPokedexId: string | null = '0001';
+  private mapDifficultyFilter: 'All' | MapDifficulty = 'All';
   private sideTab: 'team' | 'shop' = 'team';
   private expandedUnitUid: string | null = null;
   private inspectedDraftId: string | null = null;
@@ -283,6 +372,32 @@ export class HudOverlay {
         this.scene()?.playUiSfx?.('ui_click');
         this.showCredits = false;
         this.renderModal();
+        return;
+      }
+      if (action === 'open-pokedex') {
+        this.scene()?.playUiSfx?.('ui_click');
+        this.showPokedex = true;
+        this.renderModal();
+        return;
+      }
+      if (action === 'close-pokedex') {
+        this.scene()?.playUiSfx?.('ui_click');
+        this.showPokedex = false;
+        this.renderModal();
+        return;
+      }
+      if (action === 'pokedex-filter') {
+        this.scene()?.playUiSfx?.('ui_click');
+        this.pokedexFilter = id === 'unlocked' || id === 'locked' ? id : 'all';
+        this.renderModal();
+        return;
+      }
+      if (action === 'inspect-pokedex') {
+        if (id && POKEMON_SPECIES[id]) {
+          this.scene()?.playUiSfx?.('ui_select');
+          this.inspectedPokedexId = id;
+          this.renderModal();
+        }
         return;
       }
       if (action === 'cancel-action') {
@@ -373,6 +488,28 @@ export class HudOverlay {
         }
         case 'pick-reward':
           scene.pickReward?.(id);
+          break;
+        case 'home-play':
+          scene.startPlayFromHome?.();
+          break;
+        case 'select-map':
+          scene.selectMapAndDraft?.(id);
+          break;
+        case 'back-map-select':
+          scene.backToMapSelect?.();
+          break;
+        case 'map-filter':
+          this.mapDifficultyFilter =
+            id === 'Beginner' ||
+            id === 'Intermediate' ||
+            id === 'Advanced' ||
+            id === 'Expert'
+              ? id
+              : 'All';
+          this.renderModal();
+          break;
+        case 'back-home':
+          scene.returnToHome?.();
           break;
         case 'inspect-draft':
           if (id && POKEMON_SPECIES[id]) {
@@ -539,6 +676,13 @@ export class HudOverlay {
     if (snap.phase !== 'PREP') {
       this.hoveredTool = null;
     }
+    const isMenuPhase =
+      snap.phase === 'HOME' ||
+      snap.phase === 'MAP_SELECT' ||
+      snap.phase === 'DRAFT';
+    if (this.topBar) this.topBar.style.display = isMenuPhase ? 'none' : '';
+    if (this.sidePanel)
+      this.sidePanel.style.display = isMenuPhase ? 'none' : '';
     this.renderTopBar(snap);
     this.renderSidePanel(snap);
     this.renderModal();
@@ -578,6 +722,7 @@ export class HudOverlay {
         <button class="btn" data-action="toggle-speed" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
         <button class="btn" data-action="toggle-mute" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
         <button class="btn" data-action="toggle-credits">Credits</button>
+        <button class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
       </div>
     `;
 
@@ -1244,11 +1389,12 @@ export class HudOverlay {
 
     if (this.showCredits) {
       html = `
-        <div class="modal-card compact">
-          <div class="modal-header">
-            <div class="modal-title">Asset Credits</div>
-            <button class="btn" data-action="close-credits">Close</button>
-          </div>
+        <div class="menu-backdrop">
+          <div class="modal-card compact">
+            <div class="modal-header">
+              <div class="modal-title">Asset Credits</div>
+              <button class="btn" data-action="close-credits">Close</button>
+            </div>
           <div class="credits-list">
             <div class="credit-item">
               <strong>Tiles, Forest Props & Pokémon Center — Ekat's Public Tiles</strong>
@@ -1280,6 +1426,221 @@ export class HudOverlay {
               <span>Includes SFX by Nick &ldquo;Kelvin Shadewing&rdquo; Kovacs (kelvinshadewing.net) &amp; Tuxemon contributors, plus JRPGCollection BGM loops</span>
             </div>
           </div>
+          </div>
+        </div>
+      `;
+    } else if (this.showPokedex) {
+      const unlockedSet = new Set(this.lastSnap?.unlockedIds ?? []);
+      const allSpecies = Object.values(POKEMON_SPECIES);
+      const unlockedCount = allSpecies.filter((s) =>
+        unlockedSet.has(s.id),
+      ).length;
+      const filtered = allSpecies.filter((s) => {
+        if (this.pokedexFilter === 'unlocked') return unlockedSet.has(s.id);
+        if (this.pokedexFilter === 'locked') return !unlockedSet.has(s.id);
+        return true;
+      });
+      const inspectedId =
+        this.inspectedPokedexId && POKEMON_SPECIES[this.inspectedPokedexId]
+          ? this.inspectedPokedexId
+          : (filtered[0]?.id ?? allSpecies[0]?.id);
+      const inspectedSp = inspectedId
+        ? POKEMON_SPECIES[inspectedId]
+        : undefined;
+      const inspectedUnlocked = inspectedSp
+        ? unlockedSet.has(inspectedSp.id)
+        : false;
+
+      const gridHtml =
+        filtered.length > 0
+          ? filtered
+              .map((sp) => {
+                const isUnlocked = unlockedSet.has(sp.id);
+                const classes = [
+                  'draft-roster-item',
+                  !isUnlocked ? 'is-locked' : '',
+                  sp.id === inspectedId ? 'is-inspected' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                return `
+                  <button
+                    type="button"
+                    class="${classes}"
+                    data-action="inspect-pokedex"
+                    data-id="${sp.id}"
+                  >
+                    ${renderPokeIcon(sp.id)}
+                    <span class="draft-roster-name">#${sp.id.slice(-3)} ${escapeHtml(sp.name)}</span>
+                  </button>
+                `;
+              })
+              .join('')
+          : '<div class="card-hint" style="grid-column:1/-1;padding:12px;">No Pokémon match this filter yet.</div>';
+
+      const detailHtml = inspectedSp
+        ? `
+          <div class="draft-detail-panel">
+            <div class="draft-detail-head">
+              <div class="draft-detail-title">
+                ${renderPokeIcon(inspectedSp.id, 'lg')}
+                <div>
+                  <div class="draft-detail-name">#${inspectedSp.id} ${escapeHtml(inspectedSp.name)}</div>
+                  <div class="draft-detail-tags">
+                    <span class="tag">${escapeHtml(inspectedSp.pokeClass)}</span>
+                    ${inspectedSp.rarity ? `<span class="tag">${escapeHtml(inspectedSp.rarity)}</span>` : ''}
+                    <span class="tag cost-tag">${inspectedSp.draftCost} pt${inspectedSp.draftCost === 1 ? '' : 's'}</span>
+                    <span class="tag ${inspectedUnlocked ? 'starter-tag' : 'locked-tag'}">${inspectedUnlocked ? 'Unlocked' : 'Locked'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            ${renderDraftSnowflake(inspectedSp)}
+            <div class="draft-kit">
+              <div><strong>Passive:</strong> ${escapeHtml(inspectedSp.passiveDesc)}</div>
+              <div><strong>Basic:</strong> ${escapeHtml(inspectedSp.basicDesc)}</div>
+              <div><strong>Ult (${escapeHtml(inspectedSp.ultName)}):</strong> ${escapeHtml(inspectedSp.ultDesc)}</div>
+              <div class="draft-branches">
+                <strong>Branches:</strong>
+                ${inspectedSp.branches
+                  .map(
+                    (b, idx) =>
+                      `<div class="branch-line">• <em>Path ${idx + 1}: ${escapeHtml(b.name)}</em> ${formatBranchChips(b)} — ${escapeHtml(b.desc)}</div>`,
+                  )
+                  .join('')}
+              </div>
+            </div>
+          </div>
+        `
+        : '';
+
+      html = `
+        <div class="menu-backdrop">
+          <div class="modal-card draft-modal">
+            <div class="modal-header">
+              <div>
+                <div class="modal-title">Pokédex — ${unlockedCount} / ${allSpecies.length} Unlocked</div>
+                <div class="card-hint">Recruit Pokémon during runs to unlock them for future drafts.</div>
+              </div>
+              <div class="btn-row" style="margin:0">
+                <button class="btn ${this.pokedexFilter === 'all' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="all">All (${allSpecies.length})</button>
+                <button class="btn ${this.pokedexFilter === 'unlocked' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="unlocked">Unlocked (${unlockedCount})</button>
+                <button class="btn ${this.pokedexFilter === 'locked' ? 'btn-primary' : ''}" data-action="pokedex-filter" data-id="locked">Locked (${allSpecies.length - unlockedCount})</button>
+                <button class="btn" data-action="close-pokedex">Close</button>
+              </div>
+            </div>
+            <div class="draft-body">
+              <div class="draft-roster-grid">${gridHtml}</div>
+              ${detailHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (this.lastSnap?.phase === 'HOME') {
+      const unlockedCount = this.lastSnap.unlockedIds.length;
+      const totalCount = Object.keys(POKEMON_SPECIES).length;
+      html = `
+        <div class="menu-backdrop">
+          <div class="modal-card compact home-modal">
+            <div class="home-badge">GEN 1 EDITION</div>
+            <div class="home-title">PokéBastion TD</div>
+            <p class="home-subtitle">
+              Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center across 10 waves.
+            </p>
+            <div class="home-meta">
+              <span class="tag starter-tag">${unlockedCount} / ${totalCount} Pokémon Unlocked</span>
+              <span class="tag">${MAP_CATALOG.length} Maps</span>
+              <span class="tag">6 Classes · 18 Subclasses</span>
+            </div>
+            <div class="home-actions">
+              <button class="btn btn-primary home-btn" data-action="home-play">Play</button>
+              <button class="btn home-btn" data-action="open-pokedex">Pokédex</button>
+              <button class="btn home-btn" data-action="toggle-credits">Credits</button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (this.lastSnap?.phase === 'MAP_SELECT') {
+      const difficulties: Array<'All' | MapDifficulty> = [
+        'All',
+        'Beginner',
+        'Intermediate',
+        'Advanced',
+        'Expert',
+      ];
+      const filteredMaps = MAP_CATALOG.filter(
+        (m) =>
+          this.mapDifficultyFilter === 'All' ||
+          m.difficulty === this.mapDifficultyFilter,
+      );
+      const mapCardsHtml = filteredMaps
+        .map((m) => {
+          const grid = createGridForMap(m.id);
+          const rects: string[] = [];
+          for (let gy = 0; gy < grid.length; gy++) {
+            for (let gx = 0; gx < grid[gy].length; gx++) {
+              const t = grid[gy][gx];
+              if (t === 'grass') continue;
+              const fill =
+                t === 'water'
+                  ? '#38bdf8'
+                  : t === 'tree'
+                    ? '#166534'
+                    : '#f43f5e';
+              rects.push(
+                `<rect x="${gx}" y="${gy}" width="1" height="1" fill="${fill}" />`,
+              );
+            }
+          }
+          const diffClass = `diff-${m.difficulty.toLowerCase()}`;
+          const isCurrent =
+            !m.comingSoon && this.lastSnap?.selectedMapId === m.id;
+          const previewHtml = m.comingSoon
+            ? `<div class="map-coming-soon">COMING SOON</div>`
+            : `<svg class="map-preview-svg" viewBox="0 0 28 18" preserveAspectRatio="xMidYMid slice">
+                <rect width="28" height="18" fill="#2d5a27" />
+                ${rects.join('')}
+              </svg>`;
+          return `
+            <div class="map-card ${isCurrent ? 'is-selected' : ''} ${m.comingSoon ? 'is-coming-soon' : ''}">
+              <div class="map-preview-wrap">
+                ${previewHtml}
+                <span class="tag map-diff-badge ${diffClass}">${escapeHtml(m.difficulty)}</span>
+              </div>
+              <div class="map-card-body">
+                <div class="map-card-title">${escapeHtml(m.name)}</div>
+                <div class="map-card-desc">${escapeHtml(m.desc)}</div>
+                <button class="btn ${m.comingSoon ? '' : 'btn-primary'}" data-action="select-map" data-id="${escapeHtml(m.id)}" ${m.comingSoon ? 'disabled' : ''}>
+                  ${m.comingSoon ? 'Coming Soon' : 'Select Map'}
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      const filterTabsHtml = difficulties
+        .map(
+          (d) =>
+            `<button class="btn ${this.mapDifficultyFilter === d ? 'btn-primary' : ''}" data-action="map-filter" data-id="${d}">${d}</button>`,
+        )
+        .join('');
+
+      html = `
+        <div class="menu-backdrop">
+          <div class="modal-card draft-modal map-select-modal">
+            <div class="modal-header">
+              <div>
+                <div class="modal-title">Select Battlefield</div>
+                <div class="card-hint">Choose a Gen 1 map before drafting your starting team.</div>
+              </div>
+              <div class="btn-row" style="margin:0">
+                ${filterTabsHtml}
+                <button class="btn" data-action="back-home">Home</button>
+              </div>
+            </div>
+            <div class="map-grid">${mapCardsHtml}</div>
+          </div>
         </div>
       `;
     } else if (this.lastSnap?.phase === 'DRAFT') {
@@ -1295,18 +1656,27 @@ export class HudOverlay {
           : defaultDraftId;
       const inspectedSp = POKEMON_SPECIES[inspectedId];
 
-      const rosterItems = allSpecies
+      const unlockedSet = new Set(snap.unlockedIds);
+      const sortedSpecies = [...allSpecies].sort((a, b) => {
+        const aUnl = unlockedSet.has(a.id) ? 0 : 1;
+        const bUnl = unlockedSet.has(b.id) ? 0 : 1;
+        return aUnl - bUnl || Number(a.id) - Number(b.id);
+      });
+      const rosterItems = sortedSpecies
         .map((sp) => {
+          const isUnlocked = unlockedSet.has(sp.id);
           const picked = snap.draftIds.includes(sp.id);
           const canAdd =
-            picked ||
-            (snap.draftIds.length < MAX_ACTIVE_UNITS &&
-              spent + sp.draftCost <= snap.draftBudget);
+            isUnlocked &&
+            (picked ||
+              (snap.draftIds.length < MAX_ACTIVE_UNITS &&
+                spent + sp.draftCost <= snap.draftBudget));
           const classes = [
             'draft-roster-item',
             picked ? 'is-picked' : '',
+            !isUnlocked ? 'is-locked' : '',
             sp.id === inspectedId ? 'is-inspected' : '',
-            !picked && !canAdd ? 'is-unaffordable' : '',
+            isUnlocked && !picked && !canAdd ? 'is-unaffordable' : '',
           ]
             .filter(Boolean)
             .join(' ');
@@ -1334,22 +1704,28 @@ export class HudOverlay {
               .join('')
           : '<span class="card-hint">Select at least 1 Pokémon to start.</span>';
 
+      const isInspectedUnlocked = inspectedSp
+        ? unlockedSet.has(inspectedSp.id)
+        : false;
       const isPicked = inspectedSp
         ? snap.draftIds.includes(inspectedSp.id)
         : false;
       const canAddInspected = inspectedSp
-        ? isPicked ||
-          (snap.draftIds.length < MAX_ACTIVE_UNITS &&
-            spent + inspectedSp.draftCost <= snap.draftBudget)
+        ? isInspectedUnlocked &&
+          (isPicked ||
+            (snap.draftIds.length < MAX_ACTIVE_UNITS &&
+              spent + inspectedSp.draftCost <= snap.draftBudget))
         : false;
       const needPts = inspectedSp ? inspectedSp.draftCost - remaining : 0;
-      const actionLabel = isPicked
-        ? 'Remove'
-        : canAddInspected
-          ? 'Draft'
-          : snap.draftIds.length >= MAX_ACTIVE_UNITS
-            ? 'Team Full'
-            : `Need ${needPts} more pt${needPts === 1 ? '' : 's'}`;
+      const actionLabel = !isInspectedUnlocked
+        ? 'Locked'
+        : isPicked
+          ? 'Remove'
+          : canAddInspected
+            ? 'Draft'
+            : snap.draftIds.length >= MAX_ACTIVE_UNITS
+              ? 'Team Full'
+              : `Need ${needPts} more pt${needPts === 1 ? '' : 's'}`;
       const actionBtnClass = isPicked
         ? 'btn btn-danger'
         : canAddInspected
@@ -1399,6 +1775,9 @@ export class HudOverlay {
               <div class="card-hint">Remaining: ${remaining} pts · Team: ${snap.draftIds.length} / ${MAX_ACTIVE_UNITS} (Squirtle, Charmander & Bulbasaur unlocked at 3 pts)</div>
             </div>
             <div class="btn-row" style="margin:0">
+              <button class="btn" data-action="back-map-select">Maps</button>
+              <button class="btn" data-action="back-home">Home</button>
+              <button class="btn" data-action="open-pokedex">Pokédex</button>
               <button class="btn" data-action="clear-draft" ${snap.draftIds.length === 0 ? 'disabled' : ''}>Clear</button>
               <button class="btn btn-primary" data-action="confirm-draft" ${snap.draftIds.length === 0 ? 'disabled' : ''}>Start Game</button>
             </div>
@@ -1509,31 +1888,27 @@ export class HudOverlay {
           unit.speciesId,
           unit.branchId,
           unit.heldItems,
+          snap.upgrades,
         );
-        const range = getEffectiveRange(unit.speciesId, unit.branchId);
-        const mov = getEffectiveMoveRange(sp.moveRange, snap.upgrades, branch);
+        const range = getEffectiveRange(
+          unit.speciesId,
+          unit.branchId,
+          snap.upgrades,
+        );
+        const mov = getEffectiveMoveRange(
+          sp.moveRange,
+          snap.upgrades,
+          branch,
+          unit.speciesId,
+        );
         const intervalMs = getEffectiveAttackIntervalMs(
           unit.speciesId,
           snap.artifacts,
           unit.branchId,
           unit.heldItems,
+          snap.upgrades,
         );
         const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
-
-        const branchesHtml = sp.branches
-          .map((b) => {
-            const chosen = unit.branchId === b.id;
-            return `
-              <div class="expanded-branch-card ${chosen ? 'chosen' : ''}">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-                  <strong>${escapeHtml(b.name)}</strong>
-                  ${chosen ? '<span class="tag branch-tag">Active</span>' : ''}
-                </div>
-                <span>${escapeHtml(b.desc)}</span>
-              </div>
-            `;
-          })
-          .join('');
 
         const heldHtml = Array.from({ length: MAX_HELD_ITEMS })
           .map((_, idx) => {
@@ -1581,10 +1956,10 @@ export class HudOverlay {
             </div>
 
             <div class="branch-header">
-              <span>Specialization & Upgrade Paths (Earned via Wave Rewards)</span>
+              <span>Specialization Paths &amp; Minor Upgrade Pool</span>
               <span class="card-hint">${branch ? `Chosen: ${escapeHtml(branch.name)}` : 'Not yet specialized'}</span>
             </div>
-            <div class="expanded-branches-grid">${branchesHtml}</div>
+            ${renderBranchTree(sp, unit.branchId, snap.upgrades)}
 
             <div class="held-box" style="margin-top:12px">
               <div class="branch-header">
