@@ -4,6 +4,9 @@ import { POKEMON_SPECIES } from '../data/pokemon';
 import { ContextInspectTarget, GameSnapshot, MapDifficulty } from '../types';
 import { ToolId } from './hudShared';
 import {
+  CombatStatTab,
+  formatTimerMs,
+  renderBottomBarHtml,
   renderRelicTooltipContent,
   renderShopTooltipContent,
   renderSidePanelHtml,
@@ -16,6 +19,7 @@ import { renderModalHtml } from './hudModals';
 export class HudOverlay {
   private readonly topBar: HTMLElement | null;
   private readonly sidePanel: HTMLElement | null;
+  private readonly bottomBar: HTMLElement | null;
   private readonly mapPopover: HTMLElement | null;
   private readonly modalRoot: HTMLElement | null;
 
@@ -27,7 +31,7 @@ export class HudOverlay {
   private pokedexFilter: 'all' | 'unlocked' | 'locked' = 'all';
   private inspectedPokedexId: string | null = '0001';
   private mapDifficultyFilter: 'All' | MapDifficulty = 'All';
-  private sideTab: 'team' | 'shop' = 'team';
+  private combatStatTab: CombatStatTab = 'dealt';
   private expandedUnitUid: string | null = null;
   private inspectedDraftId: string | null = null;
   private hoveredTool: ToolId | null = null;
@@ -35,6 +39,7 @@ export class HudOverlay {
 
   private lastTopHtml = '';
   private lastSideHtml = '';
+  private lastBottomHtml = '';
   private lastModalHtml = '';
   private lastModalKind = '';
   private lastPopoverPosKey = '';
@@ -256,13 +261,12 @@ export class HudOverlay {
       case 'deploy-reserve':
         scene.deployReserve?.(id);
         break;
-      case 'switch-tab':
-        this.sideTab = id === 'shop' ? 'shop' : 'team';
-        if (this.sideTab === 'team' && this.lastSnap?.selectedTool) {
-          this.hoveredTool = null;
-          scene.selectTool?.(null);
-        }
+      case 'switch-stat-tab':
+        this.combatStatTab = id === 'taken' || id === 'healed' ? id : 'dealt';
         if (this.lastSnap) this.renderSidePanel(this.lastSnap);
+        break;
+      case 'close-shop':
+        scene.closeShop?.();
         break;
       case 'expand-unit':
         this.closePopover();
@@ -457,6 +461,7 @@ export class HudOverlay {
   constructor(private readonly game: Phaser.Game) {
     this.topBar = document.getElementById('top-bar');
     this.sidePanel = document.getElementById('side-panel');
+    this.bottomBar = document.getElementById('bottom-bar');
     this.mapPopover = document.getElementById('map-popover');
     this.modalRoot = document.getElementById('modal-root');
 
@@ -472,9 +477,16 @@ export class HudOverlay {
     this.game.events.off('context-inspect', this.onContextInspect);
     this.topBar?.removeEventListener('click', this.onClick);
     this.topBar?.removeEventListener('contextmenu', this.onContextMenu);
+    this.topBar?.removeEventListener('mouseover', this.onToolEnter);
+    this.topBar?.removeEventListener('mouseout', this.onToolLeave);
+    this.topBar?.removeEventListener('focusin', this.onToolEnter);
+    this.topBar?.removeEventListener('focusout', this.onToolLeave);
     this.sidePanel?.removeEventListener('click', this.onClick);
     this.sidePanel?.removeEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.removeEventListener('change', this.onChange);
+    this.bottomBar?.removeEventListener('click', this.onClick);
+    this.bottomBar?.removeEventListener('contextmenu', this.onContextMenu);
+    this.bottomBar?.removeEventListener('dblclick', this.onBottomDblClick);
     this.mapPopover?.removeEventListener('click', this.onClick);
     this.mapPopover?.removeEventListener('contextmenu', this.onContextMenu);
     this.modalRoot?.removeEventListener('change', this.onChange);
@@ -503,12 +515,31 @@ export class HudOverlay {
     }
   }
 
+  private readonly onBottomDblClick = (ev: Event): void => {
+    const btn = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+      '[data-action="select-unit"]',
+    );
+    const uid = btn?.dataset.id;
+    if (!uid) return;
+    this.closePopover();
+    if (!this.expandedUnitUid) this.capturePreviousFocus();
+    this.expandedUnitUid = uid;
+    this.renderModal();
+  };
+
   private bindEvents(): void {
     this.topBar?.addEventListener('click', this.onClick);
     this.topBar?.addEventListener('contextmenu', this.onContextMenu);
+    this.topBar?.addEventListener('mouseover', this.onToolEnter);
+    this.topBar?.addEventListener('mouseout', this.onToolLeave);
+    this.topBar?.addEventListener('focusin', this.onToolEnter);
+    this.topBar?.addEventListener('focusout', this.onToolLeave);
     this.sidePanel?.addEventListener('click', this.onClick);
     this.sidePanel?.addEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.addEventListener('change', this.onChange);
+    this.bottomBar?.addEventListener('click', this.onClick);
+    this.bottomBar?.addEventListener('contextmenu', this.onContextMenu);
+    this.bottomBar?.addEventListener('dblclick', this.onBottomDblClick);
     this.mapPopover?.addEventListener('click', this.onClick);
     this.mapPopover?.addEventListener('contextmenu', this.onContextMenu);
     this.modalRoot?.addEventListener('change', this.onChange);
@@ -530,8 +561,8 @@ export class HudOverlay {
   }
 
   private updateRelicTooltip(): void {
-    if (!this.sidePanel || !this.lastSnap) return;
-    const box = this.sidePanel.querySelector<HTMLElement>('#relic-tooltip');
+    if (!this.topBar || !this.lastSnap) return;
+    const box = this.topBar.querySelector<HTMLElement>('#relic-tooltip');
     if (!box) return;
     box.innerHTML = renderRelicTooltipContent(
       this.lastSnap,
@@ -551,8 +582,11 @@ export class HudOverlay {
     if (this.topBar) this.topBar.style.display = isMenuPhase ? 'none' : '';
     if (this.sidePanel)
       this.sidePanel.style.display = isMenuPhase ? 'none' : '';
+    if (this.bottomBar)
+      this.bottomBar.style.display = isMenuPhase ? 'none' : '';
     this.renderTopBar(snap);
     this.renderSidePanel(snap);
+    this.renderBottomBar(snap);
     this.renderModal();
     this.renderPopover();
   }
@@ -625,17 +659,33 @@ export class HudOverlay {
 
   private renderTopBar(snap: GameSnapshot): void {
     if (!this.topBar) return;
-    const html = renderTopBarHtml(snap);
+    const html = renderTopBarHtml(snap, this.hoveredRelicId);
     if (html !== this.lastTopHtml) {
       this.topBar.innerHTML = html;
       this.lastTopHtml = html;
+    }
+    const timerEl = this.topBar.querySelector<HTMLElement>('#hud-timer');
+    if (timerEl) {
+      const nextText = formatTimerMs(snap.waveElapsedMs);
+      if (timerEl.textContent !== nextText) {
+        timerEl.textContent = nextText;
+      }
+    }
+  }
+
+  private renderBottomBar(snap: GameSnapshot): void {
+    if (!this.bottomBar) return;
+    const html = renderBottomBarHtml(snap);
+    if (html !== this.lastBottomHtml) {
+      this.bottomBar.innerHTML = html;
+      this.lastBottomHtml = html;
     }
   }
 
   private renderSidePanel(snap: GameSnapshot): void {
     if (!this.sidePanel) return;
     const html = renderSidePanelHtml(snap, {
-      sideTab: this.sideTab,
+      combatStatTab: this.combatStatTab,
       hoveredTool: this.hoveredTool,
       hoveredRelicId: this.hoveredRelicId,
     });
@@ -717,6 +767,7 @@ export class HudOverlay {
       phase === 'HOME' ||
       phase === 'MAP_SELECT' ||
       phase === 'DRAFT' ||
+      phase === 'SHOP' ||
       phase === 'VICTORY' ||
       phase === 'DEFEAT'
     ) {

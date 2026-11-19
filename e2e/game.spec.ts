@@ -137,10 +137,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     // Ult button is omitted during PREP to keep unit cards clean
     await expect(page.locator('[data-action="cast-ult"]')).toHaveCount(0);
 
-    // Switch to Shop tab, verify Move tool is removed and Team tab clears active tool
-    const shopTab = page.locator('[data-action="switch-tab"][data-id="shop"]');
-    await shopTab.click();
-    await expect(shopTab).toHaveAttribute('aria-selected', 'true');
+    // Building shop is directly in the sidebar during PREP (no tab switch needed)
     await expect(
       page.locator('[data-action="select-tool"][data-id="move_struct"]'),
     ).toHaveCount(0);
@@ -148,12 +145,6 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
       .locator('[data-action="select-tool"][data-id="wood_wall"]')
       .click();
     await expect(page.locator('.active-mode-bar')).toBeVisible();
-    await page.locator('[data-action="switch-tab"][data-id="team"]').click();
-    await expect(page.locator('.active-mode-bar')).toHaveCount(0);
-    await shopTab.click();
-    await page
-      .locator('[data-action="select-tool"][data-id="wood_wall"]')
-      .click();
 
     const canvas = page.locator('#phaser-host canvas');
     const box = (await canvas.boundingBox())!;
@@ -184,21 +175,15 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     const goldAfterBuild = await readGold(page);
     expect(goldAfterBuild).toBeLessThan(initialGold);
 
-    // Buy a held item in the Shop drawer
-    const buyItemBtn = page.locator('[data-action="buy-item"]').first();
-    await expect(buyItemBtn).toBeEnabled();
-    await buyItemBtn.click();
-
-    const goldAfterItem = await readGold(page);
-    expect(goldAfterItem).toBeLessThan(goldAfterBuild);
-
-    // Switch to Team tab, equip item, and open Expanded Unit Inspector
-    await page.locator('[data-action="switch-tab"][data-id="team"]').click();
-    const equipBtn = page.locator('[data-action="equip-item"]').first();
-    await expect(equipBtn).toBeVisible();
-    await equipBtn.click();
-
-    await page.locator('[data-action="expand-unit"]').first().click();
+    // Bottom bar displays 6 party slots + 3 reserve slots, and unit details modal opens
+    await expect(
+      page.locator('#bottom-bar .bp-slot:not(.reserve)'),
+    ).toHaveCount(6);
+    await expect(page.locator('#bottom-bar .bp-slot.reserve')).toHaveCount(3);
+    await page
+      .locator('#bottom-bar [data-action="expand-unit"]')
+      .first()
+      .click({ force: true });
     await expect(
       page.locator('[data-action="close-expanded-unit"]'),
     ).toBeVisible();
@@ -223,7 +208,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     expect(homeBtnBox!.x + homeBtnBox!.width).toBeLessThanOrEqual(
       sideBox!.x + 1,
     );
-    expect(topBox!.height).toBeLessThanOrEqual(64);
+    expect(topBox!.height).toBeLessThanOrEqual(80);
     await page.setViewportSize({ width: 1280, height: 800 });
 
     expect(errors).toEqual([]);
@@ -234,10 +219,9 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
   }) => {
     const { errors } = attachErrorGuards(page);
     await page.goto('/');
-    await draftStarterTeamAndEnterPrep(page, true);
+    await draftStarterTeamAndEnterPrep(page, false);
 
-    // Place 2 wood walls near center and equip a held item so Wave 1 clears reliably
-    await page.locator('[data-action="switch-tab"][data-id="shop"]').click();
+    // Place 2 wood walls + 2 barrels near center from the PREP Building Shop sidebar (₽100 total)
     await page
       .locator('[data-action="select-tool"][data-id="wood_wall"]')
       .click();
@@ -245,11 +229,10 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     const box = (await canvas.boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.42, box.y + box.height * 0.44);
     await page.mouse.click(box.x + box.width * 0.58, box.y + box.height * 0.44);
-    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
+    await page.locator('[data-action="select-tool"][data-id="barrel"]').click();
+    await page.mouse.click(box.x + box.width * 0.46, box.y + box.height * 0.44);
+    await page.mouse.click(box.x + box.width * 0.54, box.y + box.height * 0.44);
     await page.keyboard.press('Escape');
-    await page.locator('[data-action="buy-item"]').first().click();
-    await page.locator('[data-action="switch-tab"][data-id="team"]').click();
-    await page.locator('[data-action="equip-item"]').first().click();
 
     // Mute audio and switch to 2x speed
     await page.locator('[data-action="toggle-mute"]').click();
@@ -262,9 +245,18 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
       '2×',
     );
 
-    // Start Wave 1
+    // Start Wave 1 and verify Combat Stats sidebar appears
     await page.locator('[data-action="start-wave"]').click();
     await expect(page.locator('#top-bar')).toContainText('COMBAT');
+    await expect(page.locator('#side-panel')).toContainText('DAMAGE DEALT');
+    await page
+      .locator('[data-action="switch-stat-tab"][data-id="taken"]')
+      .click();
+    await expect(page.locator('#side-panel')).toContainText('DAMAGE TAKEN');
+    await page
+      .locator('[data-action="switch-stat-tab"][data-id="healed"]')
+      .click();
+    await expect(page.locator('#side-panel')).toContainText('HEALING DONE');
 
     // Wait for Wave 1 to complete: either a reward/branch modal opens or Wave 2 PREP begins
     const rewardOrBranch = page.locator(

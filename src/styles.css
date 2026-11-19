@@ -1950,6 +1950,808 @@ input[type='checkbox']:focus-visible {
   background: var(--muted);
 }
 
+/* ==========================================================================
+   Guildrun-style Top HUD (Relics Top-Left + Wave Timeline Top-Center)
+   ========================================================================== */
+
+#top-bar {
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.top-left-relics {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 240px;
+}
+
+.relic-cluster {
+  display: flex;
+  align-items: center;
+  background: rgba(14, 19, 27, 0.86);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 6px;
+}
+
+.relic-empty-pill {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+
+.top-relic-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  max-width: 280px;
+  z-index: 30;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+}
+
+.top-relic-tooltip:empty {
+  display: none;
+}
+
+.top-center-hud {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin: 0 auto;
+}
+
+.top-center-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(14, 19, 27, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  padding: 5px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.top-cap-left,
+.top-cap-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-gold {
+  font-weight: 700;
+  color: var(--gold);
+  font-size: 13px;
+}
+
+.hud-core {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.hud-core .core-bar-wrap {
+  width: 58px;
+}
+
+.hud-ap {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hud-ap strong {
+  color: var(--accent);
+}
+
+.wave-timeline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.tl-sep {
+  color: var(--border-hi);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.tl-node {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  opacity: 0.65;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    color 0.15s ease;
+}
+
+.tl-node svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tl-node .tl-num {
+  position: absolute;
+  bottom: -1px;
+  right: 1px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tl-node.done {
+  opacity: 0.35;
+  color: var(--green);
+}
+
+.tl-node.current {
+  opacity: 1;
+  color: var(--gold);
+  background: rgba(247, 204, 69, 0.16);
+  border: 1px solid rgba(247, 204, 69, 0.65);
+  transform: scale(1.1);
+}
+
+.tl-node.shop {
+  color: var(--amber);
+}
+
+.tl-node.boss.upcoming {
+  color: var(--red);
+  opacity: 0.85;
+}
+
+.top-center-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(14, 19, 27, 0.86);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-timer {
+  color: var(--muted);
+}
+
+.phase-SHOP {
+  color: var(--gold);
+  border-color: rgba(247, 204, 69, 0.55);
+  background: rgba(44, 34, 12, 0.92);
+}
+
+.top-controls {
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 1220px) {
+  #top-bar {
+    gap: 4px;
+  }
+
+  .top-left-relics {
+    max-width: 120px;
+  }
+
+  .top-center-main {
+    padding: 3px 6px;
+    gap: 5px;
+  }
+
+  .hud-core .stat-label,
+  .hud-core .core-bar-wrap {
+    display: none;
+  }
+
+  .wave-timeline {
+    padding: 0 3px;
+    gap: 1px;
+  }
+
+  .tl-sep {
+    display: none;
+  }
+
+  .tl-node {
+    width: 14px;
+    height: 14px;
+  }
+
+  .tl-node svg {
+    width: 9px;
+    height: 9px;
+  }
+
+  .tl-node .tl-num {
+    font-size: 7px;
+  }
+
+  .top-center-hud {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  #top-bar .top-controls {
+    gap: 3px;
+  }
+
+  #top-bar .top-controls .btn {
+    padding: 3px 5px;
+    font-size: 11px;
+  }
+}
+
+/* ==========================================================================
+   Combat Stats Sidebar (Guildrun Damage Dealt / Taken / Healed)
+   ========================================================================== */
+
+.combat-stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  background: var(--bg);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.stat-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.stat-tab-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.stat-tab-btn.active {
+  background: var(--panel-alt);
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+
+.combat-stats-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.combat-stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.combat-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combat-stat-row.fainted {
+  opacity: 0.55;
+}
+
+.combat-stat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.combat-stat-avatar img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+
+.combat-stat-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.combat-stat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.combat-stat-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combat-stat-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.combat-stat-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.combat-stat-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.15s ease;
+}
+
+.stat-bar-dealt {
+  background: linear-gradient(90deg, #c026d3, #e879f9);
+}
+
+.stat-bar-taken {
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+
+.stat-bar-healed {
+  background: linear-gradient(90deg, #16a34a, #4ade80);
+}
+
+/* ==========================================================================
+   Prep Bag Card
+   ========================================================================== */
+
+.bag-items-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.bag-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bag-item-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.bag-item-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Bottom Bar (Compact 6 Active + 3 Reserve)
+   ========================================================================== */
+
+#bottom-bar {
+  position: fixed;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  right: calc(316px + max(10px, env(safe-area-inset-right)));
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+}
+
+.bottom-roster-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: rgba(14, 19, 27, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  padding: 6px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.bottom-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  align-self: center;
+  padding: 0 2px;
+}
+
+.bottom-slots-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.bottom-divider {
+  width: 1px;
+  height: 56px;
+  background: var(--border-hi);
+  align-self: center;
+  margin: 0 2px;
+}
+
+.bp-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 62px;
+  flex-shrink: 0;
+}
+
+.bp-slot.reserve {
+  width: 54px;
+}
+
+.bp-items-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 15px;
+}
+
+.bp-item-slot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(13, 17, 23, 0.8);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bp-item-slot.filled {
+  border-color: var(--gold);
+  background: rgba(40, 32, 14, 0.9);
+}
+
+.bp-item-slot svg,
+.bp-item-slot img {
+  width: 11px;
+  height: 11px;
+}
+
+.bp-item-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: none;
+  background: var(--red);
+  color: #fff;
+  font-size: 8px;
+  line-height: 1;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.bp-item-slot.filled:hover .bp-item-remove,
+.bp-item-slot.filled:focus-within .bp-item-remove {
+  display: inline-flex;
+}
+
+.bp-portrait-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+}
+
+.bp-portrait-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--border-hi);
+  background: var(--panel-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  transition:
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.bp-portrait-btn.reserve {
+  width: 40px;
+  height: 40px;
+  border-style: dashed;
+}
+
+.bp-portrait-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.bp-portrait-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bp-portrait-btn img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.bp-slot.selected .bp-portrait-btn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.35);
+}
+
+.bp-slot.ult-ready .bp-portrait-btn {
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(247, 204, 69, 0.55);
+}
+
+.bp-slot.fainted .bp-portrait-btn {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.bp-portrait-empty {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px dashed var(--border);
+  background: rgba(13, 17, 23, 0.55);
+}
+
+.bp-portrait-empty.reserve {
+  width: 40px;
+  height: 40px;
+}
+
+.bp-info-btn {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--border-hi);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.bp-slot:hover .bp-info-btn,
+.bp-slot.selected .bp-info-btn,
+.bp-info-btn:focus-visible {
+  opacity: 1;
+}
+
+.bp-action-pill {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 999px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bp-action-pill.ult {
+  background: var(--gold);
+  color: #111;
+}
+
+.bp-action-pill.heal {
+  background: var(--green);
+  color: #081c0c;
+}
+
+.bp-action-pill.revive {
+  background: var(--amber);
+  color: #111;
+}
+
+.bp-bars {
+  width: 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bp-bar-track {
+  width: 100%;
+  height: 3px;
+  background: var(--bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bp-bar-fill {
+  height: 100%;
+}
+
+.bp-bar-fill.hp {
+  background: var(--green);
+}
+
+.bp-bar-fill.ult {
+  background: var(--purple);
+}
+
+.bp-name {
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 60px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.bp-name.muted {
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   Merchant Shop Modal (Every 5th Wave)
+   ========================================================================== */
+
+.shop-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.shop-modal-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+
+.shop-modal-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shop-modal-item-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shop-modal-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shop-care-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shop-care-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.shop-care-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.modal-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -4,6 +4,7 @@ import {
   BASE_AP_KILL_THRESHOLD,
   DRAFT_BUDGET,
   MAX_ACTIVE_UNITS,
+  MAX_RESERVE_UNITS,
   TEMPORAL_GEAR_KILL_THRESHOLD,
   canDraftSpecies,
   chebyshevDist,
@@ -23,6 +24,7 @@ import {
   getRepairCost,
   getSellRefund,
   isInCircularRange,
+  isShopAfterWave,
 } from '../src/engine/rules';
 
 describe('Game Rules, AP Movement & Economy', () => {
@@ -283,5 +285,26 @@ describe('Game Rules, AP Movement & Economy', () => {
     );
     expect(deduped).toHaveLength(3);
     expect(new Set(deduped.map((c) => c.id)).size).toBe(3);
+
+    // 6 active, 3 reserve cap + recruit suppression when reserve is full
+    expect(MAX_ACTIVE_UNITS).toBe(6);
+    expect(MAX_RESERVE_UNITS).toBe(3);
+    const noRecruitChoices = generateRewardChoices(
+      new Set(['0001', '0004']),
+      [],
+      [],
+      () => 0.25,
+      [],
+      false,
+      false,
+    );
+    expect(noRecruitChoices.some((c) => c.kind === 'recruit')).toBe(false);
+
+    // Every 5th wave (before final wave) triggers Merchant Shop
+    expect(isShopAfterWave(1, 10)).toBe(false);
+    expect(isShopAfterWave(4, 10)).toBe(false);
+    expect(isShopAfterWave(5, 10)).toBe(true);
+    expect(isShopAfterWave(6, 10)).toBe(false);
+    expect(isShopAfterWave(10, 10)).toBe(false);
   });
 });
