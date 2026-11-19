@@ -211,7 +211,8 @@ export interface GameSnapshot {
   kills: number;
   speedMult: 1 | 2;
   muted: boolean;
-  selectedTool: StructureKind | 'move_struct' | 'sell_struct' | null;
+  selectedTool: StructureKind | 'sell_struct' | null;
+  movingStructureUid?: string | null;
   selectedUnitUid: string | null;
   selectedStructureUid: string | null;
   aimingUltUnitUid: string | null;
@@ -228,4 +229,11 @@ export interface GameSnapshot {
   rewardChoices: RewardOption[];
   pendingBranchUnitUid: string | null;
   statusMessage: string;
+}
+
+export interface ContextInspectTarget {
+  kind: 'structure' | 'unit';
+  uid: string;
+  screenX: number;
+  screenY: number;
 }

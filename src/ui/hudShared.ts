@@ -8,14 +8,13 @@ import {
   StructureKind,
 } from '../types';
 
-export type ToolId = StructureKind | 'move_struct' | 'sell_struct';
+export type ToolId = StructureKind | 'sell_struct';
 
 export const TOOL_SHORT_NAME: Record<ToolId, string> = {
   wood_wall: 'Barricade',
   stone_wall: 'Stone Wall',
   berry_bush: 'Berry Bush',
   barrel: 'Bomb Barrel',
-  move_struct: 'Move',
   sell_struct: 'Sell',
 };
 
@@ -24,14 +23,6 @@ export const TOOL_ICONS: Record<ToolId, string> = {
   stone_wall: `<img src="assets/structures/stone_wall.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
   berry_bush: `<img src="assets/structures/berry_bush.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
   barrel: `<img src="assets/structures/barrel.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`,
-  move_struct: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="7" y="2" width="2" height="12" fill="#58a6ff"/>
-    <rect x="2" y="7" width="12" height="2" fill="#58a6ff"/>
-    <rect x="6" y="3" width="4" height="1" fill="#58a6ff"/>
-    <rect x="6" y="12" width="4" height="1" fill="#58a6ff"/>
-    <rect x="3" y="6" width="1" height="4" fill="#58a6ff"/>
-    <rect x="12" y="6" width="1" height="4" fill="#58a6ff"/>
-  </svg>`,
   sell_struct: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
     <rect x="4" y="2" width="8" height="12" fill="#d29922"/>
     <rect x="3" y="4" width="10" height="8" fill="#f7cc45"/>

@@ -100,6 +100,8 @@ const BERRY_HEAL_PER_SEC = 8;
 const BARREL_DAMAGE = 120;
 const BARREL_RADIUS = 1.8;
 const ULT_RADIUS = 1.5;
+const MAX_FLOATING_TEXTS = 28;
+const MAX_TRANSIENT_VFX = 60;
 
 interface UnitEntity {
   data: ActiveUnit;
@@ -136,6 +138,7 @@ interface EnemyEntity {
   burnTickMs: number;
   slowTimerMs: number;
   stunTimerMs: number;
+  hitFlashTimerMs: number;
   path: GridPoint[];
   targetWallUid: string | null;
   repathTimerMs: number;
@@ -208,8 +211,7 @@ export class BattleScene extends Phaser.Scene {
   private speedMult: 1 | 2 = 1;
   private slowMo = false;
 
-  private selectedTool: StructureKind | 'move_struct' | 'sell_struct' | null =
-    null;
+  private selectedTool: StructureKind | 'sell_struct' | null = null;
   private selectedUnitUid: string | null = null;
   private selectedStructureUid: string | null = null;
   private movingStructureUid: string | null = null;
@@ -241,8 +243,17 @@ export class BattleScene extends Phaser.Scene {
   private hoveredUnitUid: string | null = null;
   private hoveredEnemyUid: string | null = null;
   private hoveredStructUid: string | null = null;
-  private lastPointerX = -1;
+  private lastPointerScreenX = -1;
+  private lastPointerScreenY = -1;
+  private lastCamScrollX = Number.NaN;
+  private lastCamScrollY = Number.NaN;
+  private lastCamZoom = Number.NaN;
+  private readonly reprojWorldPoint = new Phaser.Math.Vector2();
+  private ultHighlightRefreshTimerMs = 0;
+  private combatSnapshotCooldownMs = 0;
+  private hadSpeculativeWallPreview = false;
   private isDraggingCamera = false;
+  private canDragCamera = false;
   private dragStartX = 0;
   private dragStartY = 0;
   private dragStartScrollX = 0;
@@ -257,9 +268,11 @@ export class BattleScene extends Phaser.Scene {
     down: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
-  private lastPointerY = -1;
 
   private coreHpBarFill!: Phaser.GameObjects.Rectangle;
+  private coreSprite?: Phaser.GameObjects.Image;
+  private coreHitFlashTimerMs = 0;
+  private lastCoreShakeAtMs = 0;
   private activePortals: SpawnPortal[] = [];
   private portalVisualState!: PortalVisualState;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
@@ -276,6 +289,7 @@ export class BattleScene extends Phaser.Scene {
   private lastHoverReadoutText = '';
   private lastHoverReadoutVisible = false;
   private transientVfx: Phaser.GameObjects.GameObject[] = [];
+  private floatingTexts: Phaser.GameObjects.Text[] = [];
   private sfx!: SfxPlayer;
 
   constructor() {
@@ -296,6 +310,11 @@ export class BattleScene extends Phaser.Scene {
       portalTween: null,
     };
     this.coreHpBarFill = renderBastionCore(this);
+    this.coreSprite = this.children.list.find(
+      (obj): obj is Phaser.GameObjects.Image =>
+        obj instanceof Phaser.GameObjects.Image &&
+        obj.texture.key === 'tex:core',
+    );
 
     this.highlightGraphics = this.add.graphics().setDepth(2);
     this.pathPreviewGraphics = this.add.graphics().setDepth(3);
@@ -370,18 +389,23 @@ export class BattleScene extends Phaser.Scene {
     this.input.on(
       'wheel',
       (
-        _pointer: Phaser.Input.Pointer,
+        pointer: Phaser.Input.Pointer,
         _gameObjects: unknown,
         _deltaX: number,
         deltaY: number,
       ) => {
+        if (!this.isCameraInputAllowed()) return;
         const minZ = getMinZoom(this.scale.width, this.scale.height);
-        const nextZoom = Phaser.Math.Clamp(
-          cam.zoom - deltaY * 0.001,
-          minZ,
-          2.5,
-        );
+        const oldZoom = cam.zoom;
+        const nextZoom = Phaser.Math.Clamp(oldZoom - deltaY * 0.001, minZ, 2.5);
+        if (nextZoom === oldZoom) return;
         cam.setZoom(nextZoom);
+        cam.scrollX +=
+          (pointer.x - cam.x - cam.width * cam.originX) *
+          (1 / oldZoom - 1 / nextZoom);
+        cam.scrollY +=
+          (pointer.y - cam.y - cam.height * cam.originY) *
+          (1 / oldZoom - 1 / nextZoom);
       },
     );
 
@@ -415,19 +439,21 @@ export class BattleScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     const clampedDelta = Math.min(delta, 50);
-    if (this.panKeys) {
+    if (this.panKeys && this.isCameraInputAllowed()) {
       const cam = this.cameras.main;
       const panSpeed = (360 / cam.zoom) * (clampedDelta / 1000);
-      if (this.panKeys.a.isDown || this.panKeys.left.isDown) {
+      const isPlainDown = (k: Phaser.Input.Keyboard.Key): boolean =>
+        k.isDown && !k.ctrlKey && !k.metaKey;
+      if (isPlainDown(this.panKeys.a) || isPlainDown(this.panKeys.left)) {
         cam.scrollX -= panSpeed;
       }
-      if (this.panKeys.d.isDown || this.panKeys.right.isDown) {
+      if (isPlainDown(this.panKeys.d) || isPlainDown(this.panKeys.right)) {
         cam.scrollX += panSpeed;
       }
-      if (this.panKeys.w.isDown || this.panKeys.up.isDown) {
+      if (isPlainDown(this.panKeys.w) || isPlainDown(this.panKeys.up)) {
         cam.scrollY -= panSpeed;
       }
-      if (this.panKeys.s.isDown || this.panKeys.down.isDown) {
+      if (isPlainDown(this.panKeys.s) || isPlainDown(this.panKeys.down)) {
         cam.scrollY += panSpeed;
       }
     }
@@ -435,6 +461,24 @@ export class BattleScene extends Phaser.Scene {
       this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
     this.anims.globalTimeScale = timeScale;
     this.tweens.timeScale = timeScale;
+
+    if (this.coreHitFlashTimerMs > 0) {
+      this.coreHitFlashTimerMs = Math.max(
+        0,
+        this.coreHitFlashTimerMs - clampedDelta,
+      );
+      if (this.coreHitFlashTimerMs === 0 && this.coreSprite?.isTinted) {
+        this.coreSprite.setTint(0xffffff);
+        this.coreSprite.clearTint();
+      }
+    }
+
+    if (this.coreHp > 0 && this.coreHp / this.coreMaxHp <= 0.25) {
+      const pulse = 0.55 + 0.45 * Math.sin(time * 0.01);
+      this.coreHpBarFill.setAlpha(pulse);
+    } else if (this.coreHpBarFill.alpha !== 1) {
+      this.coreHpBarFill.setAlpha(1);
+    }
 
     if (this.aimingUltUnitUid) {
       const caster = this.units.find(
@@ -454,6 +498,11 @@ export class BattleScene extends Phaser.Scene {
       this.ultCasterRing.setVisible(false);
     }
 
+    if (this.phase === 'PREP') {
+      this.syncPointerHoverAfterCameraMove(false);
+      return;
+    }
+
     if (this.phase !== 'COMBAT') return;
 
     const simDtMs = clampedDelta * timeScale;
@@ -469,16 +518,17 @@ export class BattleScene extends Phaser.Scene {
       this.inCombatFrame = false;
     }
 
-    if (this.lastPointerX >= 0 && this.lastPointerY >= 0) {
-      const hoverChanged = this.updateHoverTargets(
-        this.lastPointerX,
-        this.lastPointerY,
-      );
-      if (hoverChanged || this.aimingUltUnitUid) {
-        this.refreshHighlights();
-      }
-      this.refreshHoverReadout();
+    if (this.aimingUltUnitUid) {
+      this.ultHighlightRefreshTimerMs += clampedDelta;
+    } else {
+      this.ultHighlightRefreshTimerMs = 0;
     }
+    const allowThrottledUltRefresh =
+      Boolean(this.aimingUltUnitUid) && this.ultHighlightRefreshTimerMs >= 100;
+    if (allowThrottledUltRefresh) {
+      this.ultHighlightRefreshTimerMs = 0;
+    }
+    this.syncPointerHoverAfterCameraMove(allowThrottledUltRefresh);
 
     if (this.coreHp <= 0) {
       this.handleDefeat();
@@ -493,7 +543,14 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (this.snapshotDirty) {
+    if (this.combatSnapshotCooldownMs > 0) {
+      this.combatSnapshotCooldownMs = Math.max(
+        0,
+        this.combatSnapshotCooldownMs - clampedDelta,
+      );
+    }
+    if (this.snapshotDirty && this.combatSnapshotCooldownMs <= 0) {
+      this.combatSnapshotCooldownMs = 100;
       this.emitSnapshot();
     }
   }
@@ -518,6 +575,7 @@ export class BattleScene extends Phaser.Scene {
       selectedTool: this.selectedTool,
       selectedUnitUid: this.selectedUnitUid,
       selectedStructureUid: this.selectedStructureUid,
+      movingStructureUid: this.movingStructureUid,
       aimingUltUnitUid: this.aimingUltUnitUid,
       activeUnits: this.units.map((u) => ({
         ...u.data,
@@ -538,9 +596,7 @@ export class BattleScene extends Phaser.Scene {
     };
   }
 
-  public selectTool(
-    tool: StructureKind | 'move_struct' | 'sell_struct' | null,
-  ): void {
+  public selectTool(tool: StructureKind | 'sell_struct' | null): void {
     if (this.phase !== 'PREP' && tool !== null) {
       this.setStatus(
         'Structures can only be built, moved, or sold during Prep.',
@@ -576,6 +632,13 @@ export class BattleScene extends Phaser.Scene {
     this.emitSnapshot();
   }
 
+  public sellStructureByUid(uid: string): void {
+    const entity = this.structures.find((s) => s.data.uid === uid);
+    if (entity) {
+      this.sellStructure(entity);
+    }
+  }
+
   public selectUnit(uid: string | null): void {
     if (this.phase !== 'PREP' && this.phase !== 'COMBAT') return;
 
@@ -601,9 +664,14 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const hadTool = this.selectedTool !== null;
     this.selectedTool = null;
     this.selectedUnitUid = uid;
     this.slowMo = this.phase === 'COMBAT';
+    if (hadTool) {
+      this.refreshPathPreview();
+      this.refreshHoverReadout();
+    }
     this.refreshHighlights();
     this.emitSnapshot();
   }
@@ -1179,6 +1247,9 @@ export class BattleScene extends Phaser.Scene {
     this.wave = 1;
     this.coreHp = CORE_MAX_HP;
     this.coreMaxHp = CORE_MAX_HP;
+    this.coreHitFlashTimerMs = 0;
+    this.lastCoreShakeAtMs = 0;
+    this.coreSprite?.clearTint();
     this.gold = INITIAL_GOLD;
     this.ap = INITIAL_AP;
     this.maxAp = MAX_AP;
@@ -1218,6 +1289,7 @@ export class BattleScene extends Phaser.Scene {
 
   private clearDynamicEntities(): void {
     for (const u of this.units) {
+      this.tweens.killTweensOf(u.sprite);
       u.sprite.destroy();
       u.hpBarBg.destroy();
       u.hpBarFill.destroy();
@@ -1233,6 +1305,7 @@ export class BattleScene extends Phaser.Scene {
     this.structures = [];
 
     for (const e of this.enemies) {
+      this.tweens.killTweensOf(e.sprite);
       e.sprite.destroy();
       e.hpBarBg.destroy();
       e.hpBarFill.destroy();
@@ -1240,9 +1313,16 @@ export class BattleScene extends Phaser.Scene {
     this.enemies = [];
 
     for (const v of this.transientVfx) {
+      this.tweens.killTweensOf(v);
       if (v.active) v.destroy();
     }
     this.transientVfx = [];
+
+    for (const t of this.floatingTexts) {
+      this.tweens.killTweensOf(t);
+      if (t.active) t.destroy();
+    }
+    this.floatingTexts = [];
     this.spawnQueue = [];
     this.spawnQueueIndex = 0;
     this.hoveredUnitUid = null;
@@ -1253,6 +1333,7 @@ export class BattleScene extends Phaser.Scene {
     this.ultCasterRing?.setVisible(false);
     this.hoverReadoutContainer?.setVisible(false);
     this.lastHoverReadoutVisible = false;
+    this.game.events.emit('context-inspect', null);
   }
 
   // ---------------------------------------------------------------------------
@@ -1303,8 +1384,91 @@ export class BattleScene extends Phaser.Scene {
     return changed;
   }
 
+  private isCameraInputAllowed(): boolean {
+    if (this.phase !== 'PREP' && this.phase !== 'COMBAT') return false;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement
+    ) {
+      return false;
+    }
+    if (document.querySelector('#modal-root > *')) return false;
+    return true;
+  }
+
+  private syncPointerHoverAfterCameraMove(
+    forceHighlightRefresh: boolean,
+  ): void {
+    if (this.lastPointerScreenX < 0 || this.lastPointerScreenY < 0) return;
+
+    const cam = this.cameras.main;
+    const camChanged =
+      cam.scrollX !== this.lastCamScrollX ||
+      cam.scrollY !== this.lastCamScrollY ||
+      cam.zoom !== this.lastCamZoom;
+    const hasHoveredEntity = Boolean(
+      this.hoveredEnemyUid || this.hoveredUnitUid || this.hoveredStructUid,
+    );
+    if (
+      !camChanged &&
+      !forceHighlightRefresh &&
+      (this.phase !== 'COMBAT' || !hasHoveredEntity)
+    ) {
+      return;
+    }
+    this.lastCamScrollX = cam.scrollX;
+    this.lastCamScrollY = cam.scrollY;
+    this.lastCamZoom = cam.zoom;
+
+    const worldPt = cam.getWorldPoint(
+      this.lastPointerScreenX,
+      this.lastPointerScreenY,
+      this.reprojWorldPoint,
+    );
+    const prevTile = this.hoverTile ? { ...this.hoverTile } : null;
+    const hoverChanged = this.updateHoverTargets(worldPt.x, worldPt.y);
+
+    if (hoverChanged) {
+      const tileChanged =
+        (prevTile === null) !== (this.hoverTile === null) ||
+        (prevTile !== null &&
+          this.hoverTile !== null &&
+          (prevTile.gx !== this.hoverTile.gx ||
+            prevTile.gy !== this.hoverTile.gy));
+      if (
+        tileChanged &&
+        this.phase === 'PREP' &&
+        (Boolean(this.getSpeculativeWallPreview()) ||
+          this.hadSpeculativeWallPreview)
+      ) {
+        this.refreshPathPreview();
+      }
+      this.ultHighlightRefreshTimerMs = 0;
+      this.refreshHighlights();
+      this.refreshHoverReadout();
+    } else if (forceHighlightRefresh) {
+      this.refreshHighlights();
+      this.refreshHoverReadout();
+    } else if (
+      this.phase === 'COMBAT' &&
+      (this.hoveredEnemyUid || this.hoveredUnitUid || this.hoveredStructUid)
+    ) {
+      this.refreshHoverReadout();
+    }
+  }
+
   private handlePointerMove(pointer: Phaser.Input.Pointer): void {
-    if (pointer.isDown && !pointer.rightButtonDown()) {
+    const pointerEv = pointer.event as MouseEvent | PointerEvent | undefined;
+    if (
+      this.canDragCamera &&
+      pointer.isDown &&
+      !pointer.rightButtonDown() &&
+      this.isCameraInputAllowed() &&
+      !pointerEv?.ctrlKey &&
+      !pointerEv?.metaKey
+    ) {
       const dx = pointer.x - this.dragStartX;
       const dy = pointer.y - this.dragStartY;
       if (!this.isDraggingCamera && Math.hypot(dx, dy) > 6) {
@@ -1318,16 +1482,12 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
+    this.lastPointerScreenX = pointer.x;
+    this.lastPointerScreenY = pointer.y;
+
     const wx = pointer.worldX;
     const wy = pointer.worldY;
     const prevTile = this.hoverTile ? { ...this.hoverTile } : null;
-    if (wx < 0 || wx >= CANVAS_WIDTH || wy < 0 || wy >= CANVAS_HEIGHT) {
-      this.lastPointerX = -1;
-      this.lastPointerY = -1;
-    } else {
-      this.lastPointerX = wx;
-      this.lastPointerY = wy;
-    }
 
     const changed = this.updateHoverTargets(wx, wy);
     if (!changed) return;
@@ -1339,21 +1499,94 @@ export class BattleScene extends Phaser.Scene {
         (prevTile.gx !== this.hoverTile.gx ||
           prevTile.gy !== this.hoverTile.gy));
 
-    if (tileChanged && this.phase === 'PREP') {
+    if (
+      tileChanged &&
+      this.phase === 'PREP' &&
+      (Boolean(this.getSpeculativeWallPreview()) ||
+        this.hadSpeculativeWallPreview)
+    ) {
       this.refreshPathPreview();
     }
+    this.ultHighlightRefreshTimerMs = 0;
     this.refreshHighlights();
     this.refreshHoverReadout();
   }
 
+  private getTileScreenPosition(
+    gx: number,
+    gy: number,
+  ): { screenX: number; screenY: number } {
+    const cam = this.cameras.main;
+    const rect = this.game.canvas.getBoundingClientRect();
+    const wx = tileCenterX(gx);
+    const wy = tileCenterY(gy);
+    const scaleX = rect.width / Math.max(1, cam.width);
+    const scaleY = rect.height / Math.max(1, cam.height);
+    return {
+      screenX: rect.left + (wx - cam.worldView.x) * cam.zoom * scaleX,
+      screenY: rect.top + (wy - cam.worldView.y) * cam.zoom * scaleY,
+    };
+  }
+
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (pointer.rightButtonDown()) {
+      if (this.aimingUltUnitUid !== null) {
+        this.cancelActiveSelections();
+        this.game.events.emit('context-inspect', null);
+        return;
+      }
+      if (this.phase === 'PREP' || this.phase === 'COMBAT') {
+        const wx = pointer.worldX;
+        const wy = pointer.worldY;
+        if (wx >= 0 && wx < CANVAS_WIDTH && wy >= 0 && wy < CANVAS_HEIGHT) {
+          const { gx, gy } = worldToGrid(wx, wy);
+          const clickedStructure = this.getStructureAt(gx, gy);
+          const clickedUnit = this.getUnitAt(gx, gy);
+          if (clickedStructure) {
+            this.selectedTool = null;
+            this.movingStructureUid = null;
+            this.selectedUnitUid = null;
+            this.selectedStructureUid = clickedStructure.data.uid;
+            this.refreshPathPreview();
+            this.refreshHighlights();
+            this.emitSnapshot();
+            this.game.events.emit('context-inspect', {
+              kind: 'structure',
+              uid: clickedStructure.data.uid,
+              ...this.getTileScreenPosition(
+                clickedStructure.data.gx,
+                clickedStructure.data.gy,
+              ),
+            });
+            return;
+          } else if (clickedUnit) {
+            this.selectedTool = null;
+            this.movingStructureUid = null;
+            this.selectUnit(clickedUnit.data.uid);
+            this.game.events.emit('context-inspect', {
+              kind: 'unit',
+              uid: clickedUnit.data.uid,
+              ...this.getTileScreenPosition(
+                clickedUnit.data.gx,
+                clickedUnit.data.gy,
+              ),
+            });
+            return;
+          }
+        }
+      }
       this.cancelActiveSelections();
+      this.game.events.emit('context-inspect', null);
       return;
     }
 
-    const cam = this.cameras.main;
+    const pointerEv = pointer.event as MouseEvent | PointerEvent | undefined;
     this.isDraggingCamera = false;
+    this.canDragCamera =
+      this.isCameraInputAllowed() && !pointerEv?.ctrlKey && !pointerEv?.metaKey;
+    if (!this.canDragCamera) return;
+
+    const cam = this.cameras.main;
     this.dragStartX = pointer.x;
     this.dragStartY = pointer.y;
     this.dragStartScrollX = cam.scrollX;
@@ -1363,6 +1596,7 @@ export class BattleScene extends Phaser.Scene {
   private handlePointerUp(pointer: Phaser.Input.Pointer): void {
     const wasDragging = this.isDraggingCamera;
     this.isDraggingCamera = false;
+    this.canDragCamera = false;
     if (wasDragging || pointer.rightButtonReleased()) return;
 
     const wx = pointer.worldX;
@@ -1373,6 +1607,8 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.phase !== 'PREP' && this.phase !== 'COMBAT') return;
 
+    this.game.events.emit('context-inspect', null);
+
     const { gx, gy } = worldToGrid(wx, wy);
 
     if (this.aimingUltUnitUid) {
@@ -1381,7 +1617,8 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (this.phase === 'PREP') {
-      this.handlePrepClick(gx, gy);
+      const pointerEv = pointer.event as MouseEvent | PointerEvent | undefined;
+      this.handlePrepClick(gx, gy, Boolean(pointerEv?.shiftKey));
     } else {
       this.handleCombatClick(gx, gy);
     }
@@ -1391,7 +1628,7 @@ export class BattleScene extends Phaser.Scene {
     this.cancelAction();
   }
 
-  private handlePrepClick(gx: number, gy: number): void {
+  private handlePrepClick(gx: number, gy: number, shiftHeld = false): void {
     const clickedStructure = this.getStructureAt(gx, gy);
     const clickedUnit = this.getUnitAt(gx, gy);
 
@@ -1402,24 +1639,30 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (this.selectedTool === 'move_struct') {
-      this.handleMoveStructureClick(gx, gy, clickedStructure, clickedUnit);
-      return;
-    }
-
     if (this.selectedTool !== null) {
+      if (clickedUnit && !shiftHeld) {
+        this.selectUnit(clickedUnit.data.uid);
+        return;
+      }
       this.tryPlaceStructure(this.selectedTool, gx, gy);
       return;
     }
 
-    // No tool selected: unit selection / free repositioning / structure selection
+    // No tool selected: active structure move, unit selection/repositioning, or direct click-to-move structure
+    if (this.movingStructureUid) {
+      this.handleMoveStructureClick(gx, gy, clickedStructure, clickedUnit);
+      return;
+    }
+
     if (clickedUnit) {
-      this.selectedUnitUid = clickedUnit.data.uid;
-      this.selectedStructureUid = null;
-      this.refreshHighlights();
-      this.setStatus(
-        `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to reposition (0 AP in Prep).`,
-      );
+      if (this.selectedUnitUid === clickedUnit.data.uid) {
+        this.selectUnit(null);
+      } else {
+        this.selectUnit(clickedUnit.data.uid);
+        this.setStatus(
+          `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to reposition (0 AP in Prep).`,
+        );
+      }
       return;
     }
 
@@ -1438,10 +1681,15 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (clickedStructure) {
+      this.movingStructureUid = clickedStructure.data.uid;
       this.selectedStructureUid = clickedStructure.data.uid;
       this.selectedUnitUid = null;
+      this.refreshPathPreview();
       this.refreshHighlights();
-      this.emitSnapshot();
+      this.refreshHoverReadout();
+      this.setStatus(
+        `Moving ${STRUCTURE_SPECS[clickedStructure.data.kind].name}. Click an empty tile (Esc / Right-Click to cancel).`,
+      );
       return;
     }
 
@@ -1479,17 +1727,31 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    if (clickedUnit) {
+      this.movingStructureUid = null;
+      this.selectUnit(clickedUnit.data.uid);
+      return;
+    }
+
     if (clickedStructure) {
-      this.movingStructureUid =
-        clickedStructure.data.uid === moving.data.uid
-          ? null
-          : clickedStructure.data.uid;
+      if (clickedStructure.data.uid === moving.data.uid) {
+        this.movingStructureUid = null;
+        this.setStatus(`Selected ${STRUCTURE_SPECS[moving.data.kind].name}.`);
+      } else {
+        this.movingStructureUid = clickedStructure.data.uid;
+        this.selectedStructureUid = clickedStructure.data.uid;
+        this.setStatus(
+          `Moving ${STRUCTURE_SPECS[clickedStructure.data.kind].name}. Click an empty tile (Esc / Right-Click to cancel).`,
+        );
+      }
+      this.refreshPathPreview();
       this.refreshHighlights();
+      this.refreshHoverReadout();
       this.emitSnapshot();
       return;
     }
 
-    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals) || clickedUnit) {
+    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals)) {
       this.setStatus('Cannot move structure to that tile.');
       return;
     }
@@ -1503,8 +1765,10 @@ export class BattleScene extends Phaser.Scene {
     moving.hpBarFill.setPosition(cx - 17, cy + 20);
 
     this.movingStructureUid = null;
+    this.selectedStructureUid = moving.data.uid;
     this.refreshPathPreview();
     this.refreshHighlights();
+    this.refreshHoverReadout();
     this.setStatus(`Moved ${STRUCTURE_SPECS[moving.data.kind].name}.`);
   }
 
@@ -1697,7 +1961,7 @@ export class BattleScene extends Phaser.Scene {
       };
     }
 
-    if (this.selectedTool === 'move_struct' && this.movingStructureUid) {
+    if (this.selectedTool === null && this.movingStructureUid) {
       const moving = this.structures.find(
         (s) => s.data.uid === this.movingStructureUid,
       );
@@ -1744,11 +2008,13 @@ export class BattleScene extends Phaser.Scene {
     this.cachedPreviewPaths = [];
     this.cachedBlockingWalls = [];
     if (this.phase !== 'PREP') {
+      this.hadSpeculativeWallPreview = false;
       this.pathPreviewGraphics.clear();
       return;
     }
 
     const specPreview = this.getSpeculativeWallPreview();
+    this.hadSpeculativeWallPreview = Boolean(specPreview);
     const blockedWalls = this.getBlockedWallKeys(true);
     const previewStructures = specPreview
       ? [
@@ -2085,7 +2351,7 @@ export class BattleScene extends Phaser.Scene {
     } else if (kind === 'barrel') {
       const cx = tileCenterX(gx);
       const cy = tileCenterY(gy);
-      const radiusPx = 86;
+      const radiusPx = BARREL_RADIUS * TILE_SIZE;
       this.highlightGraphics.fillStyle(0xf97316, 0.16);
       this.highlightGraphics.fillCircle(cx, cy, radiusPx);
       this.highlightGraphics.lineStyle(1.8, 0xf97316, 0.78);
@@ -2264,9 +2530,8 @@ export class BattleScene extends Phaser.Scene {
     // Non-placeable tile overlay (grayed + light X) when placing or moving a structure
     const isPlacingStruct =
       this.phase === 'PREP' &&
-      this.selectedTool !== null &&
-      this.selectedTool !== 'sell_struct' &&
-      (this.selectedTool !== 'move_struct' || Boolean(this.movingStructureUid));
+      ((this.selectedTool !== null && this.selectedTool !== 'sell_struct') ||
+        (this.selectedTool === null && Boolean(this.movingStructureUid)));
     if (isPlacingStruct) {
       for (let gy = 0; gy < GRID_ROWS; gy++) {
         for (let gx = 0; gx < GRID_COLS; gx++) {
@@ -2320,8 +2585,8 @@ export class BattleScene extends Phaser.Scene {
       }
     } else if (
       this.hoverTile &&
-      this.selectedTool !== null &&
-      this.phase === 'PREP'
+      this.phase === 'PREP' &&
+      (this.selectedTool !== null || this.movingStructureUid !== null)
     ) {
       const { gx, gy } = this.hoverTile;
       if (this.selectedTool === 'sell_struct') {
@@ -2344,41 +2609,32 @@ export class BattleScene extends Phaser.Scene {
           TILE_SIZE - 4,
           TILE_SIZE - 4,
         );
-      } else if (this.selectedTool === 'move_struct') {
-        if (!this.movingStructureUid) {
-          const canPick = Boolean(this.getStructureAt(gx, gy));
-          this.highlightGraphics.lineStyle(
-            2,
-            canPick ? 0xfbbf24 : 0x64748b,
-            canPick ? 0.95 : 0.55,
-          );
-        } else {
-          const canPlace = this.isValidBuildTile(gx, gy);
-          this.highlightGraphics.lineStyle(
-            2,
-            canPlace ? 0x4ade80 : 0xef4444,
-            0.9,
-          );
-          const moving = this.structures.find(
-            (s) => s.data.uid === this.movingStructureUid,
-          );
-          if (moving) {
-            this.buildGhostSprite
-              .setTexture(`tex:${moving.data.kind}`)
-              .setPosition(tileCenterX(gx), tileCenterY(gy))
-              .setAlpha(0.55)
-              .setTint(canPlace ? 0xffffff : 0xf87171)
-              .setVisible(true);
-            this.drawStructureAuraPreview(moving.data.kind, gx, gy);
-          }
-        }
+      } else if (this.selectedTool === null && this.movingStructureUid) {
+        const canPlace = this.isValidBuildTile(gx, gy);
+        this.highlightGraphics.lineStyle(
+          2,
+          canPlace ? 0x4ade80 : 0xef4444,
+          0.9,
+        );
         this.highlightGraphics.strokeRect(
           gx * TILE_SIZE + 2,
           gy * TILE_SIZE + 2,
           TILE_SIZE - 4,
           TILE_SIZE - 4,
         );
-      } else {
+        const moving = this.structures.find(
+          (s) => s.data.uid === this.movingStructureUid,
+        );
+        if (moving) {
+          this.buildGhostSprite
+            .setTexture(`tex:${moving.data.kind}`)
+            .setPosition(tileCenterX(gx), tileCenterY(gy))
+            .setAlpha(0.55)
+            .setTint(canPlace ? 0xffffff : 0xf87171)
+            .setVisible(true);
+          this.drawStructureAuraPreview(moving.data.kind, gx, gy);
+        }
+      } else if (this.selectedTool !== null) {
         const canPlace = this.isValidBuildTile(gx, gy);
         this.highlightGraphics.lineStyle(
           2,
@@ -2632,6 +2888,8 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    unit.isAttackAnimPlaying = false;
+    unit.sprite.off(Phaser.Animations.Events.ANIMATION_COMPLETE);
     if (unit.sprite.anims.currentAnim?.key !== key) {
       unit.sprite.play(key, true);
     }
@@ -2992,6 +3250,7 @@ export class BattleScene extends Phaser.Scene {
       burnTickMs: 0,
       slowTimerMs: 0,
       stunTimerMs: 0,
+      hitFlashTimerMs: 0,
       path: [],
       targetWallUid: null,
       repathTimerMs: 0,
@@ -3017,7 +3276,28 @@ export class BattleScene extends Phaser.Scene {
         enemy.attackCooldownMs = Math.max(0, enemy.attackCooldownMs - simDtMs);
         enemy.slowTimerMs = Math.max(0, enemy.slowTimerMs - simDtMs);
         enemy.stunTimerMs = Math.max(0, enemy.stunTimerMs - simDtMs);
+        enemy.hitFlashTimerMs = Math.max(0, enemy.hitFlashTimerMs - simDtMs);
         enemy.repathTimerMs -= simDtMs;
+
+        const baseTint = spec.spriteTint ?? 0xffffff;
+        const nextTint =
+          enemy.hitFlashTimerMs > 0
+            ? 0xffaaaa
+            : enemy.stunTimerMs > 0
+              ? 0xfef08a
+              : enemy.burnTimerMs > 0
+                ? 0xfb923c
+                : enemy.slowTimerMs > 0
+                  ? 0x38bdf8
+                  : baseTint;
+        if (nextTint === 0xffffff) {
+          if (enemy.sprite.isTinted) enemy.sprite.clearTint();
+        } else if (
+          !enemy.sprite.isTinted ||
+          enemy.sprite.tintTopLeft !== nextTint
+        ) {
+          enemy.sprite.setTint(nextTint);
+        }
 
         // Burn DoT
         if (enemy.burnTimerMs > 0) {
@@ -3204,6 +3484,17 @@ export class BattleScene extends Phaser.Scene {
 
     this.coreHp = Math.max(0, this.coreHp - spec.atk);
     this.updateCoreBar();
+    this.coreHitFlashTimerMs = 90;
+    this.coreSprite?.setTint(0xff9999);
+    const prefersReducedMotion =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (
+      !prefersReducedMotion &&
+      this.time.now - this.lastCoreShakeAtMs >= 750
+    ) {
+      this.lastCoreShakeAtMs = this.time.now;
+      this.cameras.main.shake(55, 0.001);
+    }
     this.spawnFloatingText(
       (GRID_COLS / 2) * TILE_SIZE,
       (GRID_ROWS / 2) * TILE_SIZE - 24,
@@ -3322,6 +3613,10 @@ export class BattleScene extends Phaser.Scene {
   ): void {
     if (enemy.hp <= 0) return;
     enemy.hp = Math.max(0, enemy.hp - amount);
+    if (amount > 0 && enemy.hp > 0) {
+      enemy.hitFlashTimerMs = 90;
+      enemy.sprite.setTint(0xffaaaa);
+    }
 
     const hpRatio = Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1);
     enemy.hpBarFill.width = 30 * hpRatio;
@@ -3363,6 +3658,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.spawnFloatingText(enemy.x, enemy.y - 10, `+₽${bounty}`, '#facc15');
+    this.tweens.killTweensOf(enemy.sprite);
     enemy.sprite.destroy();
     enemy.hpBarBg.destroy();
     enemy.hpBarFill.destroy();
@@ -3413,6 +3709,9 @@ export class BattleScene extends Phaser.Scene {
 
   private syncEnemySprite(enemy: EnemyEntity): void {
     enemy.sprite.setPosition(enemy.x, enemy.y);
+    if (ENEMY_SPECIES[enemy.speciesId]?.movementType !== 'fly') {
+      enemy.sprite.setDepth(4 + (enemy.y / TILE_SIZE) * 0.1 + 0.04);
+    }
     enemy.hpBarBg.setPosition(enemy.x, enemy.y - 20);
     enemy.hpBarFill.setPosition(enemy.x - 15, enemy.y - 20);
   }
@@ -3595,6 +3894,7 @@ export class BattleScene extends Phaser.Scene {
       ty,
     );
 
+    this.evictOldestTransientVfx();
     const proj = this.add
       .sprite(startX, startY, `vfx:${flightKey}`)
       .setDepth(8)
@@ -3630,6 +3930,7 @@ export class BattleScene extends Phaser.Scene {
     const animKey = `anim:vfx:${vfxKey}`;
     if (!this.anims.exists(animKey)) return;
 
+    this.evictOldestTransientVfx();
     const fx = this.add
       .sprite(x, y, `vfx:${vfxKey}`)
       .setDepth(8)
@@ -3648,6 +3949,14 @@ export class BattleScene extends Phaser.Scene {
     text: string,
     color: string,
   ): void {
+    while (this.floatingTexts.length >= MAX_FLOATING_TEXTS) {
+      const oldest = this.floatingTexts.shift();
+      if (oldest) {
+        this.tweens.killTweensOf(oldest);
+        if (oldest.active) oldest.destroy();
+      }
+    }
+
     const label = this.add
       .text(x, y, text, {
         fontFamily: 'monospace',
@@ -3659,7 +3968,7 @@ export class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(9);
-    this.transientVfx.push(label);
+    this.floatingTexts.push(label);
 
     this.tweens.add({
       targets: label,
@@ -3668,15 +3977,33 @@ export class BattleScene extends Phaser.Scene {
       duration: 650,
       ease: 'Quad.easeOut',
       onComplete: () => {
-        this.removeTransientVfx(label);
+        this.removeFloatingText(label);
       },
     });
   }
 
+  private evictOldestTransientVfx(): void {
+    while (this.transientVfx.length >= MAX_TRANSIENT_VFX) {
+      const oldest = this.transientVfx.shift();
+      if (oldest) {
+        this.tweens.killTweensOf(oldest);
+        if (oldest.active) oldest.destroy();
+      }
+    }
+  }
+
   private removeTransientVfx(obj: Phaser.GameObjects.GameObject): void {
+    this.tweens.killTweensOf(obj);
     if (obj.active) obj.destroy();
     const idx = this.transientVfx.indexOf(obj);
     if (idx >= 0) this.transientVfx.splice(idx, 1);
+  }
+
+  private removeFloatingText(label: Phaser.GameObjects.Text): void {
+    this.tweens.killTweensOf(label);
+    if (label.active) label.destroy();
+    const idx = this.floatingTexts.indexOf(label);
+    if (idx >= 0) this.floatingTexts.splice(idx, 1);
   }
 
   // ---------------------------------------------------------------------------
@@ -3940,6 +4267,9 @@ export class BattleScene extends Phaser.Scene {
     this.coreHpBarFill.setFillStyle(
       ratio > 0.5 ? 0x22d3ee : ratio > 0.25 ? 0xfacc15 : 0xef4444,
     );
+    if (ratio > 0.25 && this.coreHpBarFill.alpha !== 1) {
+      this.coreHpBarFill.setAlpha(1);
+    }
   }
 
   private updateStructureBar(entity: StructureEntity): void {

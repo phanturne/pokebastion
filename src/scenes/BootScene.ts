@@ -24,6 +24,11 @@ export interface PokeAnimEntry {
 const POKE_ANIMS: readonly PokeAnimName[] = ['Walk', 'Idle', 'Attack'];
 const PMD_DIRECTIONS = 8;
 
+const pendingSpeciesLoads = new WeakMap<
+  Phaser.Scene,
+  Map<string, Array<() => void>>
+>();
+
 export function registerSpeciesAnimations(
   scene: Phaser.Scene,
   id: string,
@@ -62,6 +67,14 @@ export function ensureSpeciesSpritesLoaded(
     onReady?.();
     return;
   }
+
+  let scenePending = pendingSpeciesLoads.get(scene);
+  const existingCallbacks = scenePending?.get(id);
+  if (existingCallbacks) {
+    if (onReady) existingCallbacks.push(onReady);
+    return;
+  }
+
   const pokeManifest =
     (scene.cache.json.get('poke-manifest') as Record<
       string,
@@ -88,9 +101,20 @@ export function ensureSpeciesSpritesLoaded(
     return;
   }
 
+  if (!scenePending) {
+    scenePending = new Map();
+    pendingSpeciesLoads.set(scene, scenePending);
+  }
+  scenePending.set(id, onReady ? [onReady] : []);
+
   scene.load.once('complete', () => {
     registerSpeciesAnimations(scene, id, anims);
-    onReady?.();
+    const pending = pendingSpeciesLoads.get(scene);
+    const callbacks = pending?.get(id);
+    pending?.delete(id);
+    if (callbacks) {
+      for (const cb of callbacks) cb();
+    }
   });
   if (!scene.load.isLoading()) {
     scene.load.start();
@@ -105,13 +129,23 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     const cx = this.cameras.main.centerX;
     const cy = this.cameras.main.centerY;
-    this.add
+    const loadingText = this.add
       .text(cx, cy, 'Loading PokéBastion Assets...', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#e2e8f0',
       })
       .setOrigin(0.5);
+
+    const onResize = (gameSize: Phaser.Structs.Size): void => {
+      if (loadingText.active) {
+        loadingText.setPosition(gameSize.width / 2, gameSize.height / 2);
+      }
+    };
+    this.scale.on('resize', onResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', onResize);
+    });
 
     this.load.spritesheet('ekat-route224', 'assets/tiles/ekat-route224.png', {
       frameWidth: 16,
