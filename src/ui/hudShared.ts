@@ -10,6 +10,19 @@ import {
 
 export type ToolId = StructureKind | 'sell_struct';
 
+export const SVG_PAUSE =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.5 2.5h3v11h-3v-11zm6 0h3v11h-3v-11z"/></svg>';
+export const SVG_PLAY =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5l9 5.5-9 5.5V2.5z"/></svg>';
+export const SVG_SOUND_ON =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 5.5h3l3.5-3v11L5 10.5H2v-5zm8.2-.2a4 4 0 0 1 0 5.4l-1-1a2.6 2.6 0 0 0 0-3.4l1-1zm2-2a6.6 6.6 0 0 1 0 9.4l-1-1a5.2 5.2 0 0 0 0-7.4l1-1z"/></svg>';
+export const SVG_SOUND_OFF =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 5.5h3l3.5-3v11L5 10.5H2v-5zm8.3.4l1.4 1.4 1.4-1.4 1 1-1.4 1.4 1.4 1.4-1 1-1.4-1.4-1.4 1.4-1-1 1.4-1.4-1.4-1.4 1-1z"/></svg>';
+export const SVG_SHAKE_ON =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5h6v11H5v-11zm1.5 1.5v8h3V4h-3zM2.8 5.2l-1.5 1.5L2.8 8.2 1.3 9.7l1.5 1.5.9-.9-.6-.6 1.5-1.5-1.5-1.5.6-.6-.9-.9zm10.4 0l-.9.9.6.6-1.5 1.5 1.5 1.5-.6.6.9.9 1.5-1.5-1.5-1.5 1.5-1.5-1.5-1.5z"/></svg>';
+export const SVG_SHAKE_OFF =
+  '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 2.5h6v11H5v-11zm1.5 1.5v8h3V4h-3zM2.3 2.3l11.4 11.4-1 1L1.3 3.3l1-1z"/></svg>';
+
 export const TOOL_SHORT_NAME: Record<ToolId, string> = {
   wood_wall: 'Barricade',
   stone_wall: 'Stone Wall',

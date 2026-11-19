@@ -388,6 +388,7 @@ export function refreshPortalVisuals(
   scene: Phaser.Scene,
   activePortals: SpawnPortal[],
   state: PortalVisualState,
+  closingPortalId?: string,
 ): void {
   if (state.portalTween) {
     state.portalTween.stop();
@@ -398,6 +399,10 @@ export function refreshPortalVisuals(
   state.portalGraphics.clear();
 
   for (const portal of activePortals) {
+    const isClosing = Boolean(closingPortalId && portal.id === closingPortalId);
+    const fillColor = isClosing ? 0xf59e0b : 0xd946ef;
+    const strokeColor = isClosing ? 0xfbbf24 : 0xf43f5e;
+    const ringColor = isClosing ? 0xfde68a : 0xf0abfc;
     const dirX = portal.side === 'west' ? 1 : portal.side === 'east' ? -1 : 0;
     const dirY = portal.side === 'north' ? 1 : portal.side === 'south' ? -1 : 0;
 
@@ -408,16 +413,16 @@ export function refreshPortalVisuals(
           tileCenterY(pt.gy),
           TILE_SIZE - 4,
           TILE_SIZE - 4,
-          0xd946ef,
+          fillColor,
           0.24,
         )
-        .setStrokeStyle(1.5, 0xf43f5e, 0.85)
+        .setStrokeStyle(1.5, strokeColor, 0.85)
         .setDepth(1.1);
       state.portalMarkers.push(marker);
 
       const cx = tileCenterX(pt.gx);
       const cy = tileCenterY(pt.gy);
-      state.portalGraphics.lineStyle(1.5, 0xf0abfc, 0.75);
+      state.portalGraphics.lineStyle(1.5, ringColor, 0.75);
       state.portalGraphics.strokeCircle(cx, cy, TILE_SIZE * 0.28);
 
       state.portalGraphics.lineStyle(2, 0xffffff, 0.95);

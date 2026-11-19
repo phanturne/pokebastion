@@ -44,6 +44,7 @@ import {
   GridPoint,
   isNoBuildTile,
   rollWavePortals,
+  rotateWavePortals,
   SpawnPortal,
 } from '../engine/pathfinding';
 import {
@@ -211,7 +212,9 @@ export class BattleScene extends Phaser.Scene {
   private maxAp = MAX_AP;
   private kills = 0;
   private speedMult: 1 | 2 = 1;
+  private paused = false;
   private slowMo = false;
+  private screenShakeEnabled = true;
 
   private selectedTool: StructureKind | 'sell_struct' | null = null;
   private selectedUnitUid: string | null = null;
@@ -279,9 +282,17 @@ export class BattleScene extends Phaser.Scene {
   private portalVisualState!: PortalVisualState;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
-  private cachedPreviewPaths: Array<{ points: GridPoint[]; color: number }> =
-    [];
-  private cachedBlockingWalls: GridPoint[] = [];
+  private pathPreviewStaticGraphics!: Phaser.GameObjects.Graphics;
+  private cachedDashSegments: Array<{
+    color: number;
+    x1: number;
+    y1: number;
+    ux: number;
+    uy: number;
+    dist: number;
+  }> = [];
+  private pathDashOffset = 0;
+  private pathDashTickMs = 0;
   private buildGhostSprite!: Phaser.GameObjects.Image;
   private moveCostBadge!: Phaser.GameObjects.Text;
   private ultCasterRing!: Phaser.GameObjects.Arc;
@@ -320,6 +331,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.highlightGraphics = this.add.graphics().setDepth(2);
     this.pathPreviewGraphics = this.add.graphics().setDepth(3);
+    this.pathPreviewStaticGraphics = this.add.graphics().setDepth(3);
     this.buildGhostSprite = this.add
       .image(0, 0, 'tex:wood_wall')
       .setDisplaySize(TILE_SIZE, TILE_SIZE)
@@ -460,9 +472,19 @@ export class BattleScene extends Phaser.Scene {
       }
     }
     const timeScale =
-      this.phase === 'COMBAT' ? (this.slowMo ? 0.35 : this.speedMult) : 1;
+      this.phase === 'COMBAT'
+        ? this.paused
+          ? 0
+          : this.slowMo
+            ? 0.35
+            : this.speedMult
+        : 1;
     this.anims.globalTimeScale = timeScale;
     this.tweens.timeScale = timeScale;
+
+    if (this.phase === 'COMBAT' && this.paused) {
+      return;
+    }
 
     if (this.coreHitFlashTimerMs > 0) {
       this.coreHitFlashTimerMs = Math.max(
@@ -501,6 +523,14 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (this.phase === 'PREP') {
+      if (this.cachedDashSegments.length > 0) {
+        this.pathDashOffset = (this.pathDashOffset + clampedDelta * 0.028) % 14;
+        this.pathDashTickMs += clampedDelta;
+        if (this.pathDashTickMs >= 75) {
+          this.pathDashTickMs %= 75;
+          this.renderPreviewDashes();
+        }
+      }
       this.syncPointerHoverAfterCameraMove(false);
       return;
     }
@@ -578,7 +608,9 @@ export class BattleScene extends Phaser.Scene {
       maxAp: this.maxAp,
       kills: this.kills,
       speedMult: this.speedMult,
+      paused: this.paused,
       muted: this.sfx?.isMuted() ?? false,
+      screenShakeEnabled: this.screenShakeEnabled,
       selectedTool: this.selectedTool,
       selectedUnitUid: this.selectedUnitUid,
       selectedStructureUid: this.selectedStructureUid,
@@ -629,6 +661,7 @@ export class BattleScene extends Phaser.Scene {
     this.selectedStructureUid = null;
     this.movingStructureUid = null;
     this.aimingUltUnitUid = null;
+    this.paused = false;
     this.slowMo = false;
     const normalScale = this.phase === 'COMBAT' ? this.speedMult : 1;
     this.anims.globalTimeScale = normalScale;
@@ -692,6 +725,7 @@ export class BattleScene extends Phaser.Scene {
     this.selectedStructureUid = null;
     this.movingStructureUid = null;
     this.aimingUltUnitUid = null;
+    this.paused = false;
     this.slowMo = false;
     this.waveElapsedMs = 0;
     this.berryHealTimerMs = 0;
@@ -702,7 +736,9 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.buildSpawnQueue();
+    this.cachedDashSegments = [];
     this.pathPreviewGraphics.clear();
+    this.pathPreviewStaticGraphics.clear();
     this.refreshHighlights();
     this.sfx.play('wave_start', 0);
 
@@ -710,6 +746,13 @@ export class BattleScene extends Phaser.Scene {
     this.setStatus(
       waveDef ? `${waveDef.title} begun!` : `Wave ${this.wave} begun!`,
     );
+  }
+
+  public togglePause(): void {
+    if (this.phase !== 'COMBAT') return;
+    this.paused = !this.paused;
+    this.sfx.play('ui_click', 0);
+    this.setStatus(this.paused ? 'Combat paused.' : 'Combat resumed.');
   }
 
   public toggleSpeed(): void {
@@ -720,6 +763,11 @@ export class BattleScene extends Phaser.Scene {
 
   public toggleMute(): void {
     this.sfx.toggleMute();
+    this.emitSnapshot();
+  }
+
+  public toggleScreenShake(): void {
+    this.screenShakeEnabled = !this.screenShakeEnabled;
     this.emitSnapshot();
   }
 
@@ -1185,6 +1233,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    let statusDetail = '';
     if (choice.kind === 'upgrade') {
       this.upgrades.push(choice.id);
       if (choice.id === 'thick_hide') {
@@ -1210,7 +1259,16 @@ export class BattleScene extends Phaser.Scene {
         }
       }
     } else if (choice.kind === 'recruit' && choice.speciesId) {
-      if (
+      const openPos =
+        this.units.length < MAX_ACTIVE_UNITS
+          ? (PREP_INITIAL_POSITIONS.find((p) =>
+              this.isValidUnitTile(p.gx, p.gy),
+            ) ?? this.findOpenPrepTile())
+          : null;
+      if (openPos) {
+        this.spawnUnit(choice.speciesId, openPos.gx, openPos.gy);
+        statusDetail = ' (auto-deployed)';
+      } else if (
         !this.reserveIds.includes(choice.speciesId) &&
         this.reserveIds.length < MAX_RESERVE_UNITS
       ) {
@@ -1222,7 +1280,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.rewardChoices = [];
-    this.advanceAfterReward(`Picked ${choice.title}.`);
+    this.advanceAfterReward(`Picked ${choice.title}${statusDetail}.`);
   }
 
   public closeShop(): void {
@@ -1243,17 +1301,28 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private advanceToNextPrep(prefixMsg: string): void {
+    const prevIds = new Set(this.activePortals.map((p) => p.id));
     this.wave += 1;
     this.phase = 'PREP';
-    this.activePortals = rollWavePortals(
+    this.activePortals = rotateWavePortals(
       this.wave,
+      this.activePortals,
       this.tiles,
       this.structures.map((s) => s.data),
     );
     this.refreshPortalVisuals();
     this.refreshPathPreview();
     this.refreshHighlights();
-    this.setStatus(`${prefixMsg} Prepare for Wave ${this.wave}!`);
+
+    const addedPortal = this.activePortals.find((p) => !prevIds.has(p.id));
+    const fadingPortal =
+      this.wave >= 4 && this.wave % 2 === 0 ? this.activePortals[0] : undefined;
+    const portalHint = addedPortal
+      ? ` New ${addedPortal.side} portal opened!`
+      : fadingPortal
+        ? ` (${fadingPortal.side} portal fades next wave)`
+        : '';
+    this.setStatus(`${prefixMsg} Prepare for Wave ${this.wave}!${portalHint}`);
   }
 
   public restartRun(): void {
@@ -1270,7 +1339,16 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshPortalVisuals(): void {
-    refreshPortalVisuals(this, this.activePortals, this.portalVisualState);
+    const closingPortalId =
+      this.wave >= 4 && this.wave % 2 === 0
+        ? this.activePortals[0]?.id
+        : undefined;
+    refreshPortalVisuals(
+      this,
+      this.activePortals,
+      this.portalVisualState,
+      closingPortalId,
+    );
   }
 
   private initNewRunState(): void {
@@ -1287,6 +1365,7 @@ export class BattleScene extends Phaser.Scene {
     this.maxAp = MAX_AP;
     this.kills = 0;
     this.speedMult = 1;
+    this.paused = false;
     this.slowMo = false;
     this.anims.globalTimeScale = 1;
     this.tweens.timeScale = 1;
@@ -1694,10 +1773,19 @@ export class BattleScene extends Phaser.Scene {
     if (clickedUnit) {
       if (this.selectedUnitUid === clickedUnit.data.uid) {
         this.selectUnit(null);
+      } else if (this.selectedUnitUid) {
+        const selected = this.units.find(
+          (u) => u.data.uid === this.selectedUnitUid,
+        );
+        if (selected) {
+          this.swapUnitPositions(selected, clickedUnit);
+          return;
+        }
+        this.selectUnit(clickedUnit.data.uid);
       } else {
         this.selectUnit(clickedUnit.data.uid);
         this.setStatus(
-          `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to reposition (0 AP in Prep).`,
+          `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to move or another Pokémon to swap (0 AP in Prep).`,
         );
       }
       return;
@@ -2042,13 +2130,16 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshPathPreview(): void {
-    this.cachedPreviewPaths = [];
-    this.cachedBlockingWalls = [];
+    this.cachedDashSegments = [];
+    this.pathPreviewStaticGraphics.clear();
     if (this.phase !== 'PREP') {
       this.hadSpeculativeWallPreview = false;
       this.pathPreviewGraphics.clear();
       return;
     }
+
+    const previewPaths: Array<{ points: GridPoint[]; color: number }> = [];
+    const blockingWalls: GridPoint[] = [];
 
     const specPreview = this.getSpeculativeWallPreview();
     this.hadSpeculativeWallPreview = Boolean(specPreview);
@@ -2066,7 +2157,7 @@ export class BattleScene extends Phaser.Scene {
       for (const start of portal.cells) {
         const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
         if (openPath && openPath.length > 1) {
-          this.cachedPreviewPaths.push({ points: openPath, color: 0xffffff });
+          previewPaths.push({ points: openPath, color: 0xffffff });
           continue;
         }
 
@@ -2082,9 +2173,9 @@ export class BattleScene extends Phaser.Scene {
             blockedWalls,
           );
           if (toWall.length > 1) {
-            this.cachedPreviewPaths.push({ points: toWall, color: 0xf97316 });
+            previewPaths.push({ points: toWall, color: 0xf97316 });
           }
-          this.cachedBlockingWalls.push({
+          blockingWalls.push({
             gx: blockingWall.gx,
             gy: blockingWall.gy,
           });
@@ -2092,80 +2183,127 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    this.renderPreviewPaths();
-  }
-
-  private renderPreviewPaths(): void {
-    this.pathPreviewGraphics.clear();
-    if (this.phase !== 'PREP') return;
-
     const drawnSegments = new Set<string>();
     const drawnArrows = new Set<string>();
 
-    for (const entry of this.cachedPreviewPaths) {
-      this.drawDashedPath(
-        entry.points,
-        entry.color,
-        0.95,
-        drawnSegments,
-        drawnArrows,
-      );
+    for (const { points, color } of previewPaths) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const segKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
+        if (drawnSegments.has(segKey)) continue;
+        drawnSegments.add(segKey);
+
+        const x1 = tileCenterX(p0.gx);
+        const y1 = tileCenterY(p0.gy);
+        const dist = Math.hypot(
+          tileCenterX(p1.gx) - x1,
+          tileCenterY(p1.gy) - y1,
+        );
+        if (dist <= 0) continue;
+
+        this.cachedDashSegments.push({
+          color,
+          x1,
+          y1,
+          ux: (tileCenterX(p1.gx) - x1) / dist,
+          uy: (tileCenterY(p1.gy) - y1) / dist,
+          dist,
+        });
+      }
+
+      // Directional arrowheads at portal exit & every 3 tiles along the route
+      for (let i = 0; i < points.length - 1; i += 3) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const arrowKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
+        if (drawnArrows.has(arrowKey)) continue;
+        drawnArrows.add(arrowKey);
+
+        const mx = (tileCenterX(p0.gx) + tileCenterX(p1.gx)) / 2;
+        const my = (tileCenterY(p0.gy) + tileCenterY(p1.gy)) / 2;
+        const rawDx = p1.gx - p0.gx;
+        const rawDy = p1.gy - p0.gy;
+        const len = Math.hypot(rawDx, rawDy) || 1;
+        const dx = rawDx / len;
+        const dy = rawDy / len;
+        const px = -dy;
+        const py = dx;
+        this.pathPreviewStaticGraphics.lineStyle(4, 0x0f172a, 0.85);
+        this.pathPreviewStaticGraphics.lineBetween(
+          mx - dx * 4 + px * 4,
+          my - dy * 4 + py * 4,
+          mx + dx * 3,
+          my + dy * 3,
+        );
+        this.pathPreviewStaticGraphics.lineBetween(
+          mx - dx * 4 - px * 4,
+          my - dy * 4 - py * 4,
+          mx + dx * 3,
+          my + dy * 3,
+        );
+        this.pathPreviewStaticGraphics.lineStyle(2, color, 1);
+        this.pathPreviewStaticGraphics.lineBetween(
+          mx - dx * 4 + px * 4,
+          my - dy * 4 + py * 4,
+          mx + dx * 3,
+          my + dy * 3,
+        );
+        this.pathPreviewStaticGraphics.lineBetween(
+          mx - dx * 4 - px * 4,
+          my - dy * 4 - py * 4,
+          mx + dx * 3,
+          my + dy * 3,
+        );
+      }
     }
 
-    for (const bw of this.cachedBlockingWalls) {
-      this.pathPreviewGraphics.lineStyle(2.5, 0xef4444, 0.95);
-      this.pathPreviewGraphics.strokeRect(
+    for (const bw of blockingWalls) {
+      this.pathPreviewStaticGraphics.lineStyle(2.5, 0xef4444, 0.95);
+      this.pathPreviewStaticGraphics.strokeRect(
         bw.gx * TILE_SIZE + 4,
         bw.gy * TILE_SIZE + 4,
         TILE_SIZE - 8,
         TILE_SIZE - 8,
       );
     }
+
+    this.pathDashTickMs = 0;
+    this.renderPreviewDashes();
   }
 
-  private drawDashedPath(
-    points: GridPoint[],
-    color: number,
-    alpha: number,
-    drawnSegments?: Set<string>,
-    drawnArrows?: Set<string>,
-  ): void {
+  private renderPreviewDashes(): void {
+    this.pathPreviewGraphics.clear();
+    if (this.phase !== 'PREP' || this.cachedDashSegments.length === 0) return;
+
     const dashLen = 8;
-    const gapLen = 6;
-    const period = dashLen + gapLen;
+    const period = 14;
+    const startOffset = -period + (this.pathDashOffset % period);
 
-    const activeSegments: Array<[GridPoint, GridPoint]> = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i];
-      const b = points[i + 1];
-      const segKey = `${a.gx},${a.gy}->${b.gx},${b.gy}`;
-      if (drawnSegments?.has(segKey)) continue;
-      drawnSegments?.add(segKey);
-      activeSegments.push([a, b]);
-    }
-
-    const strokeSegments = (width: number, col: number, a: number) => {
-      this.pathPreviewGraphics.lineStyle(width, col, a);
-      for (const [p0, p1] of activeSegments) {
-        const x1 = tileCenterX(p0.gx);
-        const y1 = tileCenterY(p0.gy);
-        const x2 = tileCenterX(p1.gx);
-        const y2 = tileCenterY(p1.gy);
-        const dist = Math.hypot(x2 - x1, y2 - y1);
-        if (dist <= 0) continue;
-
-        const ux = (x2 - x1) / dist;
-        const uy = (y2 - y1) / dist;
-        let d = 0;
-        while (d < dist) {
+    const drawPass = (
+      width: number,
+      fixedColor: number | null,
+      alpha: number,
+    ) => {
+      let lastColor = -1;
+      if (fixedColor !== null) {
+        this.pathPreviewGraphics.lineStyle(width, fixedColor, alpha);
+      }
+      for (const seg of this.cachedDashSegments) {
+        if (fixedColor === null && seg.color !== lastColor) {
+          lastColor = seg.color;
+          this.pathPreviewGraphics.lineStyle(width, seg.color, alpha);
+        }
+        let d = startOffset;
+        while (d < seg.dist) {
           const startD = Math.max(0, d);
-          const endD = Math.min(d + dashLen, dist);
+          const endD = Math.min(d + dashLen, seg.dist);
           if (endD > startD) {
             this.pathPreviewGraphics.lineBetween(
-              x1 + ux * startD,
-              y1 + uy * startD,
-              x1 + ux * endD,
-              y1 + uy * endD,
+              seg.x1 + seg.ux * startD,
+              seg.y1 + seg.uy * startD,
+              seg.x1 + seg.ux * endD,
+              seg.y1 + seg.uy * endD,
             );
           }
           d += period;
@@ -2174,53 +2312,8 @@ export class BattleScene extends Phaser.Scene {
     };
 
     // Dark outline first for crisp contrast over grass & sand
-    strokeSegments(5, 0x0f172a, 0.75);
-    strokeSegments(2.5, color, alpha);
-
-    // Directional arrowheads at portal exit & every 3 tiles along the route
-    for (let i = 0; i < points.length - 1; i += 3) {
-      const p0 = points[i];
-      const p1 = points[i + 1];
-      const arrowKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
-      if (drawnArrows?.has(arrowKey)) continue;
-      drawnArrows?.add(arrowKey);
-
-      const mx = (tileCenterX(p0.gx) + tileCenterX(p1.gx)) / 2;
-      const my = (tileCenterY(p0.gy) + tileCenterY(p1.gy)) / 2;
-      const rawDx = p1.gx - p0.gx;
-      const rawDy = p1.gy - p0.gy;
-      const len = Math.hypot(rawDx, rawDy) || 1;
-      const dx = rawDx / len;
-      const dy = rawDy / len;
-      const px = -dy;
-      const py = dx;
-      this.pathPreviewGraphics.lineStyle(4, 0x0f172a, 0.85);
-      this.pathPreviewGraphics.lineBetween(
-        mx - dx * 4 + px * 4,
-        my - dy * 4 + py * 4,
-        mx + dx * 3,
-        my + dy * 3,
-      );
-      this.pathPreviewGraphics.lineBetween(
-        mx - dx * 4 - px * 4,
-        my - dy * 4 - py * 4,
-        mx + dx * 3,
-        my + dy * 3,
-      );
-      this.pathPreviewGraphics.lineStyle(2, color, 1);
-      this.pathPreviewGraphics.lineBetween(
-        mx - dx * 4 + px * 4,
-        my - dy * 4 + py * 4,
-        mx + dx * 3,
-        my + dy * 3,
-      );
-      this.pathPreviewGraphics.lineBetween(
-        mx - dx * 4 - px * 4,
-        my - dy * 4 - py * 4,
-        mx + dx * 3,
-        my + dy * 3,
-      );
-    }
+    drawPass(5, 0x0f172a, 0.75);
+    drawPass(2.5, null, 0.95);
   }
 
   /**
@@ -2846,6 +2939,21 @@ export class BattleScene extends Phaser.Scene {
     return entity;
   }
 
+  private swapUnitPositions(a: UnitEntity, b: UnitEntity): void {
+    const ax = a.data.gx;
+    const ay = a.data.gy;
+    const bx = b.data.gx;
+    const by = b.data.gy;
+    this.moveUnitToTile(a, bx, by, false);
+    this.moveUnitToTile(b, ax, ay, false);
+    this.selectedUnitUid = null;
+    this.refreshHighlights();
+    this.emitSnapshot();
+    const nameA = POKEMON_SPECIES[a.data.speciesId]?.name ?? a.data.speciesId;
+    const nameB = POKEMON_SPECIES[b.data.speciesId]?.name ?? b.data.speciesId;
+    this.setStatus(`Swapped ${nameA} and ${nameB}.`);
+  }
+
   private moveUnitToTile(
     unit: UnitEntity,
     gx: number,
@@ -3127,6 +3235,7 @@ export class BattleScene extends Phaser.Scene {
   private executeAimedUlt(gx: number, gy: number): void {
     const unit = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
     this.aimingUltUnitUid = null;
+    this.paused = false;
     this.slowMo = false;
 
     if (unit && !unit.data.fainted && unit.data.ult >= unit.data.ultMax) {
@@ -3532,14 +3641,9 @@ export class BattleScene extends Phaser.Scene {
     this.updateCoreBar();
     this.coreHitFlashTimerMs = 90;
     this.coreSprite?.setTint(0xff9999);
-    const prefersReducedMotion =
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (
-      !prefersReducedMotion &&
-      this.time.now - this.lastCoreShakeAtMs >= 750
-    ) {
+    if (this.time.now - this.lastCoreShakeAtMs >= 750) {
       this.lastCoreShakeAtMs = this.time.now;
-      this.cameras.main.shake(55, 0.001);
+      this.triggerScreenShake(45, 0.0007);
     }
     this.spawnFloatingText(
       (GRID_COLS / 2) * TILE_SIZE,
@@ -3862,7 +3966,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.removeStructureEntity(barrel);
     this.spawnOneShotVfx('explosions/big-explosion', cx, cy, 1.1);
-    this.cameras.main.shake(180, 0.008);
+    this.triggerScreenShake(110, 0.0025);
     this.sfx.play('crumble', 60);
 
     for (const enemy of [...this.enemies]) {
@@ -3874,6 +3978,7 @@ export class BattleScene extends Phaser.Scene {
 
   private resetCombatControlState(): void {
     this.stopAllUnitMovement();
+    this.paused = false;
     this.slowMo = false;
     this.aimingUltUnitUid = null;
     this.selectedUnitUid = null;
@@ -3923,8 +4028,18 @@ export class BattleScene extends Phaser.Scene {
       Math.random,
       unbranchedUnits,
       false,
-      this.reserveIds.length < MAX_RESERVE_UNITS,
+      this.units.length < MAX_ACTIVE_UNITS ||
+        this.reserveIds.length < MAX_RESERVE_UNITS,
     );
+  }
+
+  private triggerScreenShake(durationMs: number, intensity: number): void {
+    if (!this.screenShakeEnabled) return;
+    const prefersReducedMotion =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (!prefersReducedMotion) {
+      this.cameras.main.shake(durationMs, intensity);
+    }
   }
 
   // ---------------------------------------------------------------------------

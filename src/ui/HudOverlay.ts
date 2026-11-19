@@ -160,11 +160,17 @@ export class HudOverlay {
     }
 
     switch (action) {
+      case 'toggle-pause':
+        scene.togglePause?.();
+        break;
       case 'toggle-speed':
         scene.toggleSpeed?.();
         break;
       case 'toggle-mute':
         scene.toggleMute?.();
+        break;
+      case 'toggle-shake':
+        scene.toggleScreenShake?.();
         break;
       case 'start-wave':
         scene.startWave?.();
