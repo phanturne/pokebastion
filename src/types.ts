@@ -215,7 +215,9 @@ export interface GameSnapshot {
   maxAp: number;
   kills: number;
   speedMult: 1 | 2;
+  paused: boolean;
   muted: boolean;
+  screenShakeEnabled: boolean;
   selectedTool: StructureKind | 'sell_struct' | null;
   movingStructureUid?: string | null;
   selectedUnitUid: string | null;

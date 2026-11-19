@@ -16,6 +16,10 @@ import {
 import { GameSnapshot, MapDifficulty } from '../types';
 import {
   HELD_ITEM_ICONS,
+  SVG_SHAKE_OFF,
+  SVG_SHAKE_ON,
+  SVG_SOUND_OFF,
+  SVG_SOUND_ON,
   escapeHtml,
   formatBranchChips,
   renderBranchTree,
@@ -218,6 +222,8 @@ function renderHomeModal(snap: GameSnapshot): string {
         <div class="home-actions">
           <button type="button" class="btn btn-primary home-btn" data-action="home-play">Play</button>
           <button type="button" class="btn home-btn" data-action="open-pokedex">Pokédex (${unlockedCount}/${totalCount})</button>
+          <button type="button" class="btn home-btn home-toggle-btn" data-action="toggle-mute" aria-pressed="${snap.muted}" title="${snap.muted ? 'Sound: Off' : 'Sound: On'}">${snap.muted ? SVG_SOUND_OFF : SVG_SOUND_ON}<span>Sound</span></button>
+          <button type="button" class="btn home-btn home-toggle-btn" data-action="toggle-shake" aria-pressed="${!snap.screenShakeEnabled}" title="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}">${snap.screenShakeEnabled ? SVG_SHAKE_ON : SVG_SHAKE_OFF}<span>Shake</span></button>
           <button type="button" class="btn home-btn" data-action="toggle-credits">Credits</button>
         </div>
       </div>

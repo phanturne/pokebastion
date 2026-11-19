@@ -10,6 +10,7 @@ import {
   isNoBuildTile,
   isPortalBufferTile,
   rollWavePortals,
+  rotateWavePortals,
 } from '../src/engine/pathfinding';
 import { GridStructure } from '../src/types';
 
@@ -355,5 +356,31 @@ describe('A* Pathfinding & Grid Rules', () => {
     expect(path).not.toBeNull();
     // Must not go directly from (5,8) to (6,7) in 1 step
     expect(path!.length).toBeGreaterThan(2);
+  });
+
+  it('rotates 1 portal every 2 waves in rotateWavePortals', () => {
+    const grid = createBaseGrid();
+    const w1 = rotateWavePortals(1, [], grid, [], () => 0.25);
+    expect(w1).toHaveLength(2);
+
+    // Wave 2 keeps Wave 1 portals unchanged
+    const w2 = rotateWavePortals(2, w1, grid, [], () => 0.75);
+    expect(w2).toEqual(w1);
+
+    // Wave 3 expands to 3 portals without moving Wave 1-2 portals
+    const w3 = rotateWavePortals(3, w2, grid, [], () => 0.5);
+    expect(w3).toHaveLength(3);
+    expect(w3.slice(0, 2)).toEqual(w2);
+    expect(new Set(w3.map((p) => p.side)).size).toBe(3);
+
+    // Wave 4 keeps all 3 portals
+    const w4 = rotateWavePortals(4, w3, grid, [], () => 0.5);
+    expect(w4).toEqual(w3);
+
+    // Wave 5 drops the oldest portal (w4[0]), keeps w4[1..2], and opens 1 new portal
+    const w5 = rotateWavePortals(5, w4, grid, [], () => 0.5);
+    expect(w5).toHaveLength(3);
+    expect(w5.slice(0, 2)).toEqual(w4.slice(1));
+    expect(w5[2].id).not.toBe(w4[0].id);
   });
 });

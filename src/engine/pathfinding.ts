@@ -533,16 +533,11 @@ export function isPortalBufferTile(
   return false;
 }
 
-/**
- * Rolls 2 (Waves 1-2) or 3 (Wave 3+) randomized 2-3 tile spawn portals along
- * the outer map borders, avoiding trees, water, core, and standing structures.
- */
-export function rollWavePortals(
+function buildPortalCandidates(
   wave: number,
   tiles: TileKind[][],
   structures: readonly GridStructure[],
-  rng: () => number = Math.random,
-): SpawnPortal[] {
+): (side: PortalSide) => GridPoint[][] {
   const occupied = new Uint8Array(GRID_COLS * GRID_ROWS);
   for (const s of structures) {
     if (!s.ruined && inBounds(s.gx, s.gy)) {
@@ -560,7 +555,7 @@ export function rollWavePortals(
     );
   };
 
-  const candidatesForSide = (side: PortalSide): GridPoint[][] => {
+  return (side: PortalSide): GridPoint[][] => {
     const groups: GridPoint[][] = [];
     const span = wave >= 2 ? 3 : 2;
     if (side === 'west' || side === 'east') {
@@ -594,16 +589,31 @@ export function rollWavePortals(
     }
     return groups;
   };
+}
 
-  const allSides: PortalSide[] = ['west', 'east', 'north', 'south'];
-  for (let i = allSides.length - 1; i > 0; i--) {
+function shuffledSides(rng: () => number): PortalSide[] {
+  const sides: PortalSide[] = ['west', 'east', 'north', 'south'];
+  for (let i = sides.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [allSides[i], allSides[j]] = [allSides[j], allSides[i]];
+    [sides[i], sides[j]] = [sides[j], sides[i]];
   }
+  return sides;
+}
 
+/**
+ * Rolls 2 (Waves 1-2) or 3 (Wave 3+) randomized 2-3 tile spawn portals along
+ * the outer map borders, avoiding trees, water, core, and standing structures.
+ */
+export function rollWavePortals(
+  wave: number,
+  tiles: TileKind[][],
+  structures: readonly GridStructure[],
+  rng: () => number = Math.random,
+): SpawnPortal[] {
+  const candidatesForSide = buildPortalCandidates(wave, tiles, structures);
   const targetCount = wave >= 3 ? 3 : 2;
   const portals: SpawnPortal[] = [];
-  for (const side of allSides) {
+  for (const side of shuffledSides(rng)) {
     if (portals.length >= targetCount) break;
     const groups = candidatesForSide(side);
     if (groups.length === 0) continue;
@@ -620,6 +630,55 @@ export function rollWavePortals(
           cells: [...SPAWN_WEST.slice(0, 2)],
         },
       ];
+}
+
+/**
+ * Rolling 1-portal rotation: keeps portals fixed on even waves, expands to 3
+ * portals on Wave 3 without moving existing ones, and on odd waves >= 5 drops
+ * the oldest portal (`currentPortals[0]`) and opens 1 new portal.
+ */
+export function rotateWavePortals(
+  wave: number,
+  currentPortals: readonly SpawnPortal[],
+  tiles: TileKind[][],
+  structures: readonly GridStructure[],
+  rng: () => number = Math.random,
+): SpawnPortal[] {
+  if (wave <= 1 || currentPortals.length === 0) {
+    return rollWavePortals(wave, tiles, structures, rng);
+  }
+  if (wave % 2 === 0) {
+    return [...currentPortals];
+  }
+
+  const targetCount = wave >= 3 ? 3 : 2;
+  const kept =
+    currentPortals.length < targetCount
+      ? [...currentPortals]
+      : currentPortals.slice(1);
+  const usedSides = new Set(kept.map((p) => p.side));
+  const candidatesForSide = buildPortalCandidates(wave, tiles, structures);
+  const sides = shuffledSides(rng);
+  const orderedSides = [
+    ...sides.filter((s) => !usedSides.has(s)),
+    ...sides.filter((s) => usedSides.has(s)),
+  ];
+
+  for (const side of orderedSides) {
+    const groups = candidatesForSide(side).filter(
+      (cells) =>
+        !kept.some((p) =>
+          p.cells.some((pc) =>
+            cells.some((c) => c.gx === pc.gx && c.gy === pc.gy),
+          ),
+        ),
+    );
+    if (groups.length === 0) continue;
+    const cells = groups[Math.floor(rng() * groups.length)];
+    return [...kept, { id: `portal_${wave}_${side}`, side, cells }];
+  }
+
+  return [...currentPortals];
 }
 
 /**

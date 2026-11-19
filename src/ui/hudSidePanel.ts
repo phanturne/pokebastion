@@ -25,6 +25,12 @@ import {
   HELD_ITEM_ICONS,
   RELIC_ICONS,
   REWARD_BY_ID,
+  SVG_PAUSE,
+  SVG_PLAY,
+  SVG_SHAKE_OFF,
+  SVG_SHAKE_ON,
+  SVG_SOUND_OFF,
+  SVG_SOUND_ON,
   TOOL_ICONS,
   TOOL_SHORT_NAME,
   ToolId,
@@ -182,8 +188,10 @@ export function renderTopBarHtml(
       </div>
     </div>
     <div class="top-group top-controls">
-      <button type="button" class="btn" data-action="toggle-speed" aria-pressed="${snap.speedMult > 1}" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
-      <button type="button" class="btn" data-action="toggle-mute" aria-pressed="${snap.muted}" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
+      <button type="button" class="btn btn-icon" data-action="toggle-pause" aria-pressed="${snap.paused}" aria-label="${snap.paused ? 'Resume combat' : 'Pause combat'}" ${snap.phase !== 'COMBAT' ? 'disabled' : ''} title="${snap.paused ? 'Resume combat' : 'Pause combat'}">${snap.paused ? SVG_PLAY : SVG_PAUSE}</button>
+      <button type="button" class="btn btn-speed" data-action="toggle-speed" aria-pressed="${snap.speedMult > 1}" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
+      <button type="button" class="btn btn-icon" data-action="toggle-mute" aria-pressed="${snap.muted}" aria-label="${snap.muted ? 'Unmute audio' : 'Mute audio'}" title="${snap.muted ? 'Unmute audio (BGM & SFX)' : 'Mute audio (BGM & SFX)'}">${snap.muted ? SVG_SOUND_OFF : SVG_SOUND_ON}</button>
+      <button type="button" class="btn btn-icon" data-action="toggle-shake" aria-pressed="${!snap.screenShakeEnabled}" aria-label="${snap.screenShakeEnabled ? 'Disable screen shake' : 'Enable screen shake'}" title="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}">${snap.screenShakeEnabled ? SVG_SHAKE_ON : SVG_SHAKE_OFF}</button>
       <button type="button" class="btn" data-action="toggle-credits">Credits</button>
       <button type="button" class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
     </div>

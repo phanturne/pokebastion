@@ -219,7 +219,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
   }) => {
     const { errors } = attachErrorGuards(page);
     await page.goto('/');
-    await draftStarterTeamAndEnterPrep(page, false);
+    await draftStarterTeamAndEnterPrep(page, true);
 
     // Place 2 wood walls + 2 barrels near center from the PREP Building Shop sidebar (₽100 total)
     await page
@@ -236,8 +236,9 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
 
     // Mute audio and switch to 2x speed
     await page.locator('[data-action="toggle-mute"]').click();
-    await expect(page.locator('[data-action="toggle-mute"]')).toContainText(
-      'Muted',
+    await expect(page.locator('[data-action="toggle-mute"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
 
     await page.locator('[data-action="toggle-speed"]').click();
@@ -343,6 +344,222 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
       window.localStorage.getItem('pokebastion:save_v1'),
     );
     expect(saveJson).toContain('0151');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('supports home/top-bar toggles without layout shift, combat pause, prep unit swap, and recruit auto-deploy', async ({
+    page,
+  }) => {
+    const { errors } = attachErrorGuards(page);
+    await page.goto('/');
+
+    const homeSound = page.locator('#modal-root [data-action="toggle-mute"]');
+    const homeShake = page.locator('#modal-root [data-action="toggle-shake"]');
+    await expect(homeSound).toBeVisible({ timeout: 25_000 });
+
+    const soundBoxBefore = (await homeSound.boundingBox())!;
+    const shakeBoxBefore = (await homeShake.boundingBox())!;
+    await expect(homeSound).toHaveAttribute('aria-pressed', 'false');
+    await expect(homeShake).toHaveAttribute('aria-pressed', 'false');
+
+    await homeSound.click();
+    await homeShake.click();
+    await expect(homeSound).toHaveAttribute('aria-pressed', 'true');
+    await expect(homeShake).toHaveAttribute('aria-pressed', 'true');
+
+    const soundBoxAfter = (await homeSound.boundingBox())!;
+    const shakeBoxAfter = (await homeShake.boundingBox())!;
+    expect(
+      Math.abs(soundBoxAfter.width - soundBoxBefore.width),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(shakeBoxAfter.width - shakeBoxBefore.width),
+    ).toBeLessThanOrEqual(0.5);
+
+    // Toggle back so audio/shake state is clean, then draft 2 units and enter PREP
+    await homeSound.click();
+    await homeShake.click();
+    await page.locator('[data-action="home-play"]').click();
+    await page
+      .locator('[data-action="select-map"][data-id="viridian_outpost"]')
+      .click();
+    const clearBtn = page.locator('[data-action="clear-draft"]');
+    if (await clearBtn.isEnabled()) await clearBtn.click();
+    for (const id of ['0001', '0004']) {
+      await page
+        .locator(`[data-action="inspect-draft"][data-id="${id}"]`)
+        .click();
+      await page
+        .locator(`[data-action="toggle-draft"][data-id="${id}"]`)
+        .click();
+    }
+    await page.locator('[data-action="confirm-draft"]').click();
+    await expect(page.locator('#top-bar')).toContainText('PREP');
+
+    // Pause is disabled during PREP; top-bar toggles keep fixed width
+    const topPause = page.locator('#top-bar [data-action="toggle-pause"]');
+    const topSpeed = page.locator('#top-bar [data-action="toggle-speed"]');
+    const topMute = page.locator('#top-bar [data-action="toggle-mute"]');
+    const topShake = page.locator('#top-bar [data-action="toggle-shake"]');
+    await expect(topPause).toBeDisabled();
+
+    const speedBox1 = (await topSpeed.boundingBox())!;
+    const muteBox1 = (await topMute.boundingBox())!;
+    const shakeTopBox1 = (await topShake.boundingBox())!;
+    await topSpeed.click();
+    await topMute.click();
+    await topShake.click();
+    expect(
+      Math.abs((await topSpeed.boundingBox())!.width - speedBox1.width),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs((await topMute.boundingBox())!.width - muteBox1.width),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs((await topShake.boundingBox())!.width - shakeTopBox1.width),
+    ).toBeLessThanOrEqual(0.5);
+
+    // Swap 2 units in PREP by clicking one on the canvas, then clicking the other
+    const beforeSwap = await page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __battleScene: {
+            getSnapshot: () => {
+              activeUnits: Array<{ uid: string; gx: number; gy: number }>;
+            };
+          };
+        }
+      ).__battleScene.getSnapshot();
+      return s.activeUnits.map((u) => ({ uid: u.uid, gx: u.gx, gy: u.gy }));
+    });
+    expect(beforeSwap).toHaveLength(2);
+    const unitClients = await page.evaluate((targets) => {
+      const scene = (
+        window as unknown as {
+          __battleScene: {
+            getTileScreenPosition: (
+              gx: number,
+              gy: number,
+            ) => { screenX: number; screenY: number };
+          };
+        }
+      ).__battleScene;
+      return targets.map((t) => scene.getTileScreenPosition(t.gx, t.gy));
+    }, beforeSwap);
+    await page.mouse.click(unitClients[0].screenX, unitClients[0].screenY);
+    await page.mouse.click(unitClients[1].screenX, unitClients[1].screenY);
+    const afterSwap = await page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __battleScene: {
+            getSnapshot: () => {
+              activeUnits: Array<{ uid: string; gx: number; gy: number }>;
+            };
+          };
+        }
+      ).__battleScene.getSnapshot();
+      return s.activeUnits.map((u) => ({ uid: u.uid, gx: u.gx, gy: u.gy }));
+    });
+    expect(afterSwap[0]).toMatchObject({
+      gx: beforeSwap[1].gx,
+      gy: beforeSwap[1].gy,
+    });
+    expect(afterSwap[1]).toMatchObject({
+      gx: beforeSwap[0].gx,
+      gy: beforeSwap[0].gy,
+    });
+
+    // Auto-deploy newly recruited Pokémon when active party has room (< 6)
+    await page.evaluate(() => {
+      const scene = (
+        window as unknown as {
+          __battleScene: {
+            phase: string;
+            pickReward: (id: string) => void;
+            rewardChoices: Array<{
+              id: string;
+              kind: string;
+              title: string;
+              desc: string;
+              speciesId?: string;
+            }>;
+          };
+        }
+      ).__battleScene;
+      scene.phase = 'REWARD';
+      scene.rewardChoices = [
+        {
+          id: 'recruit_test',
+          kind: 'recruit',
+          title: 'Recruit Pikachu',
+          desc: '',
+          speciesId: '0025',
+        },
+      ];
+      scene.pickReward('recruit_test');
+    });
+    const afterRecruit = await page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __battleScene: {
+            getSnapshot: () => {
+              activeUnits: Array<{ speciesId: string }>;
+              reserveIds: string[];
+            };
+          };
+        }
+      ).__battleScene.getSnapshot();
+      return s;
+    });
+    expect(afterRecruit.activeUnits.some((u) => u.speciesId === '0025')).toBe(
+      true,
+    );
+    expect(afterRecruit.reserveIds).not.toContain('0025');
+
+    // Start combat & verify Pause freezes waveElapsedMs, then resumes
+    await page.locator('[data-action="start-wave"]').click();
+    await expect(page.locator('#top-bar')).toContainText('COMBAT');
+    await expect(topPause).toBeEnabled();
+
+    const pauseBox1 = (await topPause.boundingBox())!;
+    await topPause.click();
+    await expect(topPause).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      Math.abs((await topPause.boundingBox())!.width - pauseBox1.width),
+    ).toBeLessThanOrEqual(0.5);
+
+    const elapsedPaused1 = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __battleScene: { getSnapshot: () => { waveElapsedMs?: number } };
+          }
+        ).__battleScene.getSnapshot().waveElapsedMs ?? 0,
+    );
+    await page.waitForTimeout(350);
+    const elapsedPaused2 = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __battleScene: { getSnapshot: () => { waveElapsedMs?: number } };
+          }
+        ).__battleScene.getSnapshot().waveElapsedMs ?? 0,
+    );
+    expect(elapsedPaused2).toBe(elapsedPaused1);
+
+    await topPause.click();
+    await expect(topPause).toHaveAttribute('aria-pressed', 'false');
+    await page.waitForTimeout(300);
+    const elapsedResumed = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __battleScene: { getSnapshot: () => { waveElapsedMs?: number } };
+          }
+        ).__battleScene.getSnapshot().waveElapsedMs ?? 0,
+    );
+    expect(elapsedResumed).toBeGreaterThan(elapsedPaused2);
 
     expect(errors).toEqual([]);
   });
