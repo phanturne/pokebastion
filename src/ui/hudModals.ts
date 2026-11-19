@@ -36,6 +36,7 @@ import {
 } from '../types';
 import {
   HELD_ITEM_ICONS,
+  SVG_GITHUB,
   SVG_SHAKE_OFF,
   SVG_SHAKE_ON,
   SVG_SOUND_OFF,
@@ -91,7 +92,7 @@ function getMapPreviewSvg(mapId: string): string {
 
 function renderCreditsModal(): string {
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card compact" role="dialog" aria-modal="true" aria-labelledby="modal-title-credits" tabindex="-1">
         <div class="modal-header">
           <div class="modal-title" id="modal-title-credits">Asset Credits</div>
@@ -498,7 +499,7 @@ function renderPokedexModal(
     : '';
 
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card draft-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-pokedex" tabindex="-1">
         <div class="modal-header pokedex-modal-header">
           <div class="pokedex-header-left">
@@ -661,7 +662,7 @@ function renderEggsModal(snap: GameSnapshot | null, state: ModalState): string {
     `;
 
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card eggs-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-eggs" tabindex="-1">
         <div class="modal-header">
           <div class="modal-title" id="modal-title-eggs">${state.showHatchRates ? 'Egg Hatch Rates & Rules' : 'Pokémon Eggs'}</div>
@@ -711,7 +712,7 @@ function renderEggHatchRevealModal(
       : '';
 
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card compact hatch-reveal-modal ${rarityClass}" data-hatch-seq="${hatchSeq}" role="dialog" aria-modal="true" aria-labelledby="modal-title-hatch-reveal" tabindex="-1">
         <div class="hatch-reveal-head">
           <span class="tag">${escapeHtml(EGG_TIER_META[result.eggTier].label)}</span>
@@ -756,8 +757,16 @@ function renderHomeModal(snap: GameSnapshot): string {
     (snap.eggs?.rare ?? 0) +
     (snap.eggs?.master ?? 0);
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card compact home-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-home" tabindex="-1">
+        <a
+          class="btn btn-icon home-github-btn"
+          href="https://github.com/phanturne/pokebastion"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub Repository"
+          title="View on GitHub"
+        >${SVG_GITHUB}</a>
         <div class="home-title" id="modal-title-home">PokéBastion TD</div>
         <p class="home-subtitle">
           Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center across 10 waves.
@@ -794,9 +803,12 @@ function renderMapSelectModal(
     .map((m) => {
       const diffClass = `diff-${m.difficulty.toLowerCase()}`;
       const isCurrent = !m.comingSoon && snap.selectedMapId === m.id;
-      const previewHtml = m.comingSoon
-        ? `<div class="map-coming-soon">COMING SOON</div>`
+      const basePreview = m.previewImage
+        ? `<img class="map-preview-img" src="${escapeHtml(m.previewImage)}" alt="${escapeHtml(m.name)}" />`
         : getMapPreviewSvg(m.id);
+      const previewHtml = m.comingSoon
+        ? `${basePreview}<div class="map-coming-soon">COMING SOON</div>`
+        : basePreview;
       return `
         <button
           type="button"
@@ -826,7 +838,7 @@ function renderMapSelectModal(
     .join('');
 
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card draft-modal map-select-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-map-select" tabindex="-1">
         <div class="modal-header">
           <div class="modal-title" id="modal-title-map-select">Select Battlefield</div>
@@ -1235,7 +1247,7 @@ function renderShopModal(snap: GameSnapshot): string {
     .join('');
 
   return `
-    <div class="menu-backdrop">
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card compact" role="dialog" aria-modal="true" aria-labelledby="modal-title-shop" tabindex="-1">
         <div class="modal-header">
           <div>

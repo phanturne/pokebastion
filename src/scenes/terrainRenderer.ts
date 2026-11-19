@@ -97,15 +97,24 @@ export function renderTerrain(
     return img;
   };
   const subSize = TILE_SIZE / 2; // 24px sub-tiles (16px * 1.5x) to match PMD sprite pixel density
-  const tileAt = (gx: number, gy: number) =>
+  const isBorderRoad = (gx: number, gy: number) =>
+    ((gx === 13 || gx === 14) &&
+      (gy < 0 || gy >= GRID_ROWS) &&
+      tiles[gy < 0 ? 0 : GRID_ROWS - 1][gx] === 'dirt') ||
+    ((gy === 8 || gy === 9) &&
+      (gx < 0 || gx >= GRID_COLS) &&
+      tiles[gy][gx < 0 ? 0 : GRID_COLS - 1] === 'dirt');
+  const tileAt = (gx: number, gy: number): TileKind =>
     gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS
       ? tiles[gy][gx]
-      : 'grass';
+      : isBorderRoad(gx, gy)
+        ? 'dirt'
+        : 'grass';
 
   for (let gy = -BORDER_PAD_TILES; gy < GRID_ROWS + BORDER_PAD_TILES; gy++) {
     for (let gx = -BORDER_PAD_TILES; gx < GRID_COLS + BORDER_PAD_TILES; gx++) {
       const inArena = gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS;
-      const tile = inArena ? tiles[gy][gx] : 'grass';
+      const tile = tileAt(gx, gy);
       for (let sy = 0; sy < 2; sy++) {
         for (let sx = 0; sx < 2; sx++) {
           const dx = sx === 0 ? -1 : 1;
@@ -159,7 +168,49 @@ export function renderTerrain(
         }
       }
 
-      if (!inArena) {
+      if (
+        inArena &&
+        tile === 'dirt' &&
+        (tileAt(gx, gy - 1) === 'water' || tileAt(gx, gy + 1) === 'water')
+      ) {
+        // Wooden bridge planks over water moat
+        const bg = scene.make.graphics({}, false);
+        const bx = gx * TILE_SIZE;
+        const by = gy * TILE_SIZE;
+        const plankW = 10;
+        const gap = 2;
+        for (let px = 0; px < TILE_SIZE; px += plankW + gap) {
+          const w = Math.min(plankW, TILE_SIZE - px);
+          bg.fillStyle(0xb87a46, 1);
+          bg.fillRect(bx + px, by + 2, w, TILE_SIZE - 4);
+          bg.fillStyle(0xd4965d, 1);
+          bg.fillRect(bx + px, by + 2, w, 4);
+          bg.fillStyle(0x7c4a21, 1);
+          bg.fillRect(bx + px, by + TILE_SIZE - 5, w, 3);
+        }
+        // Top/bottom wooden rail when adjacent to water
+        if (tileAt(gx, gy - 1) === 'water') {
+          bg.fillStyle(0x5e3616, 1);
+          bg.fillRect(bx, by, TILE_SIZE, 4);
+          bg.fillStyle(0x9a6032, 1);
+          bg.fillRect(bx, by + 1, TILE_SIZE, 2);
+        }
+        if (tileAt(gx, gy + 1) === 'water') {
+          bg.fillStyle(0x5e3616, 1);
+          bg.fillRect(bx, by + TILE_SIZE - 4, TILE_SIZE, 4);
+          bg.fillStyle(0x9a6032, 1);
+          bg.fillRect(bx, by + TILE_SIZE - 3, TILE_SIZE, 2);
+        }
+        refs.arenaGroundRT.draw(bg, 0, 0);
+        bg.destroy();
+      }
+
+      if (!inArena && tile !== 'dirt') {
+        const nearRoad =
+          isBorderRoad(gx - 1, gy) ||
+          isBorderRoad(gx + 1, gy) ||
+          isBorderRoad(gx, gy - 1) ||
+          isBorderRoad(gx, gy + 1);
         let bh2 = Math.imul(gx ^ (gy << 7), 0x27d4eb2d);
         bh2 = Math.imul(bh2 ^ (bh2 >>> 15), 0x85ebca6b);
         const br = (bh2 >>> 0) % 100;
@@ -167,7 +218,7 @@ export function renderTerrain(
           gx < 0 ? -gx : gx >= GRID_COLS ? gx - GRID_COLS + 1 : 0,
           gy < 0 ? -gy : gy >= GRID_ROWS ? gy - GRID_ROWS + 1 : 0,
         );
-        const treeChance = distFromArena >= 2 ? 32 : 12;
+        const treeChance = nearRoad ? 0 : distFromArena >= 2 ? 36 : 24;
         if (br < treeChance) {
           const isOak = (((gx + gy) % 2) + 2) % 2 === 0;
           drawToBorder(
@@ -309,6 +360,64 @@ export function renderTerrain(
       );
     }
   }
+  // Elevated stone bastion plateau around the Pokémon Center (gx: 11..16, gy: 6..11)
+  const platX = 11 * TILE_SIZE;
+  const platY = 6 * TILE_SIZE;
+  const platW = 6 * TILE_SIZE;
+  const platH = 6 * TILE_SIZE;
+  const pg = scene.make.graphics({}, false);
+  // Outer drop shadow onto surrounding grass/water
+  pg.fillStyle(0x0f172a, 0.28);
+  pg.fillRect(platX - 2, platY + 6, platW + 4, platH + 4);
+  // Retaining stone/earth cliff skirt around the plateau
+  pg.fillStyle(0x7c5c3e, 1);
+  pg.fillRect(platX, platY, platW, platH);
+  pg.fillStyle(0x9c7853, 1);
+  pg.fillRect(platX + 4, platY + 2, platW - 8, platH - 12);
+  // Elevated stone flagstone deck
+  const deckX = platX + 8;
+  const deckY = platY + 6;
+  const deckW = platW - 16;
+  const deckH = platH - 18;
+  pg.fillStyle(0xcbd5e1, 1);
+  pg.fillRect(deckX, deckY, deckW, deckH);
+  // Flagstone tile grid lines
+  pg.fillStyle(0x94a3b8, 0.65);
+  for (let fx = deckX; fx < deckX + deckW; fx += 16) {
+    pg.fillRect(fx, deckY, 1, deckH);
+  }
+  for (let fy = deckY; fy < deckY + deckH; fy += 16) {
+    pg.fillRect(deckX, fy, deckW, 1);
+  }
+  // Crisp top highlight & bottom lip of the raised deck
+  pg.fillStyle(0xf1f5f9, 0.7);
+  pg.fillRect(deckX, deckY, deckW, 2);
+  pg.fillStyle(0x64748b, 0.85);
+  pg.fillRect(deckX, deckY + deckH - 2, deckW, 2);
+  // Vertical stone retaining-wall joints on the south face
+  pg.fillStyle(0x5c4028, 0.8);
+  for (let sx = platX + 12; sx < platX + platW - 8; sx += 16) {
+    pg.fillRect(sx, deckY + deckH, 2, 10);
+  }
+  // Stone stairs on South (gx: 13..14), North (gx: 13..14), West (gy: 8..9), East (gy: 8..9)
+  const roadMidX = 13 * TILE_SIZE;
+  const roadMidY = 8 * TILE_SIZE;
+  const roadSpan = TILE_SIZE * 2;
+  for (let step = 0; step < 3; step++) {
+    const shade = step === 0 ? 0xe2e8f0 : step === 1 ? 0xcbd5e1 : 0x94a3b8;
+    // South stairs
+    pg.fillStyle(shade, 1);
+    pg.fillRect(roadMidX + 4, deckY + deckH + step * 4, roadSpan - 8, 3);
+    // North stairs
+    pg.fillRect(roadMidX + 4, platY + (2 - step) * 2, roadSpan - 8, 2);
+    // West stairs
+    pg.fillRect(platX + step * 3, roadMidY + 4, 2, roadSpan - 8);
+    // East stairs
+    pg.fillRect(platX + platW - 3 - step * 3, roadMidY + 4, 2, roadSpan - 8);
+  }
+  refs.arenaGroundRT.draw(pg, 0, 0);
+  pg.destroy();
+
   stamp.destroy();
 
   if (bakeBorder && borderOff) {
@@ -502,8 +611,9 @@ export function renderBastionCore(
   const cx = (GRID_COLS / 2) * TILE_SIZE;
   const cy = (GRID_ROWS / 2) * TILE_SIZE;
   scene.add
-    .image(cx, cy, 'tex:core')
-    .setDisplaySize(TILE_SIZE * 2, TILE_SIZE * 2)
+    .image(cx, cy + TILE_SIZE, 'tex:core')
+    .setOrigin(0.5, 1)
+    .setDisplaySize(TILE_SIZE * 2.5, TILE_SIZE * 2.5)
     .setDepth(4 + (GRID_ROWS / 2) * 0.1);
 
   scene.add
