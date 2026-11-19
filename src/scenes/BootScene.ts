@@ -151,7 +151,7 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 16,
       frameHeight: 16,
     });
-    this.load.image('tex:core', 'assets/structures/core-pkcenter.png');
+    this.load.image('tex:core', 'assets/structures/core-pkcenter-mpw.png');
     this.load.image('tex:wood_wall', 'assets/structures/wood_wall.png');
     this.load.image('tex:stone_wall', 'assets/structures/stone_wall.png');
     this.load.image('tex:berry_bush', 'assets/structures/berry_bush.png');

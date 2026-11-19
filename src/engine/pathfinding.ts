@@ -64,10 +64,53 @@ const DIRS_8: readonly (GridPoint & { cost: number })[] = [
   { gx: -1, gy: -1, cost: Math.SQRT2 },
 ];
 
-const WATER_MOATS: readonly GridPoint[] = [];
+const WATER_MOATS: readonly GridPoint[] = [
+  // West C-shaped moat (2 tiles thick on flanks, meeting N/S roads; bridged at gy = 8..9)
+  { gx: 8, gy: 5 },
+  { gx: 9, gy: 5 },
+  { gx: 10, gy: 5 },
+  { gx: 11, gy: 5 },
+  { gx: 12, gy: 5 },
+  { gx: 8, gy: 6 },
+  { gx: 9, gy: 6 },
+  { gx: 10, gy: 6 },
+  { gx: 8, gy: 7 },
+  { gx: 9, gy: 7 },
+  { gx: 8, gy: 10 },
+  { gx: 9, gy: 10 },
+  { gx: 8, gy: 11 },
+  { gx: 9, gy: 11 },
+  { gx: 10, gy: 11 },
+  { gx: 8, gy: 12 },
+  { gx: 9, gy: 12 },
+  { gx: 10, gy: 12 },
+  { gx: 11, gy: 12 },
+  { gx: 12, gy: 12 },
+  // East C-shaped moat (2 tiles thick on flanks, meeting N/S roads; bridged at gy = 8..9)
+  { gx: 15, gy: 5 },
+  { gx: 16, gy: 5 },
+  { gx: 17, gy: 5 },
+  { gx: 18, gy: 5 },
+  { gx: 19, gy: 5 },
+  { gx: 17, gy: 6 },
+  { gx: 18, gy: 6 },
+  { gx: 19, gy: 6 },
+  { gx: 18, gy: 7 },
+  { gx: 19, gy: 7 },
+  { gx: 18, gy: 10 },
+  { gx: 19, gy: 10 },
+  { gx: 17, gy: 11 },
+  { gx: 18, gy: 11 },
+  { gx: 19, gy: 11 },
+  { gx: 15, gy: 12 },
+  { gx: 16, gy: 12 },
+  { gx: 17, gy: 12 },
+  { gx: 18, gy: 12 },
+  { gx: 19, gy: 12 },
+];
 
 const TREE_TILES: readonly GridPoint[] = [
-  // NW corner forest cluster
+  // NW corner & north-west woods
   { gx: 0, gy: 0 },
   { gx: 1, gy: 0 },
   { gx: 2, gy: 0 },
@@ -79,7 +122,17 @@ const TREE_TILES: readonly GridPoint[] = [
   { gx: 0, gy: 2 },
   { gx: 1, gy: 2 },
   { gx: 2, gy: 2 },
-  // NE corner forest cluster
+  { gx: 4, gy: 0 },
+  { gx: 5, gy: 0 },
+  { gx: 6, gy: 0 },
+  { gx: 7, gy: 0 },
+  { gx: 8, gy: 0 },
+  { gx: 9, gy: 0 },
+  { gx: 5, gy: 1 },
+  { gx: 6, gy: 1 },
+  { gx: 8, gy: 1 },
+  { gx: 9, gy: 1 },
+  // NE corner & north-east woods
   { gx: GRID_COLS - 1, gy: 0 },
   { gx: GRID_COLS - 2, gy: 0 },
   { gx: GRID_COLS - 3, gy: 0 },
@@ -91,7 +144,17 @@ const TREE_TILES: readonly GridPoint[] = [
   { gx: GRID_COLS - 1, gy: 2 },
   { gx: GRID_COLS - 2, gy: 2 },
   { gx: GRID_COLS - 3, gy: 2 },
-  // SW corner forest cluster
+  { gx: GRID_COLS - 5, gy: 0 },
+  { gx: GRID_COLS - 6, gy: 0 },
+  { gx: GRID_COLS - 7, gy: 0 },
+  { gx: GRID_COLS - 8, gy: 0 },
+  { gx: GRID_COLS - 9, gy: 0 },
+  { gx: GRID_COLS - 10, gy: 0 },
+  { gx: GRID_COLS - 6, gy: 1 },
+  { gx: GRID_COLS - 7, gy: 1 },
+  { gx: GRID_COLS - 9, gy: 1 },
+  { gx: GRID_COLS - 10, gy: 1 },
+  // SW corner & south-west woods
   { gx: 0, gy: GRID_ROWS - 1 },
   { gx: 1, gy: GRID_ROWS - 1 },
   { gx: 2, gy: GRID_ROWS - 1 },
@@ -103,7 +166,17 @@ const TREE_TILES: readonly GridPoint[] = [
   { gx: 0, gy: GRID_ROWS - 3 },
   { gx: 1, gy: GRID_ROWS - 3 },
   { gx: 2, gy: GRID_ROWS - 3 },
-  // SE corner forest cluster
+  { gx: 4, gy: GRID_ROWS - 1 },
+  { gx: 5, gy: GRID_ROWS - 1 },
+  { gx: 6, gy: GRID_ROWS - 1 },
+  { gx: 7, gy: GRID_ROWS - 1 },
+  { gx: 8, gy: GRID_ROWS - 1 },
+  { gx: 9, gy: GRID_ROWS - 1 },
+  { gx: 5, gy: GRID_ROWS - 2 },
+  { gx: 6, gy: GRID_ROWS - 2 },
+  { gx: 8, gy: GRID_ROWS - 2 },
+  { gx: 9, gy: GRID_ROWS - 2 },
+  // SE corner & south-east woods
   { gx: GRID_COLS - 1, gy: GRID_ROWS - 1 },
   { gx: GRID_COLS - 2, gy: GRID_ROWS - 1 },
   { gx: GRID_COLS - 3, gy: GRID_ROWS - 1 },
@@ -115,49 +188,37 @@ const TREE_TILES: readonly GridPoint[] = [
   { gx: GRID_COLS - 1, gy: GRID_ROWS - 3 },
   { gx: GRID_COLS - 2, gy: GRID_ROWS - 3 },
   { gx: GRID_COLS - 3, gy: GRID_ROWS - 3 },
-  // North & South mid-woods groves (leaving wide open portal stretches in between)
-  { gx: 6, gy: 2 },
-  { gx: 7, gy: 2 },
-  { gx: 7, gy: 1 },
-  { gx: 8, gy: 1 },
-  { gx: GRID_COLS - 7, gy: 2 },
-  { gx: GRID_COLS - 8, gy: 2 },
-  { gx: GRID_COLS - 8, gy: 1 },
-  { gx: GRID_COLS - 9, gy: 1 },
-  { gx: 6, gy: GRID_ROWS - 3 },
-  { gx: 7, gy: GRID_ROWS - 3 },
-  { gx: 7, gy: GRID_ROWS - 2 },
-  { gx: 8, gy: GRID_ROWS - 2 },
-  { gx: GRID_COLS - 7, gy: GRID_ROWS - 3 },
-  { gx: GRID_COLS - 8, gy: GRID_ROWS - 3 },
-  { gx: GRID_COLS - 8, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 5, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 6, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 7, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 8, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 9, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 10, gy: GRID_ROWS - 1 },
+  { gx: GRID_COLS - 6, gy: GRID_ROWS - 2 },
+  { gx: GRID_COLS - 7, gy: GRID_ROWS - 2 },
   { gx: GRID_COLS - 9, gy: GRID_ROWS - 2 },
-  // Organic 4-tree groves flanking the West & East approaches
-  { gx: 7, gy: 5 },
-  { gx: 8, gy: 5 },
-  { gx: 9, gy: 5 },
-  { gx: 8, gy: 6 },
-  { gx: 7, gy: 12 },
-  { gx: 8, gy: 12 },
-  { gx: 9, gy: 12 },
-  { gx: 8, gy: 11 },
-  { gx: 18, gy: 5 },
-  { gx: 19, gy: 5 },
-  { gx: 20, gy: 5 },
-  { gx: 19, gy: 6 },
-  { gx: 18, gy: 12 },
-  { gx: 19, gy: 12 },
-  { gx: 20, gy: 12 },
-  { gx: 19, gy: 11 },
-  // Mid-field tactical tree pillars
-  { gx: 5, gy: 5 },
-  { gx: GRID_COLS - 6, gy: 5 },
-  { gx: 5, gy: GRID_ROWS - 6 },
-  { gx: GRID_COLS - 6, gy: GRID_ROWS - 6 },
-  { gx: 10, gy: 3 },
-  { gx: GRID_COLS - 11, gy: 3 },
-  { gx: 10, gy: GRID_ROWS - 4 },
-  { gx: GRID_COLS - 11, gy: GRID_ROWS - 4 },
+  { gx: GRID_COLS - 10, gy: GRID_ROWS - 2 },
+  // West & East perimeter woods (leaving wide portal lanes at gy = 7..10)
+  { gx: 0, gy: 3 },
+  { gx: 1, gy: 3 },
+  { gx: 0, gy: 4 },
+  { gx: 1, gy: 4 },
+  { gx: 0, gy: 5 },
+  { gx: 0, gy: 12 },
+  { gx: 0, gy: 13 },
+  { gx: 1, gy: 13 },
+  { gx: 0, gy: 14 },
+  { gx: 1, gy: 14 },
+  { gx: GRID_COLS - 1, gy: 3 },
+  { gx: GRID_COLS - 2, gy: 3 },
+  { gx: GRID_COLS - 1, gy: 4 },
+  { gx: GRID_COLS - 2, gy: 4 },
+  { gx: GRID_COLS - 1, gy: 5 },
+  { gx: GRID_COLS - 1, gy: 12 },
+  { gx: GRID_COLS - 1, gy: 13 },
+  { gx: GRID_COLS - 2, gy: 13 },
+  { gx: GRID_COLS - 1, gy: 14 },
+  { gx: GRID_COLS - 2, gy: 14 },
 ];
 
 export function inBounds(gx: number, gy: number): boolean {
@@ -211,6 +272,24 @@ export function createBaseGrid(): TileKind[][] {
   const grid: TileKind[][] = Array.from({ length: GRID_ROWS }, () =>
     Array.from({ length: GRID_COLS }, (): TileKind => 'grass'),
   );
+
+  // Outer dirt road loop + N/S/E/W crossroads matching Viridian Outpost layout
+  for (let gx = 4; gx <= 23; gx++) {
+    grid[3][gx] = 'dirt';
+    grid[14][gx] = 'dirt';
+  }
+  for (let gy = 3; gy <= 14; gy++) {
+    grid[gy][4] = 'dirt';
+    grid[gy][23] = 'dirt';
+  }
+  for (let gy = 0; gy < GRID_ROWS; gy++) {
+    grid[gy][CORE_X] = 'dirt';
+    grid[gy][CORE_X + 1] = 'dirt';
+  }
+  for (let gx = 0; gx < GRID_COLS; gx++) {
+    grid[CORE_Y][gx] = 'dirt';
+    grid[CORE_Y + 1][gx] = 'dirt';
+  }
 
   for (const w of WATER_MOATS) {
     grid[w.gy][w.gx] = 'water';

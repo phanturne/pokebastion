@@ -1298,9 +1298,29 @@ input[type='checkbox']:focus-visible {
 }
 
 .home-modal {
+  position: relative;
   text-align: center;
   max-width: 460px;
   padding: 28px 26px;
+}
+
+.home-github-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.home-github-btn:hover {
+  color: #f8fafc;
+}
+
+.home-github-btn svg {
+  width: 17px;
+  height: 17px;
 }
 
 .home-title {
@@ -1785,11 +1805,26 @@ input[type='checkbox']:focus-visible {
   background:
     radial-gradient(
       circle at 50% 25%,
-      rgba(56, 189, 248, 0.14),
+      rgba(56, 189, 248, 0.16),
       transparent 55%
     ),
-    radial-gradient(circle at 20% 80%, rgba(63, 185, 80, 0.1), transparent 45%),
+    radial-gradient(
+      circle at 20% 80%,
+      rgba(63, 185, 80, 0.12),
+      transparent 45%
+    ),
     linear-gradient(160deg, #0b111b 0%, #0d1520 50%, #090d14 100%);
+}
+
+.menu-backdrop-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.48;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .map-select-modal {
@@ -1855,10 +1890,15 @@ input[type='checkbox']:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
-.map-preview-svg {
+.map-preview-svg,
+.map-preview-img {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.map-preview-img {
+  object-fit: cover;
 }
 
 .map-diff-badge {
@@ -1923,22 +1963,18 @@ input[type='checkbox']:focus-visible {
 }
 
 .map-coming-soon {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: var(--muted);
-  background: repeating-linear-gradient(
-    -45deg,
-    #121822,
-    #121822 10px,
-    #161d29 10px,
-    #161d29 20px
-  );
+  color: #f8fafc;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+  background: rgba(11, 17, 27, 0.56);
+  backdrop-filter: blur(1px);
 }
 
 .card-header {

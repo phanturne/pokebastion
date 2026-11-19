@@ -6,6 +6,7 @@ export interface MapSpec {
   name: string;
   difficulty: MapDifficulty;
   desc: string;
+  previewImage?: string;
   comingSoon?: boolean;
   waterTiles?: Array<[number, number]>;
   treeTiles?: Array<[number, number]>;
@@ -18,6 +19,7 @@ export const MAP_CATALOG: MapSpec[] = [
     name: 'Viridian Outpost',
     difficulty: 'Beginner',
     desc: 'Balanced forest clearing with twin moats and wide building lanes around the Pokémon Center.',
+    previewImage: 'assets/maps/viridian_outpost.jpg',
     useDefaultLayout: true,
   },
   {
@@ -25,6 +27,7 @@ export const MAP_CATALOG: MapSpec[] = [
     name: 'Cerulean Creek',
     difficulty: 'Intermediate',
     desc: 'Twin north-south river channels force ground waves across narrow central bridges.',
+    previewImage: 'assets/maps/cerulean_creek.jpg',
     comingSoon: true,
   },
   {
@@ -32,6 +35,7 @@ export const MAP_CATALOG: MapSpec[] = [
     name: 'Lavender Hollow',
     difficulty: 'Advanced',
     desc: 'Dense timber thickets create tight chokepoints and split flanks for agile ambushers.',
+    previewImage: 'assets/maps/lavender_hollow.jpg',
     comingSoon: true,
   },
   {
@@ -39,6 +43,7 @@ export const MAP_CATALOG: MapSpec[] = [
     name: 'Victory Road',
     difficulty: 'Expert',
     desc: 'Open high-pressure siege arena with minimal natural cover and long exposed flanks.',
+    previewImage: 'assets/maps/victory_road.jpg',
     comingSoon: true,
   },
 ];
