@@ -43,6 +43,32 @@ export type PokemonSubclass =
 export type PokemonRarity =
   'Common' | 'Uncommon' | 'Rare' | 'Epic' | 'Legendary';
 
+export type EggTier = 'common' | 'rare' | 'master';
+
+export interface EggHatchResult {
+  eggTier: EggTier;
+  speciesId: string;
+  rarity: PokemonRarity;
+  wasNewUnlock: boolean;
+  shardsAwarded: number;
+  universalShardsAwarded: number;
+}
+
+export interface PokemonProgress {
+  unlocked: boolean;
+  shards: number;
+  potential: number; // 0..5
+}
+
+export interface RunMetaReward {
+  shardsBySpecies: Record<string, number>;
+  universalShardsAwarded: number;
+  eggsEarned: Record<EggTier, number>;
+  newAchievements: string[];
+  firstClear: boolean;
+  pityTriggered: boolean;
+}
+
 export interface MinorUpgradeSpec {
   id: string;
   title: string;
@@ -236,6 +262,12 @@ export interface GameSnapshot {
   rewardChoices: RewardOption[];
   pendingBranchUnitUid: string | null;
   statusMessage: string;
+  pokemonProgress: Record<string, PokemonProgress>;
+  universalShards: number;
+  eggs: Record<EggTier, number>;
+  pityWins: number;
+  achievements: string[];
+  clearedMaps: string[];
 }
 
 export interface ContextInspectTarget {

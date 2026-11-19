@@ -947,9 +947,12 @@ input[type='checkbox']:focus-visible {
 
 .modal-card.draft-modal {
   width: 94vw;
-  max-width: 900px;
+  max-width: 960px;
+  height: min(88dvh, 780px);
   max-height: 90dvh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .draft-team-bar {
@@ -979,17 +982,26 @@ input[type='checkbox']:focus-visible {
 }
 
 .draft-body {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) 340px;
+  grid-template-columns: minmax(0, 1.35fr) 360px;
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .draft-roster-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  max-height: 440px;
+  gap: 7px;
+  height: 100%;
+  overflow-y: auto;
+  align-content: start;
+  padding-right: 6px;
+}
+
+.draft-detail-panel {
+  height: 100%;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -1118,11 +1130,23 @@ input[type='checkbox']:focus-visible {
 }
 
 @media (max-width: 720px) {
+  .modal-card.draft-modal {
+    height: auto;
+    max-height: 92dvh;
+    overflow-y: auto;
+  }
   .draft-body {
     grid-template-columns: 1fr;
+    overflow: visible;
   }
   .draft-roster-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+    max-height: 300px;
+  }
+  .draft-detail-panel {
+    height: auto;
+    overflow: visible;
   }
 }
 
@@ -1134,6 +1158,132 @@ input[type='checkbox']:focus-visible {
 .locked-tag {
   background: rgba(148, 163, 184, 0.16);
   color: #94a3b8;
+}
+
+.picked-tag {
+  background: rgba(63, 185, 80, 0.18);
+  color: #7ee787;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+
+.ready-tag {
+  background: rgba(88, 166, 255, 0.14);
+  color: #93c5fd;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.btn-icon {
+  padding: 5px 9px;
+  font-size: 13px;
+  line-height: 1;
+  min-width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pokedex-header-actions {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.roster-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.65);
+  border: 1px solid var(--border);
+}
+
+.roster-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.roster-filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.roster-select {
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.roster-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.roster-reset-btn {
+  margin-left: auto;
+}
+
+.card-mini-bar {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.card-mini-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #3fb950);
+}
+
+.card-mini-fill.is-max {
+  background: linear-gradient(90deg, #f59e0b, #fde047);
+}
+
+.draft-roster-item.is-ready {
+  border-color: rgba(63, 185, 80, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(63, 185, 80, 0.25);
+}
+
+.draft-card-cost {
+  font-size: 10px;
+  font-weight: 800;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.14);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pokedex-prog-label {
+  white-space: nowrap;
+}
+
+.temp-test-feedback {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #bae6fd;
+  font-size: 12px;
 }
 
 .draft-roster-item.is-locked {
@@ -2800,6 +2950,624 @@ input[type='checkbox']:focus-visible {
   gap: 12px;
   padding-top: 6px;
   border-top: 1px solid var(--border);
+}
+
+/* ==========================================================================
+   Pokédex Shards, Potentials & Rarity Badges
+   ========================================================================== */
+
+.pokedex-modal-header {
+  flex-wrap: wrap;
+}
+
+.pokedex-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pokedex-shards-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+.pokedex-card {
+  gap: 3px;
+  padding: 6px;
+}
+
+.pokedex-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
+.pokedex-rarity-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.rarity-common {
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.rarity-uncommon {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(63, 185, 80, 0.14);
+}
+
+.rarity-rare {
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.48);
+  background: rgba(88, 166, 255, 0.15);
+}
+
+.rarity-epic {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.5);
+  background: rgba(188, 140, 255, 0.16);
+}
+
+.rarity-legendary {
+  color: #fde047;
+  border-color: rgba(247, 204, 69, 0.6);
+  background: rgba(247, 204, 69, 0.16);
+}
+
+.pokedex-card-meta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pokedex-card-meta.is-potential {
+  color: var(--gold);
+}
+
+.pokedex-card-meta.is-shards {
+  color: var(--muted);
+}
+
+.potential-tag {
+  color: var(--gold);
+  border-color: rgba(247, 204, 69, 0.5);
+  background: rgba(247, 204, 69, 0.12);
+}
+
+.pokedex-prog-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pokedex-prog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pokedex-prog-label {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pokedex-prog-nums {
+  color: var(--muted);
+}
+
+.shard-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.shard-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.shard-bar-fill.is-max {
+  background: var(--gold);
+}
+
+.pokedex-prog-btn {
+  width: 100%;
+}
+
+.potential-tiers-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.potential-tiers-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.potential-tiers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.potential-tier-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.potential-tier-row.is-unlocked {
+  background: rgba(63, 185, 80, 0.12);
+  color: var(--text);
+}
+
+.potential-tier-row.is-unlocked .potential-tier-star {
+  color: var(--gold);
+}
+
+.potential-tier-row.is-unlocked .potential-tier-status {
+  color: var(--green);
+}
+
+.potential-tier-row.is-next {
+  background: rgba(88, 166, 255, 0.12);
+  border-color: rgba(88, 166, 255, 0.45);
+  color: var(--text);
+}
+
+.potential-tier-row.is-next .potential-tier-star,
+.potential-tier-row.is-next .potential-tier-status {
+  color: var(--accent);
+}
+
+.potential-tier-row.is-locked {
+  color: var(--muted);
+  opacity: 0.78;
+}
+
+.potential-tier-star {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.potential-tier-status {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Eggs Modal, Hatch Rates & Reveal Animation
+   ========================================================================== */
+
+.modal-card.eggs-modal {
+  max-width: 640px;
+}
+
+.egg-pity-bar {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.egg-pity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.egg-pity-val {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.egg-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .egg-tier-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.egg-tier-card {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+
+.egg-tier-card.tier-rare {
+  border-color: rgba(88, 166, 255, 0.4);
+}
+
+.egg-tier-card.tier-master {
+  border-color: rgba(188, 140, 255, 0.45);
+}
+
+.egg-svg {
+  width: 42px;
+  height: 50px;
+  display: block;
+}
+
+.egg-tier-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.egg-tier-sub {
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 30px;
+}
+
+.egg-tier-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.temp-test-hatch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: rgba(210, 153, 34, 0.08);
+  border: 1px dashed rgba(210, 153, 34, 0.45);
+  border-radius: 7px;
+  padding: 8px 12px;
+}
+
+.temp-test-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--amber);
+}
+
+.hatch-rates-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hatch-rates-rule {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.hatch-rates-rule strong {
+  color: var(--text);
+}
+
+.hatch-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-alt);
+}
+
+.hatch-rates-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hatch-rates-table th,
+.hatch-rates-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.hatch-rates-table tr:last-child td {
+  border-bottom: none;
+}
+
+.hatch-rates-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: rgba(13, 17, 23, 0.5);
+}
+
+.hatch-rates-table td.is-zero {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.hatch-reveal-modal {
+  max-width: 420px;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+}
+
+.hatch-reveal-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.temp-test-tag {
+  color: var(--amber);
+  border-color: rgba(210, 153, 34, 0.5);
+}
+
+.hatch-stage {
+  position: relative;
+  width: 150px;
+  height: 124px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px auto;
+}
+
+.hatch-egg-wobble {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: eggWobbleCrack 0.72s ease-in-out forwards;
+}
+
+.hatch-egg-svg {
+  width: 64px;
+  height: 76px;
+}
+
+.hatch-flash {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(247, 204, 69, 0.45) 45%,
+    transparent 75%
+  );
+  opacity: 0;
+  pointer-events: none;
+  animation: hatchFlash 0.5s ease-out 0.52s forwards;
+}
+
+.hatch-pokemon-reveal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.45);
+  animation: hatchPokemonPop 0.45s cubic-bezier(0.22, 1.25, 0.36, 1) 0.58s
+    forwards;
+}
+
+.hatch-glow {
+  position: absolute;
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  filter: blur(10px);
+  opacity: 0.7;
+  animation: hatchGlowPulse 2.2s ease-in-out 1s infinite;
+}
+
+.hatch-glow.rarity-common {
+  background: radial-gradient(
+    circle,
+    rgba(148, 163, 184, 0.45),
+    transparent 70%
+  );
+}
+
+.hatch-glow.rarity-uncommon {
+  background: radial-gradient(
+    circle,
+    rgba(74, 222, 128, 0.55),
+    transparent 70%
+  );
+}
+
+.hatch-glow.rarity-rare {
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.65),
+    transparent 70%
+  );
+}
+
+.hatch-glow.rarity-epic {
+  background: radial-gradient(
+    circle,
+    rgba(188, 140, 255, 0.72),
+    transparent 70%
+  );
+}
+
+.hatch-glow.rarity-legendary {
+  background: radial-gradient(circle, rgba(247, 204, 69, 0.8), transparent 70%);
+}
+
+.hatch-pokemon-sprite {
+  position: relative;
+  z-index: 2;
+  width: 80px;
+  height: 80px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.65));
+}
+
+.hatch-reveal-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.hatch-badges {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.hatch-new-badge {
+  background: rgba(63, 185, 80, 0.18);
+  border: 1px solid var(--green);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+}
+
+.hatch-shards-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.hatch-reveal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@keyframes eggWobbleCrack {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  18% {
+    transform: rotate(-11deg) scale(1.03);
+  }
+  34% {
+    transform: rotate(11deg) scale(1.06);
+  }
+  50% {
+    transform: rotate(-14deg) scale(1.1);
+  }
+  66% {
+    transform: rotate(10deg) scale(1.14);
+    opacity: 1;
+  }
+  82% {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+}
+
+@keyframes hatchFlash {
+  0% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  35% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes hatchPokemonPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hatchGlowPulse {
+  0%,
+  100% {
+    transform: scale(0.95);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.9;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
