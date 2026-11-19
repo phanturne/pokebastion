@@ -1,22 +1,27 @@
 import Phaser from 'phaser';
 import type { BattleScene } from '../scenes/BattleScene';
 import { POKEMON_SPECIES } from '../data/pokemon';
-import { GameSnapshot, MapDifficulty } from '../types';
+import { ContextInspectTarget, GameSnapshot, MapDifficulty } from '../types';
 import { ToolId } from './hudShared';
 import {
   renderRelicTooltipContent,
   renderShopTooltipContent,
   renderSidePanelHtml,
+  renderStructurePopoverHtml,
   renderTopBarHtml,
+  renderUnitPopoverHtml,
 } from './hudSidePanel';
 import { renderModalHtml } from './hudModals';
 
 export class HudOverlay {
   private readonly topBar: HTMLElement | null;
   private readonly sidePanel: HTMLElement | null;
+  private readonly mapPopover: HTMLElement | null;
   private readonly modalRoot: HTMLElement | null;
 
   private lastSnap: GameSnapshot | null = null;
+  private popoverTarget: ContextInspectTarget | null = null;
+  private lastPopoverHtml = '';
   private showCredits = false;
   private showPokedex = false;
   private pokedexFilter: 'all' | 'unlocked' | 'locked' = 'all';
@@ -31,9 +36,37 @@ export class HudOverlay {
   private lastTopHtml = '';
   private lastSideHtml = '';
   private lastModalHtml = '';
+  private lastModalKind = '';
+  private lastPopoverPosKey = '';
+  private previousFocus: HTMLElement | null = null;
 
   private readonly onSnapshot = (snap: GameSnapshot): void => {
     this.render(snap);
+  };
+
+  private readonly onInspectUnit = (uid: string): void => {
+    if (!uid) return;
+    if (!this.expandedUnitUid) this.capturePreviousFocus();
+    this.expandedUnitUid = uid;
+    this.renderModal();
+  };
+
+  private readonly onContextInspect = (
+    target: ContextInspectTarget | null,
+  ): void => {
+    this.popoverTarget = target;
+    this.renderPopover();
+  };
+
+  private readonly onDocumentPointerDown = (ev: PointerEvent): void => {
+    if (!this.popoverTarget || !this.mapPopover || this.mapPopover.hidden) {
+      return;
+    }
+    if (ev.button === 2) return;
+    if (ev.target instanceof Node && this.mapPopover.contains(ev.target)) {
+      return;
+    }
+    this.closePopover();
   };
 
   private readonly onClick = (ev: Event): void => {
@@ -47,6 +80,7 @@ export class HudOverlay {
 
     if (action === 'toggle-credits') {
       this.scene()?.playUiSfx?.('ui_click');
+      if (!this.showCredits) this.capturePreviousFocus();
       this.showCredits = !this.showCredits;
       this.renderModal();
       return;
@@ -59,6 +93,7 @@ export class HudOverlay {
     }
     if (action === 'open-pokedex') {
       this.scene()?.playUiSfx?.('ui_click');
+      if (!this.showPokedex) this.capturePreviousFocus();
       this.showPokedex = true;
       this.renderModal();
       return;
@@ -86,6 +121,11 @@ export class HudOverlay {
     if (action === 'cancel-action') {
       this.scene()?.playUiSfx?.('ui_click');
       this.cancelActiveAction();
+      return;
+    }
+    if (action === 'close-popover') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.closePopover();
       return;
     }
 
@@ -147,6 +187,11 @@ export class HudOverlay {
       }
       case 'detonate-barrel':
         scene.detonateBarrel?.(id);
+        this.closePopover();
+        break;
+      case 'sell-struct-uid':
+        scene.sellStructureByUid?.(id);
+        this.closePopover();
         break;
       case 'cast-ult':
         scene.triggerUlt?.(id);
@@ -161,8 +206,7 @@ export class HudOverlay {
         scene.selectUnit?.(id);
         break;
       case 'swap-reserve': {
-        const activeUid =
-          this.lastSnap?.selectedUnitUid ?? this.lastSnap?.activeUnits[0]?.uid;
+        const activeUid = this.lastSnap?.selectedUnitUid;
         if (activeUid) scene.swapReserve?.(activeUid, id);
         break;
       }
@@ -214,9 +258,15 @@ export class HudOverlay {
         break;
       case 'switch-tab':
         this.sideTab = id === 'shop' ? 'shop' : 'team';
+        if (this.sideTab === 'team' && this.lastSnap?.selectedTool) {
+          this.hoveredTool = null;
+          scene.selectTool?.(null);
+        }
         if (this.lastSnap) this.renderSidePanel(this.lastSnap);
         break;
       case 'expand-unit':
+        this.closePopover();
+        if (!this.expandedUnitUid && id) this.capturePreviousFocus();
         this.expandedUnitUid = id || null;
         this.renderModal();
         break;
@@ -320,7 +370,64 @@ export class HudOverlay {
     this.onClick(ev);
   };
 
+  private readonly onModalDblClick = (ev: Event): void => {
+    const target = (ev.target as HTMLElement | null)?.closest<HTMLElement>(
+      '[data-action="inspect-draft"]',
+    );
+    const id = target?.dataset.id;
+    if (!id) return;
+    const scene = this.scene();
+    if (!scene) return;
+    scene.playUiSfx?.('ui_click');
+    scene.toggleDraftSpecies?.(id);
+  };
+
+  private readonly onContextMenu = (ev: MouseEvent): void => {
+    const snap = this.lastSnap;
+    if (!snap || (snap.phase !== 'PREP' && snap.phase !== 'COMBAT')) return;
+    if (
+      snap.selectedTool !== null ||
+      Boolean(snap.movingStructureUid) ||
+      snap.aimingUltUnitUid !== null ||
+      snap.selectedUnitUid !== null
+    ) {
+      ev.preventDefault();
+      this.cancelActiveAction();
+    }
+  };
+
   private readonly onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key === 'Tab' && this.lastModalHtml !== '' && this.modalRoot) {
+      const focusables = this.getModalFocusables();
+      if (focusables.length === 0) {
+        ev.preventDefault();
+        this.modalRoot.querySelector<HTMLElement>('.modal-card')?.focus();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (ev.shiftKey) {
+        if (
+          !active ||
+          !this.modalRoot.contains(active) ||
+          active === first ||
+          active.classList.contains('modal-card')
+        ) {
+          ev.preventDefault();
+          last.focus();
+        }
+      } else if (
+        !active ||
+        !this.modalRoot.contains(active) ||
+        active === last
+      ) {
+        ev.preventDefault();
+        first.focus();
+      }
+      return;
+    }
+
     if (ev.key !== 'Escape') return;
     if (this.showCredits) {
       this.showCredits = false;
@@ -337,29 +444,47 @@ export class HudOverlay {
       this.renderModal();
       return;
     }
+    if (this.lastModalHtml !== '') {
+      return;
+    }
+    if (this.popoverTarget) {
+      this.closePopover();
+      return;
+    }
     this.cancelActiveAction();
   };
 
   constructor(private readonly game: Phaser.Game) {
     this.topBar = document.getElementById('top-bar');
     this.sidePanel = document.getElementById('side-panel');
+    this.mapPopover = document.getElementById('map-popover');
     this.modalRoot = document.getElementById('modal-root');
 
     this.bindEvents();
     this.game.events.on('snapshot', this.onSnapshot);
+    this.game.events.on('inspect-unit', this.onInspectUnit);
+    this.game.events.on('context-inspect', this.onContextInspect);
   }
 
   public destroy(): void {
     this.game.events.off('snapshot', this.onSnapshot);
+    this.game.events.off('inspect-unit', this.onInspectUnit);
+    this.game.events.off('context-inspect', this.onContextInspect);
     this.topBar?.removeEventListener('click', this.onClick);
+    this.topBar?.removeEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.removeEventListener('click', this.onClick);
+    this.sidePanel?.removeEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.removeEventListener('change', this.onChange);
+    this.mapPopover?.removeEventListener('click', this.onClick);
+    this.mapPopover?.removeEventListener('contextmenu', this.onContextMenu);
     this.modalRoot?.removeEventListener('change', this.onChange);
     this.sidePanel?.removeEventListener('mouseover', this.onToolEnter);
     this.sidePanel?.removeEventListener('mouseout', this.onToolLeave);
     this.sidePanel?.removeEventListener('focusin', this.onToolEnter);
     this.sidePanel?.removeEventListener('focusout', this.onToolLeave);
     this.modalRoot?.removeEventListener('click', this.onModalClick);
+    this.modalRoot?.removeEventListener('dblclick', this.onModalDblClick);
+    document.removeEventListener('pointerdown', this.onDocumentPointerDown);
     window.removeEventListener('keydown', this.onKeyDown);
   }
 
@@ -380,14 +505,20 @@ export class HudOverlay {
 
   private bindEvents(): void {
     this.topBar?.addEventListener('click', this.onClick);
+    this.topBar?.addEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.addEventListener('click', this.onClick);
+    this.sidePanel?.addEventListener('contextmenu', this.onContextMenu);
     this.sidePanel?.addEventListener('change', this.onChange);
+    this.mapPopover?.addEventListener('click', this.onClick);
+    this.mapPopover?.addEventListener('contextmenu', this.onContextMenu);
     this.modalRoot?.addEventListener('change', this.onChange);
     this.sidePanel?.addEventListener('mouseover', this.onToolEnter);
     this.sidePanel?.addEventListener('mouseout', this.onToolLeave);
     this.sidePanel?.addEventListener('focusin', this.onToolEnter);
     this.sidePanel?.addEventListener('focusout', this.onToolLeave);
     this.modalRoot?.addEventListener('click', this.onModalClick);
+    this.modalRoot?.addEventListener('dblclick', this.onModalDblClick);
+    document.addEventListener('pointerdown', this.onDocumentPointerDown);
     window.addEventListener('keydown', this.onKeyDown);
   }
 
@@ -423,6 +554,73 @@ export class HudOverlay {
     this.renderTopBar(snap);
     this.renderSidePanel(snap);
     this.renderModal();
+    this.renderPopover();
+  }
+
+  private closePopover(): void {
+    this.popoverTarget = null;
+    this.renderPopover();
+  }
+
+  private renderPopover(): void {
+    if (!this.mapPopover) return;
+    const target = this.popoverTarget;
+    const snap = this.lastSnap;
+    if (
+      !target ||
+      !snap ||
+      this.lastModalHtml !== '' ||
+      (snap.phase !== 'PREP' && snap.phase !== 'COMBAT')
+    ) {
+      this.mapPopover.hidden = true;
+      this.lastPopoverHtml = '';
+      return;
+    }
+
+    let html = '';
+    if (target.kind === 'structure') {
+      const struct = snap.structures.find((s) => s.uid === target.uid);
+      if (struct) html = renderStructurePopoverHtml(snap, struct);
+    } else {
+      const unit = snap.activeUnits.find((u) => u.uid === target.uid);
+      if (unit) html = renderUnitPopoverHtml(snap, unit);
+    }
+
+    if (!html) {
+      this.popoverTarget = null;
+      this.mapPopover.hidden = true;
+      this.lastPopoverHtml = '';
+      return;
+    }
+
+    if (html !== this.lastPopoverHtml) {
+      this.mapPopover.innerHTML = html;
+      this.lastPopoverHtml = html;
+    }
+    this.mapPopover.hidden = false;
+
+    const posKey = `${target.kind}:${target.uid}:${target.screenX}:${target.screenY}:${html.length}:${window.innerWidth}x${window.innerHeight}`;
+    if (posKey === this.lastPopoverPosKey) return;
+    this.lastPopoverPosKey = posKey;
+
+    const rect = this.mapPopover.getBoundingClientRect();
+    const width = rect.width || 256;
+    const height = rect.height || 200;
+    const pad = 12;
+
+    let maxLeft = window.innerWidth - width - pad;
+    if (this.sidePanel && this.sidePanel.offsetParent !== null) {
+      const sideRect = this.sidePanel.getBoundingClientRect();
+      maxLeft = Math.min(maxLeft, sideRect.left - width - 10);
+    }
+    maxLeft = Math.max(pad, maxLeft);
+
+    const left = Math.max(pad, Math.min(target.screenX + 18, maxLeft));
+    const maxTop = Math.max(pad, window.innerHeight - height - pad);
+    const top = Math.max(pad, Math.min(target.screenY - 12, maxTop));
+
+    this.mapPopover.style.left = `${Math.round(left)}px`;
+    this.mapPopover.style.top = `${Math.round(top)}px`;
   }
 
   private renderTopBar(snap: GameSnapshot): void {
@@ -442,8 +640,15 @@ export class HudOverlay {
       hoveredRelicId: this.hoveredRelicId,
     });
     if (html !== this.lastSideHtml) {
+      const focusSelector = this.captureSidePanelFocusSelector();
       this.sidePanel.innerHTML = html;
       this.lastSideHtml = html;
+      if (focusSelector) {
+        const target = this.sidePanel.querySelector<HTMLElement>(focusSelector);
+        if (target && !(target as HTMLButtonElement).disabled) {
+          target.focus({ preventScroll: true });
+        }
+      }
     }
   }
 
@@ -461,9 +666,104 @@ export class HudOverlay {
     if (invalidExpandedUnit) {
       this.expandedUnitUid = null;
     }
+    const modalKind = this.getModalKind();
     if (html !== this.lastModalHtml) {
       this.modalRoot.innerHTML = html;
       this.lastModalHtml = html;
+      if (html !== '' && modalKind !== this.lastModalKind) {
+        this.focusModal();
+      } else if (html === '' && this.lastModalKind !== '') {
+        this.restorePreviousFocus();
+      }
+      this.lastModalKind = modalKind;
     }
+  }
+
+  private captureSidePanelFocusSelector(): string | null {
+    if (!this.sidePanel || this.lastModalHtml !== '') return null;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !this.sidePanel.contains(active)) {
+      return null;
+    }
+    if (active.dataset.relicTip) {
+      return `[data-relic-tip="${CSS.escape(active.dataset.relicTip)}"]`;
+    }
+    const action = active.dataset.action;
+    if (!action) return null;
+    let selector = `[data-action="${CSS.escape(action)}"]`;
+    if (active.dataset.id !== undefined) {
+      selector += `[data-id="${CSS.escape(active.dataset.id)}"]`;
+    }
+    if (active.dataset.unit !== undefined) {
+      selector += `[data-unit="${CSS.escape(active.dataset.unit)}"]`;
+    }
+    return selector;
+  }
+
+  private capturePreviousFocus(): void {
+    if (this.lastModalKind !== '') return;
+    this.previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  }
+
+  private getModalKind(): string {
+    if (this.showCredits) return 'credits';
+    if (this.showPokedex) return 'pokedex';
+    if (!this.lastSnap) return '';
+    const { phase } = this.lastSnap;
+    if (
+      phase === 'HOME' ||
+      phase === 'MAP_SELECT' ||
+      phase === 'DRAFT' ||
+      phase === 'VICTORY' ||
+      phase === 'DEFEAT'
+    ) {
+      return phase;
+    }
+    if (phase === 'REWARD') {
+      return this.lastSnap.pendingBranchUnitUid ? 'REWARD_BRANCH' : 'REWARD';
+    }
+    if (this.expandedUnitUid) {
+      return `unit:${this.expandedUnitUid}`;
+    }
+    return '';
+  }
+
+  private getModalFocusables(): HTMLElement[] {
+    if (!this.modalRoot) return [];
+    const selector =
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    return Array.from(
+      this.modalRoot.querySelectorAll<HTMLElement>(selector),
+    ).filter((el) => el.offsetParent !== null);
+  }
+
+  private focusModal(): void {
+    if (!this.modalRoot) return;
+    const card = this.modalRoot.querySelector<HTMLElement>('.modal-card');
+    if (!card) return;
+    const firstFocusable = this.getModalFocusables()[0];
+    (firstFocusable ?? card).focus({ preventScroll: true });
+  }
+
+  private restorePreviousFocus(): void {
+    const prev = this.previousFocus;
+    this.previousFocus = null;
+    if (prev && prev.isConnected) {
+      prev.focus({ preventScroll: true });
+      return;
+    }
+    if (this.sidePanel && this.sidePanel.offsetParent !== null) {
+      const fallback = this.sidePanel.querySelector<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      );
+      if (fallback) {
+        fallback.focus({ preventScroll: true });
+        return;
+      }
+    }
+    document.body.focus();
   }
 }

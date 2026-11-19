@@ -81,15 +81,32 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     expect(box!.height).toBeGreaterThan(200);
 
     // Home modal visible (allow extra time for BootScene asset preload on CI)
+    const homeDialog = page.locator('#modal-root [role="dialog"]');
     await expect(page.locator('[data-action="home-play"]')).toBeVisible({
       timeout: 25_000,
     });
+    await expect(homeDialog).toHaveAttribute('aria-modal', 'true');
 
-    // Open & filter Pokédex, then close with Escape
+    // Blocking phase modal ignores Escape
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-action="home-play"]')).toBeVisible();
+
+    // Open & filter Pokédex, verify focus trap, then close with Escape
     await page.locator('[data-action="open-pokedex"]').click();
     await expect(
       page.locator('[data-action="pokedex-filter"][data-id="unlocked"]'),
     ).toBeVisible();
+    await expect(page.locator('#modal-root [role="dialog"]')).toHaveAttribute(
+      'aria-modal',
+      'true',
+    );
+    await page.keyboard.press('Tab');
+    const focusInsideModal = await page.evaluate(() =>
+      Boolean(
+        document.getElementById('modal-root')?.contains(document.activeElement),
+      ),
+    );
+    expect(focusInsideModal).toBe(true);
     await page
       .locator('[data-action="pokedex-filter"][data-id="unlocked"]')
       .click();
@@ -117,8 +134,23 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     const initialGold = await readGold(page);
     expect(initialGold).toBeGreaterThan(0);
 
-    // Switch to Shop tab, select wood_wall, and place on a valid interior tile
-    await page.locator('[data-action="switch-tab"][data-id="shop"]').click();
+    // Ult button is omitted during PREP to keep unit cards clean
+    await expect(page.locator('[data-action="cast-ult"]')).toHaveCount(0);
+
+    // Switch to Shop tab, verify Move tool is removed and Team tab clears active tool
+    const shopTab = page.locator('[data-action="switch-tab"][data-id="shop"]');
+    await shopTab.click();
+    await expect(shopTab).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      page.locator('[data-action="select-tool"][data-id="move_struct"]'),
+    ).toHaveCount(0);
+    await page
+      .locator('[data-action="select-tool"][data-id="wood_wall"]')
+      .click();
+    await expect(page.locator('.active-mode-bar')).toBeVisible();
+    await page.locator('[data-action="switch-tab"][data-id="team"]').click();
+    await expect(page.locator('.active-mode-bar')).toHaveCount(0);
+    await shopTab.click();
     await page
       .locator('[data-action="select-tool"][data-id="wood_wall"]')
       .click();
@@ -130,6 +162,24 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
 
     // Cancel build tool with Escape
     await page.keyboard.press('Escape');
+
+    // Left-click placed structure to enter direct move mode, then Escape to cancel
+    await page.mouse.click(box.x + box.width * 0.42, box.y + box.height * 0.44);
+    await expect(page.locator('.active-mode-bar')).toContainText('Moving');
+    await page.keyboard.press('Escape');
+
+    // Right-click placed structure to open small floating popover with details + Sell button
+    await page.mouse.click(
+      box.x + box.width * 0.42,
+      box.y + box.height * 0.44,
+      { button: 'right' },
+    );
+    await expect(page.locator('#map-popover')).toBeVisible();
+    await expect(
+      page.locator('#map-popover [data-action="sell-struct-uid"]'),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#map-popover')).toBeHidden();
 
     const goldAfterBuild = await readGold(page);
     expect(goldAfterBuild).toBeLessThan(initialGold);
@@ -154,6 +204,28 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     ).toBeVisible();
     await page.locator('[data-action="close-expanded-unit"]').click();
 
+    // Verify compact 1024x768 layout has no top-bar/side-panel overlap or horizontal overflow
+    await page.setViewportSize({ width: 1024, height: 768 });
+    const topBox = await page.locator('#top-bar').boundingBox();
+    const sideBox = await page.locator('#side-panel').boundingBox();
+    const homeBtnBox = await page
+      .locator('#top-bar [data-action="back-home"]')
+      .boundingBox();
+    const topBarOverflow = await page.evaluate(() => {
+      const el = document.getElementById('top-bar');
+      return el ? el.scrollWidth > el.clientWidth : true;
+    });
+    expect(topBox).not.toBeNull();
+    expect(sideBox).not.toBeNull();
+    expect(homeBtnBox).not.toBeNull();
+    expect(topBarOverflow).toBe(false);
+    expect(topBox!.x + topBox!.width).toBeLessThanOrEqual(sideBox!.x + 1);
+    expect(homeBtnBox!.x + homeBtnBox!.width).toBeLessThanOrEqual(
+      sideBox!.x + 1,
+    );
+    expect(topBox!.height).toBeLessThanOrEqual(64);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     expect(errors).toEqual([]);
   });
 
@@ -162,7 +234,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
   }) => {
     const { errors } = attachErrorGuards(page);
     await page.goto('/');
-    await draftStarterTeamAndEnterPrep(page, false);
+    await draftStarterTeamAndEnterPrep(page, true);
 
     // Place 2 wood walls near center and equip a held item so Wave 1 clears reliably
     await page.locator('[data-action="switch-tab"][data-id="shop"]').click();
@@ -173,6 +245,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     const box = (await canvas.boundingBox())!;
     await page.mouse.click(box.x + box.width * 0.42, box.y + box.height * 0.44);
     await page.mouse.click(box.x + box.width * 0.58, box.y + box.height * 0.44);
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.62);
     await page.keyboard.press('Escape');
     await page.locator('[data-action="buy-item"]').first().click();
     await page.locator('[data-action="switch-tab"][data-id="team"]').click();

@@ -318,6 +318,7 @@ export function renderTerrain(
       ctx.filter = 'blur(2px)';
       ctx.drawImage(borderOff, 0, 0);
       borderTex.refresh();
+      borderTex.setFilter(Phaser.Textures.FilterMode.LINEAR);
     }
   }
   refs.borderBakedImg = scene.add
@@ -370,6 +371,7 @@ export function renderGridAndMarkers(
         octx.fill();
         ctx.drawImage(off, 0, 0);
         fogTex.refresh();
+        fogTex.setFilter(Phaser.Textures.FilterMode.LINEAR);
       }
     }
   }

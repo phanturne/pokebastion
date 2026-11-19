@@ -6,6 +6,7 @@ import {
   REVIVE_COST,
   getBranchSpec,
   getEffectiveAtk,
+  getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveMaxHp,
   getEffectiveMoveRange,
@@ -36,7 +37,6 @@ export function renderTopBarHtml(snap: GameSnapshot): string {
 
   return `
     <div class="top-group">
-      <span class="brand">PokéBastion</span>
       <span class="stat-pill">
         <span class="stat-label">Wave</span>
         <span class="stat-val">${snap.wave} / ${snap.maxWaves}</span>
@@ -61,10 +61,10 @@ export function renderTopBarHtml(snap: GameSnapshot): string {
         <span class="stat-label">AP</span>
         <span class="stat-val ap">${snap.ap} / ${snap.maxAp}</span>
       </span>
-      <button class="btn" data-action="toggle-speed" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
-      <button class="btn" data-action="toggle-mute" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
-      <button class="btn" data-action="toggle-credits">Credits</button>
-      <button class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
+      <button type="button" class="btn" data-action="toggle-speed" aria-pressed="${snap.speedMult > 1}" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
+      <button type="button" class="btn" data-action="toggle-mute" aria-pressed="${snap.muted}" title="Toggle audio (BGM & SFX)">${snap.muted ? 'Muted' : 'Audio'}</button>
+      <button type="button" class="btn" data-action="toggle-credits">Credits</button>
+      <button type="button" class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
     </div>
   `;
 }
@@ -80,23 +80,26 @@ export function renderSidePanelHtml(
   const activeModeBar = renderActiveModeBar(snap);
   if (activeModeBar) {
     parts.push(activeModeBar);
+  } else {
+    parts.push(
+      `<div class="status-banner" role="status" aria-live="polite">${escapeHtml(snap.statusMessage || 'Ready.')}</div>`,
+    );
   }
-
-  parts.push(
-    `<div class="status-banner">${escapeHtml(snap.statusMessage || 'Ready.')}</div>`,
-  );
 
   if (snap.phase === 'PREP') {
     parts.push(`
-      <button class="btn btn-primary btn-wave" data-action="start-wave">
+      <button type="button" class="btn btn-primary btn-wave" data-action="start-wave">
         Start Wave ${snap.wave}
       </button>
     `);
   }
 
   parts.push(`
-    <div class="side-tabs">
+    <div class="side-tabs" role="tablist">
       <button
+        type="button"
+        role="tab"
+        aria-selected="${state.sideTab === 'team'}"
         class="side-tab-btn ${state.sideTab === 'team' ? 'active' : ''}"
         data-action="switch-tab"
         data-id="team"
@@ -104,6 +107,9 @@ export function renderSidePanelHtml(
         Team (${snap.activeUnits.length}/${MAX_ACTIVE_UNITS})
       </button>
       <button
+        type="button"
+        role="tab"
+        aria-selected="${state.sideTab === 'shop'}"
         class="side-tab-btn ${state.sideTab === 'shop' ? 'active' : ''}"
         data-action="switch-tab"
         data-id="shop"
@@ -113,17 +119,18 @@ export function renderSidePanelHtml(
     </div>
   `);
 
+  if (selectedStruct) {
+    parts.push(renderSelectedStructure(snap, selectedStruct));
+  }
+
   if (state.sideTab === 'shop') {
     if (snap.phase === 'PREP') {
-      parts.push(renderBuildPalette(snap, state.hoveredTool));
-      if (selectedStruct) {
-        parts.push(renderSelectedStructure(snap, selectedStruct));
-      }
+      parts.push(renderBuildPalette(snap));
       parts.push(renderHeldItemShop(snap));
+      parts.push(
+        `<div class="shop-tooltip" id="shop-tooltip">${renderShopTooltipContent(snap, state.hoveredTool)}</div>`,
+      );
     } else {
-      if (selectedStruct) {
-        parts.push(renderSelectedStructure(snap, selectedStruct));
-      }
       parts.push(
         '<section class="card"><div class="card-hint">Structures and Held Items can be purchased during the Prep phase.</div></section>',
       );
@@ -146,7 +153,22 @@ function renderActiveModeBar(snap: GameSnapshot): string {
     return `
       <div class="active-mode-bar ult">
         <span class="active-mode-text">Aiming ${escapeHtml(ultName)} — Click target tile</span>
-        <button class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc)</button>
+        <button type="button" class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc / Right-Click)</button>
+      </div>
+    `;
+  }
+
+  if (snap.movingStructureUid) {
+    const movingStruct = snap.structures.find(
+      (s) => s.uid === snap.movingStructureUid,
+    );
+    const specName = movingStruct
+      ? STRUCTURE_SPECS[movingStruct.kind].name
+      : 'Structure';
+    return `
+      <div class="active-mode-bar">
+        <span class="active-mode-text">Moving ${escapeHtml(specName)} — Click empty tile</span>
+        <button type="button" class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc / Right-Click)</button>
       </div>
     `;
   }
@@ -155,9 +177,7 @@ function renderActiveModeBar(snap: GameSnapshot): string {
 
   let text: string;
   let barClass = 'active-mode-bar';
-  if (snap.selectedTool === 'move_struct') {
-    text = 'Moving Structure — Click structure, then grass tile';
-  } else if (snap.selectedTool === 'sell_struct') {
+  if (snap.selectedTool === 'sell_struct') {
     text = 'Selling Structure — Click structure to refund 70%';
     barClass = 'active-mode-bar sell';
   } else {
@@ -168,7 +188,7 @@ function renderActiveModeBar(snap: GameSnapshot): string {
   return `
     <div class="${barClass}">
       <span class="active-mode-text">${text}</span>
-      <button class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc)</button>
+      <button type="button" class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc / Right-Click)</button>
     </div>
   `;
 }
@@ -179,20 +199,7 @@ export function renderShopTooltipContent(
 ): string {
   const tool = hoveredTool ?? snap.selectedTool;
   if (!tool) {
-    return `<div class="tool-desc">Hover or focus an item above to view HP, pathing, and effects.</div>`;
-  }
-
-  if (tool === 'move_struct') {
-    return `
-      <div class="shop-tooltip-head">
-        <span>Move Structure</span>
-        <span class="tool-cost free">Free</span>
-      </div>
-      <div class="shop-tooltip-tags">
-        <span class="tag">Relocate</span>
-      </div>
-      <div class="shop-tooltip-desc">Click an existing structure, then click an open grass tile to move it.</div>
-    `;
+    return '';
   }
 
   if (tool === 'sell_struct') {
@@ -230,20 +237,19 @@ export function renderShopTooltipContent(
   `;
 }
 
-function renderBuildPalette(
-  snap: GameSnapshot,
-  hoveredTool: ToolId | null,
-): string {
+function renderBuildPalette(snap: GameSnapshot): string {
   const structButtons = Object.values(STRUCTURE_SPECS)
     .map((spec) => {
       const active = snap.selectedTool === spec.kind ? 'active' : '';
       const unaffordable = snap.gold < spec.cost ? 'unaffordable' : '';
       return `
         <button
+          type="button"
           class="tool-btn ${active} ${unaffordable}"
           data-action="select-tool"
           data-id="${spec.kind}"
           data-tool-tip="${spec.kind}"
+          aria-pressed="${snap.selectedTool === spec.kind}"
         >
           <span class="tool-icon">${TOOL_ICONS[spec.kind]}</span>
           <span class="tool-meta">
@@ -255,7 +261,6 @@ function renderBuildPalette(
     })
     .join('');
 
-  const moveActive = snap.selectedTool === 'move_struct' ? 'active' : '';
   const sellActive = snap.selectedTool === 'sell_struct' ? 'active-danger' : '';
 
   const damagedStructs = snap.structures.filter(
@@ -268,29 +273,15 @@ function renderBuildPalette(
 
   return `
     <section class="card">
-      <div class="section-header">
-        <span>Build Palette</span>
-        <span>Click grid to place</span>
-      </div>
       <div class="tool-grid">
         ${structButtons}
         <button
-          class="tool-btn ${moveActive}"
-          data-action="select-tool"
-          data-id="move_struct"
-          data-tool-tip="move_struct"
-        >
-          <span class="tool-icon">${TOOL_ICONS.move_struct}</span>
-          <span class="tool-meta">
-            <span class="tool-name">${TOOL_SHORT_NAME.move_struct}</span>
-            <span class="tool-cost free">Free</span>
-          </span>
-        </button>
-        <button
+          type="button"
           class="tool-btn ${sellActive}"
           data-action="select-tool"
           data-id="sell_struct"
           data-tool-tip="sell_struct"
+          aria-pressed="${snap.selectedTool === 'sell_struct'}"
         >
           <span class="tool-icon">${TOOL_ICONS.sell_struct}</span>
           <span class="tool-meta">
@@ -299,13 +290,11 @@ function renderBuildPalette(
           </span>
         </button>
       </div>
-      <div class="shop-tooltip" id="shop-tooltip">
-        ${renderShopTooltipContent(snap, hoveredTool)}
-      </div>
       ${
         damagedStructs.length > 0 && totalRepairCost > 0
           ? `
             <button
+              type="button"
               class="btn btn-accent"
               data-action="repair-all"
               ${snap.gold >= totalRepairCost ? '' : 'disabled'}
@@ -336,6 +325,7 @@ function renderHeldItemShop(snap: GameSnapshot): string {
             <span class="shop-item-desc">${escapeHtml(item.desc)}</span>
           </div>
           <button
+            type="button"
             class="btn btn-accent btn-xs"
             data-action="buy-item"
             data-id="${item.id}"
@@ -372,6 +362,8 @@ function renderSelectedStructure(
     snap.phase === 'PREP' && needsRepair && snap.gold >= repairCost;
   const isBarrel = struct.kind === 'barrel' && !struct.ruined;
   const showDetonate = isBarrel && snap.phase === 'COMBAT';
+  const showSell = snap.phase === 'PREP';
+  const refund = Math.floor(spec.cost * 0.7);
 
   return `
     <section class="card">
@@ -389,17 +381,22 @@ function renderSelectedStructure(
         </div>
       </div>
       ${
-        (snap.phase === 'PREP' && needsRepair) || showDetonate
+        (snap.phase === 'PREP' && needsRepair) || showDetonate || showSell
           ? `
             <div class="btn-row">
               ${
                 snap.phase === 'PREP' && needsRepair
-                  ? `<button class="btn btn-accent" data-action="repair-struct" data-id="${struct.uid}" ${canRepair ? '' : 'disabled'}>Repair (₽${repairCost})</button>`
+                  ? `<button type="button" class="btn btn-accent" data-action="repair-struct" data-id="${struct.uid}" ${canRepair ? '' : 'disabled'}>Repair (₽${repairCost})</button>`
                   : ''
               }
               ${
                 showDetonate
-                  ? `<button class="btn btn-danger" data-action="detonate-barrel" data-id="${struct.uid}">Detonate</button>`
+                  ? `<button type="button" class="btn btn-danger" data-action="detonate-barrel" data-id="${struct.uid}">Detonate</button>`
+                  : ''
+              }
+              ${
+                showSell
+                  ? `<button type="button" class="btn btn-danger" data-action="sell-struct-uid" data-id="${struct.uid}">Sell (+₽${refund})</button>`
                   : ''
               }
             </div>
@@ -410,7 +407,11 @@ function renderSelectedStructure(
   `;
 }
 
-function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
+function renderTeamUnitCard(
+  snap: GameSnapshot,
+  unit: ActiveUnit,
+  isActiveInSidebar: boolean,
+): string {
   const species = POKEMON_SPECIES[unit.speciesId];
   if (!species) return '';
 
@@ -427,8 +428,6 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
     ultLabel = 'Aiming...';
   } else if (unit.fainted) {
     ultLabel = 'Fainted';
-  } else if (snap.phase !== 'COMBAT') {
-    ultLabel = 'Prep Only';
   } else if (!ultReady) {
     ultLabel = `${Math.floor(ultPctNum)}%`;
   }
@@ -466,22 +465,23 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
   let prepBtn = '';
   if (snap.phase === 'PREP') {
     if (unit.fainted) {
-      prepBtn = `<button class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>`;
+      prepBtn = `<button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>`;
     } else if (unit.hp < unit.maxHp) {
-      prepBtn = `<button class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>`;
+      prepBtn = `<button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>`;
     }
   }
 
   return `
     <div class="team-unit-card ${isSelected ? 'selected' : ''}">
       <div class="unit-title-row">
-        <button class="unit-chip ${isSelected ? 'selected' : ''}" data-action="select-unit" data-id="${unit.uid}" style="border:none;background:transparent;padding:0">
+        <button type="button" class="unit-chip ${isSelected ? 'selected' : ''}" data-action="select-unit" data-id="${unit.uid}" aria-pressed="${isSelected}" style="border:none;background:transparent;padding:0">
           ${renderPokeIcon(unit.speciesId)}
           <strong>${escapeHtml(species.name)}</strong>
         </button>
         <div class="unit-name-wrap">
+          ${isSelected ? '<span class="tag selected-tag">Selected</span>' : ''}
           ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
-          <button class="btn btn-xs" data-action="expand-unit" data-id="${unit.uid}">Details</button>
+          <button type="button" class="btn btn-xs" data-action="expand-unit" data-id="${unit.uid}">Details</button>
         </div>
       </div>
 
@@ -525,7 +525,11 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
       </div>
 
       <div class="btn-row" style="align-items:center;flex-wrap:wrap">
-        <button class="btn btn-ult btn-xs" data-action="cast-ult" data-id="${unit.uid}" ${canCastUlt ? '' : 'disabled'}>${ultLabel}</button>
+        ${
+          snap.phase === 'COMBAT'
+            ? `<button type="button" class="btn btn-ult btn-xs" data-action="cast-ult" data-id="${unit.uid}" ${canCastUlt ? '' : 'disabled'}>${ultLabel}</button>`
+            : ''
+        }
         <label class="toggle-label">
           <input type="checkbox" data-action="toggle-auto-ult" data-id="${unit.uid}" ${unit.autoUlt ? 'checked' : ''} />
           Auto
@@ -547,7 +551,7 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
                 ${icon}
                 ${
                   snap.phase === 'PREP'
-                    ? `<button class="held-slot-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" title="Unequip ${escapeHtml(item.name)}">×</button>`
+                    ? `<button type="button" class="held-slot-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" aria-label="Unequip ${escapeHtml(item.name)}" title="Unequip ${escapeHtml(item.name)}">×</button>`
                     : ''
                 }
               </div>
@@ -556,6 +560,7 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
           .join('')}
         ${
           snap.phase === 'PREP' &&
+          isActiveInSidebar &&
           unit.heldItems.length < MAX_HELD_ITEMS &&
           snap.heldItemInventory.length > 0
             ? Array.from(new Set(snap.heldItemInventory))
@@ -564,6 +569,7 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
                   if (!item) return '';
                   return `
                     <button
+                      type="button"
                       class="held-equip-icon-btn"
                       data-action="equip-item"
                       data-unit="${unit.uid}"
@@ -583,8 +589,10 @@ function renderTeamUnitCard(snap: GameSnapshot, unit: ActiveUnit): string {
 }
 
 function renderTeamAndReserve(snap: GameSnapshot): string {
+  const activeInSidebarUid =
+    snap.selectedUnitUid ?? snap.activeUnits[0]?.uid ?? null;
   const activeCards = snap.activeUnits
-    .map((u) => renderTeamUnitCard(snap, u))
+    .map((u) => renderTeamUnitCard(snap, u, u.uid === activeInSidebarUid))
     .join('');
 
   const selectedActive =
@@ -622,6 +630,7 @@ function renderTeamAndReserve(snap: GameSnapshot): string {
           if (canDeploy) {
             return `
               <button
+                type="button"
                 class="unit-chip reserve"
                 data-action="deploy-reserve"
                 data-id="${id}"
@@ -634,6 +643,7 @@ function renderTeamAndReserve(snap: GameSnapshot): string {
           }
           return `
             <button
+              type="button"
               class="unit-chip reserve"
               data-action="swap-reserve"
               data-id="${id}"
@@ -659,10 +669,6 @@ function renderTeamAndReserve(snap: GameSnapshot): string {
 
   return `
     <section class="card">
-      <div class="section-header">
-        <span>Active Team</span>
-        <span>${snap.activeUnits.length} / ${MAX_ACTIVE_UNITS} deployed</span>
-      </div>
       <div class="team-unit-list">${activeCards}</div>
       <div class="section-header" style="margin-top:4px">
         <span>Reserve</span>
@@ -679,7 +685,7 @@ export function renderRelicTooltipContent(
 ): string {
   const id = hoveredRelicId;
   if (!id || (!snap.upgrades.includes(id) && !snap.artifacts.includes(id))) {
-    return '<span class="tool-desc">Hover an icon to view details.</span>';
+    return '';
   }
   const meta = REWARD_BY_ID[id];
   const title = meta ? meta.title : id;
@@ -735,5 +741,189 @@ function renderRelics(
           : '<span class="tool-desc">None acquired yet.</span>'
       }
     </section>
+  `;
+}
+
+export function renderStructurePopoverHtml(
+  snap: GameSnapshot,
+  struct: GridStructure,
+): string {
+  const spec = STRUCTURE_SPECS[struct.kind];
+  if (!spec) return '';
+  const repairCost = getRepairCost(struct.kind, struct.hp, struct.maxHp);
+  const needsRepair =
+    (struct.ruined || struct.hp < struct.maxHp) && repairCost > 0;
+  const canRepair =
+    snap.phase === 'PREP' && needsRepair && snap.gold >= repairCost;
+  const showDetonate =
+    struct.kind === 'barrel' && !struct.ruined && snap.phase === 'COMBAT';
+  const showSell = snap.phase === 'PREP';
+  const refund = Math.floor(spec.cost * 0.7);
+  const pathTag = spec.blocksGround ? 'Blocks Ground' : 'Passable';
+
+  return `
+    <div class="popover-head">
+      <div class="popover-title-wrap">
+        <strong>${escapeHtml(spec.name)}</strong>
+        ${struct.ruined ? '<span class="tag ruined">Ruined</span>' : `<span class="tag">(${struct.gx}, ${struct.gy})</span>`}
+      </div>
+      <button type="button" class="popover-close" data-action="close-popover" aria-label="Close">×</button>
+    </div>
+    <div class="popover-meta-row">
+      <span class="tag">HP ${Math.max(0, Math.ceil(struct.hp))} / ${struct.maxHp}</span>
+      <span class="tag">${pathTag}</span>
+    </div>
+    <p class="popover-desc">${escapeHtml(spec.desc)}</p>
+    ${
+      (snap.phase === 'PREP' && needsRepair) || showDetonate || showSell
+        ? `
+          <div class="btn-row">
+            ${
+              snap.phase === 'PREP' && needsRepair
+                ? `<button type="button" class="btn btn-accent btn-xs" data-action="repair-struct" data-id="${struct.uid}" ${canRepair ? '' : 'disabled'}>Repair (₽${repairCost})</button>`
+                : ''
+            }
+            ${
+              showDetonate
+                ? `<button type="button" class="btn btn-danger btn-xs" data-action="detonate-barrel" data-id="${struct.uid}">Detonate</button>`
+                : ''
+            }
+            ${
+              showSell
+                ? `<button type="button" class="btn btn-danger btn-xs" data-action="sell-struct-uid" data-id="${struct.uid}">Sell (+₽${refund})</button>`
+                : ''
+            }
+          </div>
+        `
+        : ''
+    }
+  `;
+}
+
+export function renderUnitPopoverHtml(
+  snap: GameSnapshot,
+  unit: ActiveUnit,
+): string {
+  const species = POKEMON_SPECIES[unit.speciesId];
+  if (!species) return '';
+
+  const branch = getBranchSpec(unit.speciesId, unit.branchId);
+  const atk = getEffectiveAtk(
+    unit.speciesId,
+    snap.upgrades,
+    false,
+    unit.branchId,
+    unit.heldItems,
+  );
+  const def = getEffectiveDef(
+    unit.speciesId,
+    unit.branchId,
+    unit.heldItems,
+    snap.upgrades,
+  );
+  const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
+  const mov = getEffectiveMoveRange(
+    species.moveRange,
+    snap.upgrades,
+    branch,
+    unit.speciesId,
+  );
+  const intervalMs = getEffectiveAttackIntervalMs(
+    unit.speciesId,
+    snap.artifacts,
+    unit.branchId,
+    unit.heldItems,
+    snap.upgrades,
+  );
+  const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
+
+  const ultPctNum = pct(unit.ult, unit.ultMax);
+  const ultReady = !unit.fainted && unit.ult >= unit.ultMax;
+  const isAiming = snap.aimingUltUnitUid === unit.uid;
+  const canCastUlt = snap.phase === 'COMBAT' && ultReady;
+  let ultLabel = 'Cast Ult';
+  if (isAiming) {
+    ultLabel = 'Aiming...';
+  } else if (unit.fainted) {
+    ultLabel = 'Fainted';
+  } else if (!ultReady) {
+    ultLabel = `${Math.floor(ultPctNum)}%`;
+  }
+
+  const canHeal =
+    snap.phase === 'PREP' &&
+    !unit.fainted &&
+    unit.hp < unit.maxHp &&
+    snap.gold >= HEAL_COST;
+  const canRevive =
+    snap.phase === 'PREP' && unit.fainted && snap.gold >= REVIVE_COST;
+
+  let prepBtn = '';
+  if (snap.phase === 'PREP') {
+    if (unit.fainted) {
+      prepBtn = `<button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>`;
+    } else if (unit.hp < unit.maxHp) {
+      prepBtn = `<button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>`;
+    }
+  }
+
+  const heldItemsHtml =
+    unit.heldItems.length > 0
+      ? `
+        <div class="held-slots-row">
+          ${unit.heldItems
+            .map((itemId, idx) => {
+              const item = HELD_ITEMS[itemId];
+              if (!item) return '';
+              const icon = HELD_ITEM_ICONS[item.id] ?? '';
+              return `
+                <div class="held-slot-icon filled" title="${escapeHtml(`${item.name}: ${item.desc}`)}">
+                  ${icon}
+                  ${
+                    snap.phase === 'PREP'
+                      ? `<button type="button" class="held-slot-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" aria-label="Unequip ${escapeHtml(item.name)}" title="Unequip ${escapeHtml(item.name)}">×</button>`
+                      : ''
+                  }
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      `
+      : '';
+
+  return `
+    <div class="popover-head">
+      <div class="popover-title-wrap">
+        ${renderPokeIcon(unit.speciesId)}
+        <strong>${escapeHtml(species.name)}</strong>
+        <span class="tag">${escapeHtml(species.pokeClass)}</span>
+        ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
+      </div>
+      <button type="button" class="popover-close" data-action="close-popover" aria-label="Close">×</button>
+    </div>
+    <div class="popover-stats-grid">
+      <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">RNG</span><span class="unit-stat-val">${range}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">SPD</span><span class="unit-stat-val">${atkSpd}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">MOV</span><span class="unit-stat-val">${mov}</span></div>
+    </div>
+    <div class="popover-kit">
+      <div class="popover-kit-line"><strong>Passive:</strong> ${escapeHtml(species.passiveDesc)}</div>
+      <div class="popover-kit-line"><strong>Basic:</strong> ${escapeHtml(species.basicDesc)}</div>
+      <div class="popover-kit-line"><strong>Ult — ${escapeHtml(species.ultName)}:</strong> ${escapeHtml(species.ultDesc)}</div>
+    </div>
+    ${heldItemsHtml}
+    <div class="btn-row">
+      ${
+        snap.phase === 'COMBAT'
+          ? `<button type="button" class="btn btn-ult btn-xs" data-action="cast-ult" data-id="${unit.uid}" ${canCastUlt ? '' : 'disabled'}>${ultLabel}</button>`
+          : ''
+      }
+      ${prepBtn}
+      <button type="button" class="btn btn-xs" data-action="expand-unit" data-id="${unit.uid}">Details</button>
+    </div>
   `;
 }

@@ -157,6 +157,9 @@ export class SfxPlayer {
   private muted: boolean;
   private currentBgmKey: BgmKey | null = null;
   private currentBgm: Phaser.Sound.BaseSound | null = null;
+  private currentBgmTween: Phaser.Tweens.Tween | null = null;
+  private fadingOutBgm: Phaser.Sound.BaseSound | null = null;
+  private fadingOutTween: Phaser.Tweens.Tween | null = null;
   private pendingBgmKey: BgmKey | null = null;
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -169,6 +172,7 @@ export class SfxPlayer {
         this.playBgm(key);
       }
     });
+    this.scene.events.once('shutdown', () => this.stopBgm(true));
   }
 
   public isMuted(): boolean {
@@ -211,20 +215,77 @@ export class SfxPlayer {
 
     this.stopBgm();
     this.currentBgmKey = key;
-    this.currentBgm = this.scene.sound.add(key, {
+    const nextBgm = this.scene.sound.add(key, {
       loop: true,
-      volume: BGM_VOLUME,
+      volume: 0,
     });
-    this.currentBgm.play();
+    this.currentBgm = nextBgm;
+    nextBgm.play();
+    this.currentBgmTween = this.scene.tweens.add({
+      targets: nextBgm,
+      volume: BGM_VOLUME,
+      duration: 200,
+      onComplete: () => {
+        if (this.currentBgmTween) {
+          this.currentBgmTween = null;
+        }
+      },
+    });
   }
 
-  public stopBgm(): void {
+  public stopBgm(immediate = false): void {
     this.pendingBgmKey = null;
     this.currentBgmKey = null;
+
+    if (this.currentBgmTween) {
+      this.currentBgmTween.stop();
+      this.currentBgmTween = null;
+    }
+
+    if (immediate) {
+      if (this.fadingOutTween) {
+        this.fadingOutTween.stop();
+        this.fadingOutTween = null;
+      }
+      if (this.fadingOutBgm) {
+        this.fadingOutBgm.stop();
+        this.fadingOutBgm.destroy();
+        this.fadingOutBgm = null;
+      }
+      if (this.currentBgm) {
+        this.currentBgm.stop();
+        this.currentBgm.destroy();
+        this.currentBgm = null;
+      }
+      return;
+    }
+
     if (this.currentBgm) {
-      this.currentBgm.stop();
-      this.currentBgm.destroy();
+      if (this.fadingOutTween) {
+        this.fadingOutTween.stop();
+        this.fadingOutTween = null;
+      }
+      if (this.fadingOutBgm) {
+        this.fadingOutBgm.stop();
+        this.fadingOutBgm.destroy();
+        this.fadingOutBgm = null;
+      }
+      const oldBgm = this.currentBgm;
       this.currentBgm = null;
+      this.fadingOutBgm = oldBgm;
+      this.fadingOutTween = this.scene.tweens.add({
+        targets: oldBgm,
+        volume: 0,
+        duration: 200,
+        onComplete: () => {
+          if (this.fadingOutBgm === oldBgm) {
+            this.fadingOutBgm = null;
+            this.fadingOutTween = null;
+          }
+          oldBgm.stop();
+          oldBgm.destroy();
+        },
+      });
     }
   }
 
