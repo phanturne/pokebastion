@@ -1,8 +1,10 @@
 import { MAP_CATALOG, createGridForMap } from '../data/maps';
 import { HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
 import {
+  HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
+  REVIVE_COST,
   getBranchSpec,
   getDraftCost,
   getEffectiveAtk,
@@ -13,6 +15,7 @@ import {
 } from '../engine/rules';
 import { GameSnapshot, MapDifficulty } from '../types';
 import {
+  HELD_ITEM_ICONS,
   escapeHtml,
   formatBranchChips,
   renderBranchTree,
@@ -617,6 +620,91 @@ function renderExpandedUnitModal(
   `;
 }
 
+function renderShopModal(snap: GameSnapshot): string {
+  const items = Object.values(HELD_ITEMS);
+  const itemRows = items
+    .map((item) => {
+      const owned = snap.heldItemInventory.filter(
+        (id) => id === item.id,
+      ).length;
+      const canBuy = snap.gold >= item.cost;
+      return `
+        <div class="shop-modal-item">
+          <div class="shop-modal-item-head">
+            <span class="shop-modal-item-icon">${HELD_ITEM_ICONS[item.id] ?? ''}</span>
+            <div class="shop-modal-item-meta">
+              <strong>${escapeHtml(item.name)}${owned > 0 ? ` <span class="tag">${owned} in bag</span>` : ''}</strong>
+              <span class="shop-item-desc">${escapeHtml(item.desc)}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-accent btn-xs"
+            data-action="buy-item"
+            data-id="${item.id}"
+            ${canBuy ? '' : 'disabled'}
+          >
+            Buy ₽${item.cost}
+          </button>
+        </div>
+      `;
+    })
+    .join('');
+
+  const careUnits = snap.activeUnits.filter((u) => u.fainted || u.hp < u.maxHp);
+  const careRows = careUnits
+    .map((u) => {
+      const sp = POKEMON_SPECIES[u.speciesId];
+      const name = sp ? sp.name : u.speciesId;
+      if (u.fainted) {
+        return `
+          <div class="shop-care-chip">
+            ${renderPokeIcon(u.speciesId)}
+            <span>${escapeHtml(name)} (Fainted)</span>
+            <button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${u.uid}" ${snap.gold >= REVIVE_COST ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>
+          </div>
+        `;
+      }
+      return `
+        <div class="shop-care-chip">
+          ${renderPokeIcon(u.speciesId)}
+          <span>${escapeHtml(name)} (${Math.ceil(u.hp)}/${u.maxHp})</span>
+          <button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${u.uid}" ${snap.gold >= HEAL_COST ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="menu-backdrop">
+      <div class="modal-card compact" role="dialog" aria-modal="true" aria-labelledby="modal-title-shop" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="modal-title-shop">Wave ${snap.wave} Merchant Shop</div>
+            <div class="modal-sub">Stock up on Held Items and heal your team before Wave ${snap.wave + 1}.</div>
+          </div>
+          <span class="stat-pill"><span class="stat-label">Gold</span><span class="stat-val gold">₽${snap.gold}</span></span>
+        </div>
+        <div class="shop-modal-grid">${itemRows}</div>
+        ${
+          careRows
+            ? `<div class="shop-care-section">
+                <div class="section-header"><span>Team Care</span><span>${careUnits.length} injured</span></div>
+                <div class="shop-care-list">${careRows}</div>
+              </div>`
+            : ''
+        }
+        <div class="modal-footer-row">
+          <span class="card-hint">Bag: ${snap.heldItemInventory.length} held item(s) ready to equip in Prep.</span>
+          <button type="button" class="btn btn-primary" data-action="close-shop">
+            Continue to Wave ${snap.wave + 1}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export function renderModalHtml(
   snap: GameSnapshot | null,
   state: ModalState,
@@ -644,6 +732,9 @@ export function renderModalHtml(
   }
   if (snap.phase === 'REWARD') {
     return { html: renderRewardModal(snap) };
+  }
+  if (snap.phase === 'SHOP') {
+    return { html: renderShopModal(snap) };
   }
   if (snap.phase === 'VICTORY' || snap.phase === 'DEFEAT') {
     return { html: renderEndgameModal(snap) };

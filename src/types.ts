@@ -9,6 +9,7 @@ export type GamePhase =
   | 'PREP'
   | 'COMBAT'
   | 'REWARD'
+  | 'SHOP'
   | 'VICTORY'
   | 'DEFEAT';
 
@@ -187,6 +188,9 @@ export interface ActiveUnit {
   facingDir: number; // 0..7 PMD direction
   attackCooldownMs: number;
   hitCount: number;
+  damageDealt?: number;
+  damageTaken?: number;
+  healingDone?: number;
 }
 
 export interface RewardOption {
@@ -203,6 +207,7 @@ export interface GameSnapshot {
   phase: GamePhase;
   wave: number;
   maxWaves: number;
+  waveElapsedMs?: number;
   coreHp: number;
   coreMaxHp: number;
   gold: number;

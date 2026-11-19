@@ -63,8 +63,10 @@ import {
   getSellRefund,
   HEAL_COST,
   isInCircularRange,
+  isShopAfterWave,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
+  MAX_RESERVE_UNITS,
   REVIVE_COST,
 } from '../engine/rules';
 import {
@@ -505,8 +507,12 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.phase !== 'COMBAT') return;
 
+    const prevSec = Math.floor(this.waveElapsedMs / 1000);
     const simDtMs = clampedDelta * timeScale;
     this.waveElapsedMs += simDtMs;
+    if (Math.floor(this.waveElapsedMs / 1000) !== prevSec) {
+      this.snapshotDirty = true;
+    }
 
     this.inCombatFrame = true;
     try {
@@ -564,6 +570,7 @@ export class BattleScene extends Phaser.Scene {
       phase: this.phase,
       wave: this.wave,
       maxWaves: this.maxWaves,
+      waveElapsedMs: this.waveElapsedMs,
       coreHp: Math.max(0, Math.round(this.coreHp)),
       coreMaxHp: this.coreMaxHp,
       gold: this.gold,
@@ -688,6 +695,11 @@ export class BattleScene extends Phaser.Scene {
     this.slowMo = false;
     this.waveElapsedMs = 0;
     this.berryHealTimerMs = 0;
+    for (const u of this.units) {
+      u.data.damageDealt = 0;
+      u.data.damageTaken = 0;
+      u.data.healingDone = 0;
+    }
 
     this.buildSpawnQueue();
     this.pathPreviewGraphics.clear();
@@ -1021,7 +1033,7 @@ export class BattleScene extends Phaser.Scene {
     this.recalcUnitMaxHp(unit);
     unit.sprite.setScale(1.12);
     this.pendingBranchUnitUid = null;
-    this.advanceToNextPrep(
+    this.advanceAfterReward(
       `${POKEMON_SPECIES[unit.data.speciesId].name} specialized into ${branch.name}!`,
     );
   }
@@ -1067,8 +1079,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   public buyHeldItem(itemId: string): void {
-    if (this.phase !== 'PREP') {
-      this.setStatus('Held items can only be purchased during Prep.');
+    if (this.phase !== 'PREP' && this.phase !== 'SHOP') {
+      this.setStatus('Held items can only be purchased during Prep or Shop.');
       return;
     }
     const item = HELD_ITEMS[itemId];
@@ -1083,8 +1095,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   public equipHeldItem(unitUid: string, itemId: string): void {
-    if (this.phase !== 'PREP') {
-      this.setStatus('Held items can only be equipped during Prep.');
+    if (this.phase !== 'PREP' && this.phase !== 'SHOP') {
+      this.setStatus('Held items can only be equipped during Prep or Shop.');
       return;
     }
     const unit = this.units.find((u) => u.data.uid === unitUid);
@@ -1101,8 +1113,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   public unequipHeldItem(unitUid: string, index: number): void {
-    if (this.phase !== 'PREP') {
-      this.setStatus('Held items can only be unequipped during Prep.');
+    if (this.phase !== 'PREP' && this.phase !== 'SHOP') {
+      this.setStatus('Held items can only be unequipped during Prep or Shop.');
       return;
     }
     const unit = this.units.find((u) => u.data.uid === unitUid);
@@ -1198,7 +1210,10 @@ export class BattleScene extends Phaser.Scene {
         }
       }
     } else if (choice.kind === 'recruit' && choice.speciesId) {
-      if (!this.reserveIds.includes(choice.speciesId)) {
+      if (
+        !this.reserveIds.includes(choice.speciesId) &&
+        this.reserveIds.length < MAX_RESERVE_UNITS
+      ) {
         this.reserveIds.push(choice.speciesId);
       }
       if (unlockPokemon(this.playerSave, choice.speciesId)) {
@@ -1207,7 +1222,24 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.rewardChoices = [];
-    this.advanceToNextPrep(`Picked ${choice.title}.`);
+    this.advanceAfterReward(`Picked ${choice.title}.`);
+  }
+
+  public closeShop(): void {
+    if (this.phase !== 'SHOP') return;
+    this.advanceToNextPrep('Left Merchant Shop.');
+  }
+
+  private advanceAfterReward(prefixMsg: string): void {
+    if (isShopAfterWave(this.wave, this.maxWaves)) {
+      this.phase = 'SHOP';
+      this.refreshHighlights();
+      this.setStatus(
+        `${prefixMsg} Merchant Shop opened after Wave ${this.wave}!`,
+      );
+      return;
+    }
+    this.advanceToNextPrep(prefixMsg);
   }
 
   private advanceToNextPrep(prefixMsg: string): void {
@@ -1276,6 +1308,11 @@ export class BattleScene extends Phaser.Scene {
     this.spawnQueueIndex = 0;
     this.waveElapsedMs = 0;
     this.berryHealTimerMs = 0;
+    for (const u of this.units) {
+      u.data.damageDealt = 0;
+      u.data.damageTaken = 0;
+      u.data.healingDone = 0;
+    }
 
     this.activePortals = [];
     this.updateCoreBar();
@@ -2766,6 +2803,9 @@ export class BattleScene extends Phaser.Scene {
       facingDir: 0,
       attackCooldownMs: 0,
       hitCount: 0,
+      damageDealt: 0,
+      damageTaken: 0,
+      healingDone: 0,
     };
 
     const cx = tileCenterX(gx);
@@ -3004,10 +3044,15 @@ export class BattleScene extends Phaser.Scene {
         this.damageEnemy(target, dmg, unit, isCrit);
 
         if (lifestealHeal > 0 && !unit.data.fainted) {
+          const prevHp = unit.data.hp;
           unit.data.hp = Math.min(
             unit.data.maxHp,
             unit.data.hp + lifestealHeal,
           );
+          const actualHeal = Math.round(unit.data.hp - prevHp);
+          if (actualHeal > 0) {
+            unit.data.healingDone = (unit.data.healingDone ?? 0) + actualHeal;
+          }
           this.updateUnitBars(unit);
         }
 
@@ -3120,6 +3165,7 @@ export class BattleScene extends Phaser.Scene {
           ally.data.hp = Math.min(ally.data.maxHp, ally.data.hp + healAmount);
           const actualHeal = Math.round(ally.data.hp - prevHp);
           if (actualHeal > 0) {
+            unit.data.healingDone = (unit.data.healingDone ?? 0) + actualHeal;
             this.spawnFloatingText(
               ally.sprite.x,
               ally.sprite.y - 24,
@@ -3531,7 +3577,12 @@ export class BattleScene extends Phaser.Scene {
       unitBranchSpecial: unitBranch?.special,
     });
 
+    const taken = Math.min(unit.data.hp, Math.max(0, dmg));
     unit.data.hp = Math.max(0, unit.data.hp - dmg);
+    if (taken > 0) {
+      unit.data.damageTaken = (unit.data.damageTaken ?? 0) + Math.round(taken);
+      this.emitSnapshot();
+    }
     if (reflectedThorns > 0 && enemy.hp > 0) {
       this.damageEnemy(enemy, reflectedThorns, unit, false);
     }
@@ -3612,7 +3663,13 @@ export class BattleScene extends Phaser.Scene {
     isCrit: boolean,
   ): void {
     if (enemy.hp <= 0) return;
+    const dealt = Math.min(enemy.hp, Math.max(0, amount));
     enemy.hp = Math.max(0, enemy.hp - amount);
+    if (attacker && dealt > 0) {
+      attacker.data.damageDealt =
+        (attacker.data.damageDealt ?? 0) + Math.round(dealt);
+      this.emitSnapshot();
+    }
     if (amount > 0 && enemy.hp > 0) {
       enemy.hitFlashTimerMs = 90;
       enemy.sprite.setTint(0xffaaaa);
@@ -3865,6 +3922,8 @@ export class BattleScene extends Phaser.Scene {
       this.artifacts,
       Math.random,
       unbranchedUnits,
+      false,
+      this.reserveIds.length < MAX_RESERVE_UNITS,
     );
   }
 

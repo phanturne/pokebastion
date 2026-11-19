@@ -23,7 +23,13 @@ export const TEMPORAL_GEAR_KILL_THRESHOLD = 4;
 export const WAVE_AP_RECOVERY = 3;
 export const DRAFT_BUDGET = 10;
 export const MAX_ACTIVE_UNITS = 6;
+export const MAX_RESERVE_UNITS = 3;
 export const MAX_HELD_ITEMS = 3;
+
+/** Returns true if a Merchant Shop event triggers after completing `wave`. */
+export function isShopAfterWave(wave: number, maxWaves: number): boolean {
+  return wave > 0 && wave < maxWaves && wave % 5 === 0;
+}
 
 export function getDraftCost(speciesIds: string[]): number {
   return speciesIds.reduce(
@@ -328,6 +334,7 @@ export function generateRewardChoices(
   rng: () => number = Math.random,
   unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
   includeClassMinorUpgrades = false,
+  canRecruit = true,
 ): RewardOption[] {
   const ownedUpgradeSet = new Set(ownedUpgrades);
   const ownedArtifactSet = new Set(ownedArtifacts);
@@ -392,7 +399,7 @@ export function generateRewardChoices(
     }
   }
 
-  if (unownedSpecies.length > 0 && choices.length < 3) {
+  if (canRecruit && unownedSpecies.length > 0 && choices.length < 3) {
     const pick = pickRandom(unownedSpecies);
     choices.push({
       id: `recruit_${pick.id}`,
