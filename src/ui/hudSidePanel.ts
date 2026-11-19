@@ -52,7 +52,7 @@ const SVG_SHIELD =
 const SVG_HEAL =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 2h3v4.5H14v3H9.5V14h-3V9.5H2v-3h4.5V2z"/></svg>';
 
-function formatTimerMs(ms: number | undefined): string {
+export function formatTimerMs(ms: number | undefined): string {
   const totalSec = Math.max(0, Math.floor((ms ?? 0) / 1000));
   const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
   const s = String(totalSec % 60).padStart(2, '0');
@@ -178,7 +178,7 @@ export function renderTopBarHtml(
       <div class="top-center-sub">
         <span>Wave ${snap.wave} / ${snap.maxWaves}</span>
         <span class="phase-badge phase-${snap.phase}">${snap.phase}</span>
-        ${snap.phase === 'COMBAT' ? `<span class="hud-timer">${formatTimerMs(snap.waveElapsedMs)}</span>` : ''}
+        ${snap.phase === 'COMBAT' ? '<span class="hud-timer" id="hud-timer"></span>' : ''}
       </div>
     </div>
     <div class="top-group top-controls">

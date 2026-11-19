@@ -5,6 +5,7 @@ import { ContextInspectTarget, GameSnapshot, MapDifficulty } from '../types';
 import { ToolId } from './hudShared';
 import {
   CombatStatTab,
+  formatTimerMs,
   renderBottomBarHtml,
   renderRelicTooltipContent,
   renderShopTooltipContent,
@@ -662,6 +663,13 @@ export class HudOverlay {
     if (html !== this.lastTopHtml) {
       this.topBar.innerHTML = html;
       this.lastTopHtml = html;
+    }
+    const timerEl = this.topBar.querySelector<HTMLElement>('#hud-timer');
+    if (timerEl) {
+      const nextText = formatTimerMs(snap.waveElapsedMs);
+      if (timerEl.textContent !== nextText) {
+        timerEl.textContent = nextText;
+      }
     }
   }
 
