@@ -23,18 +23,34 @@ import {
   STARTER_UNLOCKED_IDS,
   STRUCTURE_SPECS,
   WAVE_DEFINITIONS,
+  WaveDefinition,
 } from '../data/pokemon';
 import {
   computeBasicAttackDamage,
   computeEnemyAttackDamage,
+  computeKillBounty,
+  computeSlowDurationMs,
+  computeStartingUlt,
+  computeUltPower,
+  computeUnitAtk,
+  computeUnitAttackIntervalMs,
+  computeUnitDef,
+  computeUnitMaxHp as computeCombatUnitMaxHp,
+  computeUnitRange,
 } from '../engine/combat';
+import { getUnlockShardCost, RECRUIT_SHARDS } from '../engine/progression';
 import {
+  addShardsToSpecies,
+  applyRunVictoryRewards,
+  buildPokemonProgressMap,
   getUnlockedIds,
+  hatchEggFromSave,
   isPokemonUnlocked,
   loadPlayerSave,
   persistPlayerSave,
   PlayerSave,
-  unlockPokemon,
+  unlockSpeciesWithShards as unlockSpeciesWithShardsFromSave,
+  upgradeSpeciesPotential as upgradeSpeciesPotentialFromSave,
 } from '../engine/save';
 import {
   CORE_CELLS,
@@ -54,12 +70,7 @@ import {
   generateRewardChoices as buildRewardChoices,
   getBranchSpec,
   getDraftCost,
-  getEffectiveAtk,
-  getEffectiveAttackIntervalMs,
-  getEffectiveDef,
-  getEffectiveMaxHp,
   getEffectiveMoveRange,
-  getEffectiveRange,
   getRepairCost,
   getSellRefund,
   HEAL_COST,
@@ -72,6 +83,8 @@ import {
 } from '../engine/rules';
 import {
   ActiveUnit,
+  EggHatchResult,
+  EggTier,
   GRID_COLS,
   GRID_ROWS,
   GamePhase,
@@ -197,14 +210,54 @@ function vectorToPmdDir(dx: number, dy: number, fallback = 0): number {
   return (((2 - octant) % 8) + 8) % 8;
 }
 
+const E2E_FAST_WAVES: WaveDefinition[] = [
+  {
+    wave: 1,
+    title: 'E2E Skirmish I',
+    desc: 'Fast deterministic wave for E2E verification.',
+    spawns: [{ speciesId: '0019', count: 2, side: 'west', intervalMs: 200 }],
+  },
+  {
+    wave: 2,
+    title: 'E2E Skirmish II',
+    desc: 'Fast deterministic wave for E2E verification.',
+    spawns: [{ speciesId: '0019', count: 2, side: 'east', intervalMs: 200 }],
+  },
+];
+
+function createSeededRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function getSearchParams(): URLSearchParams | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search);
+}
+
 export class BattleScene extends Phaser.Scene {
   private tiles: TileKind[][] = [];
   private selectedMapId = 'viridian_outpost';
   private terrainRefs: TerrainRenderRefs = {};
   private phase: GamePhase = 'HOME';
   private playerSave: PlayerSave = loadPlayerSave();
+  private readonly rng: () => number = (() => {
+    const raw = getSearchParams()?.get('seed');
+    if (raw === null || raw === undefined || raw === '') return Math.random;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? createSeededRng(parsed) : Math.random;
+  })();
+  private readonly activeWaves: WaveDefinition[] =
+    getSearchParams()?.get('e2eMap') === '1'
+      ? E2E_FAST_WAVES
+      : WAVE_DEFINITIONS;
   private wave = 1;
-  private readonly maxWaves = WAVE_DEFINITIONS.length;
+  private readonly maxWaves = this.activeWaves.length;
   private coreHp = CORE_MAX_HP;
   private coreMaxHp = CORE_MAX_HP;
   private gold = INITIAL_GOLD;
@@ -632,6 +685,16 @@ export class BattleScene extends Phaser.Scene {
       rewardChoices: this.rewardChoices.map((r) => ({ ...r })),
       pendingBranchUnitUid: this.pendingBranchUnitUid,
       statusMessage: this.statusMessage,
+      pokemonProgress: buildPokemonProgressMap(this.playerSave),
+      universalShards: this.playerSave.universalShards ?? 0,
+      eggs: {
+        common: this.playerSave.eggs?.common ?? 0,
+        rare: this.playerSave.eggs?.rare ?? 0,
+        master: this.playerSave.eggs?.master ?? 0,
+      },
+      pityWins: this.playerSave.pityWins ?? 0,
+      achievements: [...(this.playerSave.achievements ?? [])],
+      clearedMaps: [...(this.playerSave.clearedMaps ?? [])],
     };
   }
 
@@ -733,6 +796,14 @@ export class BattleScene extends Phaser.Scene {
       u.data.damageDealt = 0;
       u.data.damageTaken = 0;
       u.data.healingDone = 0;
+      const startUlt = computeStartingUlt(
+        u.data.ultMax,
+        this.getSpeciesPotential(u.data.speciesId),
+      );
+      if (u.data.ult < startUlt) {
+        u.data.ult = startUlt;
+        this.updateUnitBars(u);
+      }
     }
 
     this.buildSpawnQueue();
@@ -742,7 +813,7 @@ export class BattleScene extends Phaser.Scene {
     this.refreshHighlights();
     this.sfx.play('wave_start', 0);
 
-    const waveDef = WAVE_DEFINITIONS[this.wave - 1];
+    const waveDef = this.activeWaves[this.wave - 1];
     this.setStatus(
       waveDef ? `${waveDef.title} begun!` : `Wave ${this.wave} begun!`,
     );
@@ -1200,7 +1271,10 @@ export class BattleScene extends Phaser.Scene {
     unit.data.speciesId = reserveSpeciesId;
     unit.data.maxHp = newMaxHp;
     unit.data.hp = newMaxHp;
-    unit.data.ult = 0;
+    unit.data.ult = computeStartingUlt(
+      newSpecies.ultMax,
+      this.getSpeciesPotential(reserveSpeciesId),
+    );
     unit.data.ultMax = newSpecies.ultMax;
     unit.data.autoUlt = newSpecies.ultAutoDefault;
     unit.data.fainted = false;
@@ -1274,13 +1348,74 @@ export class BattleScene extends Phaser.Scene {
       ) {
         this.reserveIds.push(choice.speciesId);
       }
-      if (unlockPokemon(this.playerSave, choice.speciesId)) {
-        persistPlayerSave(this.playerSave);
-      }
+      const shardText = this.awardRecruitShards(choice.speciesId);
+      statusDetail = `${statusDetail} (${shardText})`;
     }
 
     this.rewardChoices = [];
     this.advanceAfterReward(`Picked ${choice.title}${statusDetail}.`);
+  }
+
+  private awardRecruitShards(speciesId: string): string {
+    const shardGain = addShardsToSpecies(
+      this.playerSave,
+      speciesId,
+      RECRUIT_SHARDS,
+    );
+    persistPlayerSave(this.playerSave);
+    const spName = POKEMON_SPECIES[speciesId]?.name ?? speciesId;
+    const entry = this.playerSave.pokemon[speciesId];
+    const isUnlocked = Boolean(entry?.unlocked);
+    const totalShards = entry?.shards ?? 0;
+    const unlockCost = getUnlockShardCost(speciesId);
+    if (shardGain.universalShardsAdded > 0) {
+      return `+${shardGain.universalShardsAdded} Universal Shards`;
+    }
+    if (!isUnlocked && totalShards >= unlockCost) {
+      return `+${shardGain.speciesShardsAdded} ${spName} Shards (${totalShards}/${unlockCost} — Ready to unlock in Pokédex!)`;
+    }
+    if (!isUnlocked) {
+      return `+${shardGain.speciesShardsAdded} ${spName} Shards (${totalShards}/${unlockCost})`;
+    }
+    return `+${shardGain.speciesShardsAdded} ${spName} Shards`;
+  }
+
+  public unlockSpeciesWithShards(speciesId: string): boolean {
+    if (!unlockSpeciesWithShardsFromSave(this.playerSave, speciesId)) {
+      return false;
+    }
+    persistPlayerSave(this.playerSave);
+    this.sfx.play('ui_click', 0);
+    const name = POKEMON_SPECIES[speciesId]?.name ?? speciesId;
+    this.setStatus(`Unlocked ${name}!`);
+    return true;
+  }
+
+  public upgradeSpeciesPotential(speciesId: string): boolean {
+    if (!upgradeSpeciesPotentialFromSave(this.playerSave, speciesId)) {
+      return false;
+    }
+    persistPlayerSave(this.playerSave);
+    this.sfx.play('ui_click', 0);
+    const name = POKEMON_SPECIES[speciesId]?.name ?? speciesId;
+    const rank = this.getSpeciesPotential(speciesId);
+    this.setStatus(`${name} reached Potential ★${rank}!`);
+    return true;
+  }
+
+  public hatchEgg(tier: EggTier): EggHatchResult | null {
+    const result = hatchEggFromSave(this.playerSave, tier, this.rng);
+    if (!result) return null;
+    persistPlayerSave(this.playerSave);
+    this.sfx.play('ui_click', 0);
+    const name = POKEMON_SPECIES[result.speciesId]?.name ?? result.speciesId;
+    const detail = result.wasNewUnlock
+      ? 'NEW!'
+      : result.universalShardsAwarded > 0
+        ? `+${result.universalShardsAwarded} Universal Shards`
+        : `+${result.shardsAwarded} Shards`;
+    this.setStatus(`Hatched ${name} (${detail})`);
+    return result;
   }
 
   public closeShop(): void {
@@ -1391,6 +1526,14 @@ export class BattleScene extends Phaser.Scene {
       u.data.damageDealt = 0;
       u.data.damageTaken = 0;
       u.data.healingDone = 0;
+      const startUlt = computeStartingUlt(
+        u.data.ultMax,
+        this.getSpeciesPotential(u.data.speciesId),
+      );
+      if (u.data.ult < startUlt) {
+        u.data.ult = startUlt;
+        this.updateUnitBars(u);
+      }
     }
 
     this.activePortals = [];
@@ -2889,7 +3032,7 @@ export class BattleScene extends Phaser.Scene {
       gy,
       hp: maxHp,
       maxHp,
-      ult: 0,
+      ult: computeStartingUlt(spec.ultMax, this.getSpeciesPotential(speciesId)),
       ultMax: spec.ultMax,
       autoUlt: spec.ultAutoDefault,
       fainted: false,
@@ -3101,6 +3244,7 @@ export class BattleScene extends Phaser.Scene {
   private performBasicAttack(unit: UnitEntity, target: EnemyEntity): void {
     const spec = POKEMON_SPECIES[unit.data.speciesId];
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
+    const potential = this.getSpeciesPotential(unit.data.speciesId);
     unit.data.hitCount += 1;
 
     const {
@@ -3109,6 +3253,7 @@ export class BattleScene extends Phaser.Scene {
       ultCharge,
       lifestealHeal,
       chainDamage,
+      chainTargets,
     } = computeBasicAttackDamage({
       baseAtk: this.getUnitAtk(unit),
       speciesId: unit.data.speciesId,
@@ -3118,6 +3263,9 @@ export class BattleScene extends Phaser.Scene {
       targetHp: target.hp,
       targetMaxHp: target.maxHp,
       targetHasStatus: target.burnTimerMs > 0 || target.slowTimerMs > 0,
+      potential,
+      subclass: spec.subclass,
+      targetMovementType: ENEMY_SPECIES[target.speciesId]?.movementType,
     });
 
     this.addUnitUlt(unit, ultCharge);
@@ -3144,10 +3292,12 @@ export class BattleScene extends Phaser.Scene {
           }
         }
         if (unit.data.speciesId === '0012' || branch?.special === 'slow_hit') {
-          target.slowTimerMs = Math.max(
-            target.slowTimerMs,
+          const slowDuration = computeSlowDurationMs(
             unit.data.speciesId === '0012' ? 3000 : 2000,
+            potential,
+            spec.subclass,
           );
+          target.slowTimerMs = Math.max(target.slowTimerMs, slowDuration);
         }
         this.damageEnemy(target, dmg, unit, isCrit);
 
@@ -3164,14 +3314,16 @@ export class BattleScene extends Phaser.Scene {
           this.updateUnitBars(unit);
         }
 
-        if (chainDamage > 0) {
-          const chainTarget = this.enemies.find(
-            (e) =>
-              e.uid !== target.uid &&
-              e.hp > 0 &&
-              chebyshevDist(e.gx, e.gy, target.gx, target.gy) <= 2,
-          );
-          if (chainTarget) {
+        if (chainDamage > 0 && chainTargets > 0) {
+          const chainHits = this.enemies
+            .filter(
+              (e) =>
+                e.uid !== target.uid &&
+                e.hp > 0 &&
+                chebyshevDist(e.gx, e.gy, target.gx, target.gy) <= 2,
+            )
+            .slice(0, chainTargets);
+          for (const chainTarget of chainHits) {
             this.damageEnemy(chainTarget, chainDamage, unit, false);
           }
         }
@@ -3264,9 +3416,16 @@ export class BattleScene extends Phaser.Scene {
     const atk = this.getUnitAtk(unit);
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
     const ultMult = branch?.ultMult ?? 1;
+    const potential = this.getSpeciesPotential(unit.data.speciesId);
 
     if (isHealUltSpecies(unit.data.speciesId)) {
-      const healAmount = Math.round(atk * 2.5 * ultMult);
+      const healAmount = computeUltPower(
+        atk,
+        ultMult,
+        true,
+        potential,
+        spec.subclass,
+      );
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
         if (Math.hypot(ally.data.gx - gx, ally.data.gy - gy) <= ULT_RADIUS) {
@@ -3286,15 +3445,26 @@ export class BattleScene extends Phaser.Scene {
         }
       }
       if (unit.data.speciesId === '0012') {
+        const slowDuration = computeSlowDurationMs(
+          3500,
+          potential,
+          spec.subclass,
+        );
         for (const enemy of [...this.enemies]) {
           if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
             enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
-            enemy.slowTimerMs = Math.max(enemy.slowTimerMs, 3500);
+            enemy.slowTimerMs = Math.max(enemy.slowTimerMs, slowDuration);
           }
         }
       }
     } else {
-      const ultDmg = Math.round(atk * 2.2 * ultMult);
+      const ultDmg = computeUltPower(
+        atk,
+        ultMult,
+        false,
+        potential,
+        spec.subclass,
+      );
       for (const enemy of [...this.enemies]) {
         if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
           if (unit.data.speciesId === '0143') {
@@ -3328,7 +3498,7 @@ export class BattleScene extends Phaser.Scene {
   private buildSpawnQueue(): void {
     this.spawnQueue = [];
     this.spawnQueueIndex = 0;
-    const waveDef = WAVE_DEFINITIONS[this.wave - 1];
+    const waveDef = this.activeWaves[this.wave - 1];
     if (!waveDef) return;
 
     let portalIdx = 0;
@@ -3799,10 +3969,14 @@ export class BattleScene extends Phaser.Scene {
     attacker: UnitEntity | null,
   ): void {
     const spec = ENEMY_SPECIES[enemy.speciesId];
-    const bountyMult = this.artifacts.includes('commanders_insignia')
-      ? 1.25
-      : 1;
-    const bounty = Math.round(spec.bounty * bountyMult);
+    const potential = attacker
+      ? this.getSpeciesPotential(attacker.data.speciesId)
+      : 0;
+    const bounty = computeKillBounty(
+      spec.bounty,
+      this.artifacts.includes('commanders_insignia'),
+      potential,
+    );
 
     this.gold += bounty;
     this.kills += 1;
@@ -3992,8 +4166,35 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.wave >= this.maxWaves) {
       this.phase = 'VICTORY';
+      const squadSpeciesIds = Array.from(
+        new Set([
+          ...this.draftIds,
+          ...this.units.map((u) => u.data.speciesId),
+          ...this.reserveIds,
+        ]),
+      );
+      const mapSpec = MAP_BY_ID[this.selectedMapId];
+      const reward = applyRunVictoryRewards(this.playerSave, {
+        mapId: this.selectedMapId,
+        difficulty: mapSpec?.difficulty ?? 'Beginner',
+        squadSpeciesIds,
+        coreHp: Math.max(0, Math.round(this.coreHp)),
+        coreMaxHp: this.coreMaxHp,
+        rng: this.rng,
+      });
+      persistPlayerSave(this.playerSave);
       this.sfx.play('wave_clear', 0);
-      this.setStatus('Victory! The Bastion Core survived all 3 waves.');
+      const eggCount =
+        reward.eggsEarned.common +
+        reward.eggsEarned.rare +
+        reward.eggsEarned.master;
+      const rewardHint =
+        eggCount > 0
+          ? ` Earned ${eggCount} egg${eggCount > 1 ? 's' : ''}!`
+          : '';
+      this.setStatus(
+        `Victory! The Bastion Core survived all ${this.maxWaves} waves.${rewardHint}`,
+      );
       return;
     }
 
@@ -4025,7 +4226,7 @@ export class BattleScene extends Phaser.Scene {
       ownedSpecies,
       this.upgrades,
       this.artifacts,
-      Math.random,
+      this.rng,
       unbranchedUnits,
       false,
       this.units.length < MAX_ACTIVE_UNITS ||
@@ -4184,12 +4385,22 @@ export class BattleScene extends Phaser.Scene {
   // Stat Helpers & Lookups
   // ---------------------------------------------------------------------------
 
+  private getSpeciesPotential(speciesId: string): number {
+    return this.playerSave.pokemon[speciesId]?.mastery ?? 0;
+  }
+
   private computeUnitMaxHp(
     speciesId: string,
     branchId: string | null = null,
     heldItems: string[] = [],
   ): number {
-    return getEffectiveMaxHp(speciesId, this.upgrades, branchId, heldItems);
+    return computeCombatUnitMaxHp(
+      speciesId,
+      this.upgrades,
+      branchId,
+      heldItems,
+      this.getSpeciesPotential(speciesId),
+    );
   }
 
   private computeStructureMaxHp(baseMaxHp: number): number {
@@ -4199,10 +4410,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private getUnitRange(unit: UnitEntity): number {
-    return getEffectiveRange(
+    return computeUnitRange(
       unit.data.speciesId,
       unit.data.branchId,
       this.upgrades,
+      this.getSpeciesPotential(unit.data.speciesId),
     );
   }
 
@@ -4220,21 +4432,23 @@ export class BattleScene extends Phaser.Scene {
           unit.data.gy,
         ) <= 2,
     );
-    return getEffectiveAtk(
+    return computeUnitAtk(
       unit.data.speciesId,
       this.upgrades,
       hasBulbasaurAura,
       unit.data.branchId,
       unit.data.heldItems,
+      this.getSpeciesPotential(unit.data.speciesId),
     );
   }
 
   private getUnitDef(unit: UnitEntity): number {
-    let def = getEffectiveDef(
+    let def = computeUnitDef(
       unit.data.speciesId,
       unit.data.branchId,
       unit.data.heldItems,
       this.upgrades,
+      this.getSpeciesPotential(unit.data.speciesId),
     );
     if (
       unit.data.speciesId === '0007' &&
@@ -4252,12 +4466,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private getUnitAttackIntervalMs(unit: UnitEntity): number {
-    let interval = getEffectiveAttackIntervalMs(
+    let interval = computeUnitAttackIntervalMs(
       unit.data.speciesId,
       this.artifacts,
       unit.data.branchId,
       unit.data.heldItems,
       this.upgrades,
+      this.getSpeciesPotential(unit.data.speciesId),
     );
     if (unit.data.speciesId === '0133') {
       interval = Math.round(interval / 1.2);

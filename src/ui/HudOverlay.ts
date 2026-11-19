@@ -1,7 +1,15 @@
 import Phaser from 'phaser';
 import type { BattleScene } from '../scenes/BattleScene';
 import { POKEMON_SPECIES } from '../data/pokemon';
-import { ContextInspectTarget, GameSnapshot, MapDifficulty } from '../types';
+import {
+  ContextInspectTarget,
+  EggHatchResult,
+  EggTier,
+  GameSnapshot,
+  MapDifficulty,
+  PokemonClass,
+  PokemonRarity,
+} from '../types';
 import { ToolId } from './hudShared';
 import {
   CombatStatTab,
@@ -28,7 +36,14 @@ export class HudOverlay {
   private lastPopoverHtml = '';
   private showCredits = false;
   private showPokedex = false;
+  private showEggs = false;
+  private showHatchRates = false;
+  private hatchResult: EggHatchResult | null = null;
+  private hatchSeq = 0;
   private pokedexFilter: 'all' | 'unlocked' | 'locked' = 'all';
+  private rosterClassFilter: 'All' | PokemonClass = 'All';
+  private rosterRarityFilter: 'All' | PokemonRarity = 'All';
+  private rosterCostFilter: 'All' | '1' | '2' | '3' | '4' | '5+' = 'All';
   private inspectedPokedexId: string | null = '0001';
   private mapDifficultyFilter: 'All' | MapDifficulty = 'All';
   private combatStatTab: CombatStatTab = 'dealt';
@@ -109,6 +124,49 @@ export class HudOverlay {
       this.renderModal();
       return;
     }
+    if (action === 'toggle-draft-card') {
+      if (id) {
+        this.inspectedDraftId = id;
+        this.scene()?.toggleDraftSpecies?.(id);
+        this.renderModal();
+      }
+      return;
+    }
+    if (action === 'reset-roster-filters') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.rosterClassFilter = 'All';
+      this.rosterRarityFilter = 'All';
+      this.rosterCostFilter = 'All';
+      this.renderModal();
+      return;
+    }
+    if (action === 'open-eggs') {
+      this.scene()?.playUiSfx?.('ui_click');
+      if (!this.showEggs) this.capturePreviousFocus();
+      this.showEggs = true;
+      this.showHatchRates = false;
+      this.renderModal();
+      return;
+    }
+    if (action === 'close-eggs') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showEggs = false;
+      this.showHatchRates = false;
+      this.renderModal();
+      return;
+    }
+    if (action === 'toggle-hatch-rates') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.showHatchRates = !this.showHatchRates;
+      this.renderModal();
+      return;
+    }
+    if (action === 'close-hatch-result') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.hatchResult = null;
+      this.renderModal();
+      return;
+    }
     if (action === 'pokedex-filter') {
       this.scene()?.playUiSfx?.('ui_click');
       this.pokedexFilter = id === 'unlocked' || id === 'locked' ? id : 'all';
@@ -151,7 +209,11 @@ export class HudOverlay {
       } else if (
         action === 'confirm-draft' ||
         action === 'pick-reward' ||
-        action === 'pick-branch'
+        action === 'pick-branch' ||
+        action === 'unlock-species' ||
+        action === 'upgrade-potential' ||
+        action === 'hatch-egg' ||
+        action === 'hatch-another'
       ) {
         scene.playUiSfx?.('ui_confirm');
       } else {
@@ -300,6 +362,35 @@ export class HudOverlay {
         }
         break;
       }
+      case 'unlock-species':
+        if (id) scene.unlockSpeciesWithShards?.(id);
+        break;
+      case 'upgrade-potential':
+        if (id) scene.upgradeSpeciesPotential?.(id);
+        break;
+      case 'hatch-egg': {
+        const tier = id as EggTier;
+        if (tier === 'common' || tier === 'rare' || tier === 'master') {
+          const res = scene.hatchEgg?.(tier) ?? null;
+          if (res) {
+            this.hatchResult = res;
+            this.hatchSeq += 1;
+            this.renderModal();
+          }
+        }
+        break;
+      }
+      case 'hatch-another': {
+        if (!this.hatchResult) break;
+        const tier = this.hatchResult.eggTier;
+        const res = scene.hatchEgg?.(tier) ?? null;
+        if (res) {
+          this.hatchResult = res;
+          this.hatchSeq += 1;
+          this.renderModal();
+        }
+        break;
+      }
       case 'restart-run':
         scene.restartRun?.();
         break;
@@ -361,6 +452,11 @@ export class HudOverlay {
       target === this.modalRoot ||
       target?.classList.contains('menu-backdrop')
     ) {
+      if (this.hatchResult) {
+        this.hatchResult = null;
+        this.renderModal();
+        return;
+      }
       if (this.showCredits) {
         this.showCredits = false;
         this.renderModal();
@@ -368,6 +464,12 @@ export class HudOverlay {
       }
       if (this.showPokedex) {
         this.showPokedex = false;
+        this.renderModal();
+        return;
+      }
+      if (this.showEggs) {
+        this.showEggs = false;
+        this.showHatchRates = false;
         this.renderModal();
         return;
       }
@@ -439,6 +541,11 @@ export class HudOverlay {
     }
 
     if (ev.key !== 'Escape') return;
+    if (this.hatchResult) {
+      this.hatchResult = null;
+      this.renderModal();
+      return;
+    }
     if (this.showCredits) {
       this.showCredits = false;
       this.renderModal();
@@ -446,6 +553,12 @@ export class HudOverlay {
     }
     if (this.showPokedex) {
       this.showPokedex = false;
+      this.renderModal();
+      return;
+    }
+    if (this.showEggs) {
+      this.showEggs = false;
+      this.showHatchRates = false;
       this.renderModal();
       return;
     }
@@ -554,10 +667,30 @@ export class HudOverlay {
     this.sidePanel?.addEventListener('focusin', this.onToolEnter);
     this.sidePanel?.addEventListener('focusout', this.onToolLeave);
     this.modalRoot?.addEventListener('click', this.onModalClick);
+    this.modalRoot?.addEventListener('change', this.onModalChange);
     this.modalRoot?.addEventListener('dblclick', this.onModalDblClick);
     document.addEventListener('pointerdown', this.onDocumentPointerDown);
     window.addEventListener('keydown', this.onKeyDown);
   }
+
+  private readonly onModalChange = (ev: Event): void => {
+    const target = ev.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    const action = target.dataset.action;
+    if (!action) return;
+    this.scene()?.playUiSfx?.('ui_click');
+    if (action === 'roster-class-filter') {
+      this.rosterClassFilter = target.value as 'All' | PokemonClass;
+      this.renderModal();
+    } else if (action === 'roster-rarity-filter') {
+      this.rosterRarityFilter = target.value as 'All' | PokemonRarity;
+      this.renderModal();
+    } else if (action === 'roster-cost-filter') {
+      this.rosterCostFilter = target.value as
+        'All' | '1' | '2' | '3' | '4' | '5+';
+      this.renderModal();
+    }
+  };
 
   private updateShopTooltip(): void {
     if (!this.sidePanel || !this.lastSnap) return;
@@ -713,7 +846,14 @@ export class HudOverlay {
     const { html, invalidExpandedUnit } = renderModalHtml(this.lastSnap, {
       showCredits: this.showCredits,
       showPokedex: this.showPokedex,
+      showEggs: this.showEggs,
+      showHatchRates: this.showHatchRates,
+      hatchResult: this.hatchResult,
+      hatchSeq: this.hatchSeq,
       pokedexFilter: this.pokedexFilter,
+      rosterClassFilter: this.rosterClassFilter,
+      rosterRarityFilter: this.rosterRarityFilter,
+      rosterCostFilter: this.rosterCostFilter,
       inspectedPokedexId: this.inspectedPokedexId,
       mapDifficultyFilter: this.mapDifficultyFilter,
       inspectedDraftId: this.inspectedDraftId,
@@ -724,8 +864,42 @@ export class HudOverlay {
     }
     const modalKind = this.getModalKind();
     if (html !== this.lastModalHtml) {
+      const sameModal = modalKind === this.lastModalKind && modalKind !== '';
+      if (
+        sameModal &&
+        (modalKind === 'pokedex' || modalKind === 'draft') &&
+        this.patchRosterModalInPlace(html)
+      ) {
+        this.lastModalHtml = html;
+        this.lastModalKind = modalKind;
+        return;
+      }
+      const savedScrolls = sameModal
+        ? {
+            grid:
+              this.modalRoot.querySelector<HTMLElement>('.draft-roster-grid')
+                ?.scrollTop ?? 0,
+            detail:
+              this.modalRoot.querySelector<HTMLElement>('.draft-detail-panel')
+                ?.scrollTop ?? 0,
+            card:
+              this.modalRoot.querySelector<HTMLElement>('.modal-card')
+                ?.scrollTop ?? 0,
+          }
+        : null;
       this.modalRoot.innerHTML = html;
       this.lastModalHtml = html;
+      if (savedScrolls) {
+        const gridEl =
+          this.modalRoot.querySelector<HTMLElement>('.draft-roster-grid');
+        const detailEl = this.modalRoot.querySelector<HTMLElement>(
+          '.draft-detail-panel',
+        );
+        const cardEl = this.modalRoot.querySelector<HTMLElement>('.modal-card');
+        if (gridEl) gridEl.scrollTop = savedScrolls.grid;
+        if (detailEl) detailEl.scrollTop = savedScrolls.detail;
+        if (cardEl) cardEl.scrollTop = savedScrolls.card;
+      }
       if (html !== '' && modalKind !== this.lastModalKind) {
         this.focusModal();
       } else if (html === '' && this.lastModalKind !== '') {
@@ -733,6 +907,67 @@ export class HudOverlay {
       }
       this.lastModalKind = modalKind;
     }
+  }
+
+  private patchRosterModalInPlace(html: string): boolean {
+    if (!this.modalRoot) return false;
+    const oldGrid =
+      this.modalRoot.querySelector<HTMLElement>('.draft-roster-grid');
+    if (!oldGrid) return false;
+
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html.trim();
+    const newGrid =
+      tpl.content.querySelector<HTMLElement>('.draft-roster-grid');
+    if (!newGrid) return false;
+
+    const oldCards = Array.from(oldGrid.children) as HTMLElement[];
+    const newCards = Array.from(newGrid.children) as HTMLElement[];
+    if (oldCards.length !== newCards.length) return false;
+    for (let i = 0; i < oldCards.length; i++) {
+      const oldId = oldCards[i].dataset.id;
+      const newId = newCards[i].dataset.id;
+      if (!oldId || oldId !== newId) return false;
+    }
+
+    // Sync card classes & aria-pressed without replacing <img> nodes
+    for (let i = 0; i < oldCards.length; i++) {
+      if (oldCards[i].className !== newCards[i].className) {
+        oldCards[i].className = newCards[i].className;
+      }
+      const pressed = newCards[i].getAttribute('aria-pressed');
+      if (pressed !== null) {
+        oldCards[i].setAttribute('aria-pressed', pressed);
+      }
+    }
+
+    // Update detail panel, team bar, and header if present
+    const oldDetail = this.modalRoot.querySelector<HTMLElement>(
+      '.draft-detail-panel',
+    );
+    const newDetail = tpl.content.querySelector<HTMLElement>(
+      '.draft-detail-panel',
+    );
+    if (oldDetail && newDetail) {
+      oldDetail.innerHTML = newDetail.innerHTML;
+    }
+
+    const oldTeamBar =
+      this.modalRoot.querySelector<HTMLElement>('.draft-team-bar');
+    const newTeamBar =
+      tpl.content.querySelector<HTMLElement>('.draft-team-bar');
+    if (oldTeamBar && newTeamBar) {
+      oldTeamBar.innerHTML = newTeamBar.innerHTML;
+    }
+
+    const oldHeader =
+      this.modalRoot.querySelector<HTMLElement>('.modal-header');
+    const newHeader = tpl.content.querySelector<HTMLElement>('.modal-header');
+    if (oldHeader && newHeader && oldHeader.innerHTML !== newHeader.innerHTML) {
+      oldHeader.innerHTML = newHeader.innerHTML;
+    }
+
+    return true;
   }
 
   private captureSidePanelFocusSelector(): string | null {
@@ -765,8 +1000,10 @@ export class HudOverlay {
   }
 
   private getModalKind(): string {
+    if (this.hatchResult) return `hatch-result:${this.hatchSeq}`;
     if (this.showCredits) return 'credits';
     if (this.showPokedex) return 'pokedex';
+    if (this.showEggs) return this.showHatchRates ? 'eggs-rates' : 'eggs';
     if (!this.lastSnap) return '';
     const { phase } = this.lastSnap;
     if (

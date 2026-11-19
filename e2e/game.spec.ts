@@ -35,19 +35,13 @@ async function draftStarterTeamAndEnterPrep(
     }
     await expect(confirmBtn).toBeDisabled();
 
-    // Draft up to 6 starter units within the 10-point budget
+    // Draft up to 6 starter units within the 10-point budget by clicking their portraits
     for (const id of ['0001', '0004', '0007', '0025', '0074', '0092']) {
-      const inspect = page.locator(
-        `[data-action="inspect-draft"][data-id="${id}"]`,
+      const card = page.locator(
+        `[data-action="toggle-draft-card"][data-id="${id}"]`,
       );
-      if ((await inspect.count()) > 0) {
-        await inspect.click();
-        const toggle = page.locator(
-          `[data-action="toggle-draft"][data-id="${id}"]`,
-        );
-        if (await toggle.isEnabled()) {
-          await toggle.click();
-        }
+      if ((await card.count()) > 0) {
+        await card.click();
       }
     }
   }
@@ -55,7 +49,9 @@ async function draftStarterTeamAndEnterPrep(
   await expect(confirmBtn).toBeEnabled();
   await confirmBtn.click();
 
-  await expect(page.locator('#top-bar')).toContainText(/Wave\s+1\s*\/\s*10/);
+  await expect(page.locator('#top-bar')).toContainText(
+    /Wave\s+1\s*\/\s*(10|2)/,
+  );
   await expect(page.locator('#top-bar')).toContainText('PREP');
 }
 
@@ -110,6 +106,35 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await page
       .locator('[data-action="pokedex-filter"][data-id="unlocked"]')
       .click();
+    await page.locator('[data-action="pokedex-filter"][data-id="all"]').click();
+    // Verify scroll position AND portrait DOM nodes are preserved when clicking a Pokédex card
+    await page.evaluate(() => {
+      const grid = document.querySelector('.draft-roster-grid');
+      if (grid) grid.scrollTop = 300;
+      const firstImg = grid?.querySelector('img');
+      if (firstImg) firstImg.setAttribute('data-keep', '1');
+    });
+    await page
+      .locator('[data-action="inspect-pokedex"][data-id="0025"]')
+      .click();
+    const { scrollAfterClick, imgPreserved } = await page.evaluate(() => ({
+      scrollAfterClick:
+        document.querySelector('.draft-roster-grid')?.scrollTop ?? 0,
+      imgPreserved:
+        document
+          .querySelector('.draft-roster-grid img')
+          ?.getAttribute('data-keep') === '1',
+    }));
+    expect(scrollAfterClick).toBeGreaterThan(200);
+    expect(imgPreserved).toBe(true);
+    // Verify attribute filter works
+    await page
+      .locator('[data-action="roster-class-filter"]')
+      .selectOption('Defender');
+    await expect(
+      page.locator('[data-action="reset-roster-filters"]'),
+    ).toBeVisible();
+    await page.locator('[data-action="reset-roster-filters"]').click();
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-action="home-play"]')).toBeVisible();
 
@@ -119,6 +144,17 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await page
       .locator('#modal-root .menu-backdrop')
       .click({ position: { x: 10, y: 10 } });
+    await expect(page.locator('[data-action="home-play"]')).toBeVisible();
+
+    // Open Eggs modal, view Hatch Rates info, and close with Escape
+    await page.locator('[data-action="open-eggs"]').click();
+    await expect(
+      page.locator('[data-action="toggle-hatch-rates"]'),
+    ).toBeVisible();
+    await page.locator('[data-action="toggle-hatch-rates"]').click();
+    await expect(page.locator('.hatch-rates-table')).toBeVisible();
+    await page.locator('[data-action="toggle-hatch-rates"]').click();
+    await page.keyboard.press('Escape');
     await expect(page.locator('[data-action="home-play"]')).toBeVisible();
 
     expect(errors).toEqual([]);
@@ -218,7 +254,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     page,
   }) => {
     const { errors } = attachErrorGuards(page);
-    await page.goto('/');
+    await page.goto('/?seed=42&e2eMap=1');
     await draftStarterTeamAndEnterPrep(page, true);
 
     // Place 2 wood walls + 2 barrels near center from the PREP Building Shop sidebar (₽100 total)
@@ -265,10 +301,10 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     );
     const wave2Prep = page
       .locator('#top-bar')
-      .filter({ hasText: /Wave\s+2\s*\/\s*10/ });
+      .filter({ hasText: /Wave\s+2\s*\/\s*2/ });
 
     await expect(rewardOrBranch.first().or(wave2Prep)).toBeVisible({
-      timeout: 35_000,
+      timeout: 20_000,
     });
 
     for (let i = 0; i < 4; i++) {
@@ -281,7 +317,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
       }
     }
 
-    await expect(page.locator('#top-bar')).toContainText(/Wave\s+2\s*\/\s*10/);
+    await expect(page.locator('#top-bar')).toContainText(/Wave\s+2\s*\/\s*2/);
     await expect(page.locator('#top-bar')).toContainText('PREP');
     expect(errors).toEqual([]);
   });
@@ -301,8 +337,9 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
       await clearBtn.click();
     }
     // Draft only 1 unit so Wave 1 enemies overwhelm the Core -> DEFEAT
-    await page.locator('[data-action="inspect-draft"][data-id="0001"]').click();
-    await page.locator('[data-action="toggle-draft"][data-id="0001"]').click();
+    await page
+      .locator('[data-action="toggle-draft-card"][data-id="0001"]')
+      .click();
     await page.locator('[data-action="confirm-draft"]').click();
 
     await expect(page.locator('#top-bar')).toContainText('PREP');
@@ -388,10 +425,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     if (await clearBtn.isEnabled()) await clearBtn.click();
     for (const id of ['0001', '0004']) {
       await page
-        .locator(`[data-action="inspect-draft"][data-id="${id}"]`)
-        .click();
-      await page
-        .locator(`[data-action="toggle-draft"][data-id="${id}"]`)
+        .locator(`[data-action="toggle-draft-card"][data-id="${id}"]`)
         .click();
     }
     await page.locator('[data-action="confirm-draft"]').click();
