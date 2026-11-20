@@ -1,5 +1,11 @@
 import { POKEMON_SPECIES } from '../data/pokemon';
-import { MovementType, PokemonBranch, PokemonSubclass } from '../types';
+import {
+  MovementType,
+  PokemonBranch,
+  PokemonSubclass,
+  TARGET_PRIORITIES,
+  TargetPriority,
+} from '../types';
 import { getPotentialBonuses } from './progression';
 import {
   getEffectiveAtk,
@@ -8,6 +14,23 @@ import {
   getEffectiveMaxHp,
   getEffectiveRange,
 } from './rules';
+import {
+  EffectivenessTier,
+  PokemonElementType,
+  computeTypeEffectiveness,
+  getSpeciesTypes,
+} from './typeChart';
+
+export { TARGET_PRIORITIES };
+export type { TargetPriority };
+
+export const TARGET_PRIORITY_LABELS: Record<TargetPriority, string> = {
+  first: 'First',
+  last: 'Last',
+  close: 'Close',
+  strong: 'Strong',
+  advantageous: 'Advantageous',
+};
 
 function getSpeciesPotentialBonuses(
   speciesId: string,
@@ -150,6 +173,8 @@ export interface BasicAttackDamageInput {
   potential?: number;
   subclass?: PokemonSubclass;
   targetMovementType?: MovementType;
+  attackType?: PokemonElementType;
+  defenderTypes?: readonly PokemonElementType[];
 }
 
 export interface BasicAttackDamageResult {
@@ -159,6 +184,8 @@ export interface BasicAttackDamageResult {
   lifestealHeal: number;
   chainDamage: number;
   chainTargets: number;
+  effectivenessTier: EffectivenessTier;
+  effectivenessMultiplier: number;
 }
 
 export function computeBasicAttackDamage(
@@ -197,6 +224,14 @@ export function computeBasicAttackDamage(
     damage = Math.round(damage * 1.35);
   }
 
+  const eff =
+    input.attackType && input.defenderTypes && input.defenderTypes.length > 0
+      ? computeTypeEffectiveness(input.attackType, input.defenderTypes)
+      : { multiplier: 1.0, tier: 'neutral' as EffectivenessTier };
+  if (eff.multiplier !== 1.0) {
+    damage = Math.max(1, Math.round(damage * eff.multiplier));
+  }
+
   const ultCharge = 15 * (input.speciesId === '0025' ? 1.1 : 1);
   const lifestealHeal =
     input.branchSpecial === 'lifesteal'
@@ -219,6 +254,8 @@ export function computeBasicAttackDamage(
     lifestealHeal,
     chainDamage,
     chainTargets,
+    effectivenessTier: eff.tier,
+    effectivenessMultiplier: eff.multiplier,
   };
 }
 
@@ -230,11 +267,15 @@ export interface EnemyAttackDamageInput {
   unitHeldItems: readonly string[];
   unitAdjacentToStructure: boolean;
   unitBranchSpecial?: PokemonBranch['special'];
+  attackType?: PokemonElementType;
+  defenderTypes?: readonly PokemonElementType[];
 }
 
 export interface EnemyAttackDamageResult {
   damage: number;
   reflectedThorns: number;
+  effectivenessTier: EffectivenessTier;
+  effectivenessMultiplier: number;
 }
 
 export function computeEnemyAttackDamage(
@@ -256,10 +297,270 @@ export function computeEnemyAttackDamage(
     damage = Math.max(2, Math.round(damage * 0.75));
   }
 
+  const eff =
+    input.attackType && input.defenderTypes && input.defenderTypes.length > 0
+      ? computeTypeEffectiveness(input.attackType, input.defenderTypes)
+      : { multiplier: 1.0, tier: 'neutral' as EffectivenessTier };
+  if (eff.multiplier !== 1.0) {
+    damage = Math.max(2, Math.round(damage * eff.multiplier));
+  }
+
   const reflectedThorns =
     input.unitBranchSpecial === 'thorns'
       ? Math.max(2, Math.round(damage * 0.25))
       : 0;
 
-  return { damage, reflectedThorns };
+  return {
+    damage,
+    reflectedThorns,
+    effectivenessTier: eff.tier,
+    effectivenessMultiplier: eff.multiplier,
+  };
+}
+
+export interface EnemyTargetUnit {
+  uid: string;
+  gx: number;
+  gy: number;
+  hp: number;
+  isFlying?: boolean;
+}
+
+export interface EnemyTargetGridPoint {
+  gx: number;
+  gy: number;
+}
+
+export interface SelectEnemyTargetInput {
+  gx: number;
+  gy: number;
+  range?: number;
+  aggroRadius?: number;
+  ignoresUnits?: boolean;
+  movementType?: MovementType;
+  units: readonly EnemyTargetUnit[];
+  coreCells: readonly EnemyTargetGridPoint[];
+}
+
+export interface EnemyTargetDecision {
+  attackUnitUid: string | null;
+  aggroUnitUid: string | null;
+  attackCoreCell: EnemyTargetGridPoint | null;
+}
+
+/**
+ * Checks whether target `(bx, by)` is within an enemy's attack range from `(ax, ay)`.
+ * Melee (`range <= 1`) uses Manhattan distance `<= 1`; ranged (`range > 1`) uses Chebyshev distance `<= range`.
+ */
+export function isEnemyInAttackRange(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  range = 1,
+): boolean {
+  const dx = Math.abs(ax - bx);
+  const dy = Math.abs(ay - by);
+  return range > 1 ? Math.max(dx, dy) <= range : dx + dy <= 1;
+}
+
+function pickNearestLowestHpUnit(
+  gx: number,
+  gy: number,
+  units: readonly EnemyTargetUnit[],
+  predicate: (u: EnemyTargetUnit) => boolean,
+): EnemyTargetUnit | null {
+  let best: EnemyTargetUnit | null = null;
+  let bestDist = Infinity;
+  let bestHp = Infinity;
+  for (const u of units) {
+    if (u.hp <= 0 || !predicate(u)) continue;
+    const dist = Math.hypot(u.gx - gx, u.gy - gy);
+    if (
+      dist < bestDist - 1e-6 ||
+      (Math.abs(dist - bestDist) <= 1e-6 && u.hp < bestHp)
+    ) {
+      bestDist = dist;
+      bestHp = u.hp;
+      best = u;
+    }
+  }
+  return best;
+}
+
+/**
+ * Selects an enemy's target:
+ * 1) Unless `ignoresUnits`, prioritize living units within 1 cell over the Core.
+ * 2) If a Core cell is in attack range, attack it (unless overridden by step 1).
+ * 3) Unless `ignoresUnits`, attack nearest (then lowest HP) living unit in attack range,
+ *    or aggro onto nearest living unit within `aggroRadius` (default 1 cell).
+ */
+export function selectEnemyTarget(
+  input: SelectEnemyTargetInput,
+): EnemyTargetDecision {
+  const range = input.range ?? 1;
+  const aggroRadius = input.aggroRadius ?? 1;
+  const canTargetFlying = input.movementType === 'fly' || range > 1;
+
+  let bestCore: EnemyTargetGridPoint | null = null;
+  let bestCoreDist = Infinity;
+  for (const c of input.coreCells) {
+    if (!isEnemyInAttackRange(input.gx, input.gy, c.gx, c.gy, range)) continue;
+    const dist = Math.hypot(c.gx - input.gx, c.gy - input.gy);
+    if (dist < bestCoreDist) {
+      bestCoreDist = dist;
+      bestCore = c;
+    }
+  }
+
+  if (!input.ignoresUnits) {
+    const closeUnit = pickNearestLowestHpUnit(
+      input.gx,
+      input.gy,
+      input.units,
+      (u) =>
+        (canTargetFlying || !u.isFlying) &&
+        Math.max(Math.abs(u.gx - input.gx), Math.abs(u.gy - input.gy)) <= 1 &&
+        isEnemyInAttackRange(input.gx, input.gy, u.gx, u.gy, range),
+    );
+    if (closeUnit) {
+      return {
+        attackUnitUid: closeUnit.uid,
+        aggroUnitUid: null,
+        attackCoreCell: null,
+      };
+    }
+
+    if (bestCore) {
+      return {
+        attackUnitUid: null,
+        aggroUnitUid: null,
+        attackCoreCell: bestCore,
+      };
+    }
+
+    const attackUnit = pickNearestLowestHpUnit(
+      input.gx,
+      input.gy,
+      input.units,
+      (u) =>
+        (canTargetFlying || !u.isFlying) &&
+        isEnemyInAttackRange(input.gx, input.gy, u.gx, u.gy, range),
+    );
+    if (attackUnit) {
+      return {
+        attackUnitUid: attackUnit.uid,
+        aggroUnitUid: null,
+        attackCoreCell: null,
+      };
+    }
+
+    const aggroUnit = pickNearestLowestHpUnit(
+      input.gx,
+      input.gy,
+      input.units,
+      (u) =>
+        (canTargetFlying || !u.isFlying) &&
+        Math.max(Math.abs(u.gx - input.gx), Math.abs(u.gy - input.gy)) <=
+          aggroRadius,
+    );
+    if (aggroUnit) {
+      return {
+        attackUnitUid: null,
+        aggroUnitUid: aggroUnit.uid,
+        attackCoreCell: null,
+      };
+    }
+  }
+
+  return {
+    attackUnitUid: null,
+    aggroUnitUid: null,
+    attackCoreCell: bestCore,
+  };
+}
+
+export interface UnitTargetCandidate {
+  uid: string;
+  gx: number;
+  gy: number;
+  hp: number;
+  speciesId: string;
+  coreProgressDist: number;
+}
+
+/**
+ * Selects the best target for a unit according to its BTD6-style targeting priority.
+ */
+export function selectUnitTarget(input: {
+  unitGx: number;
+  unitGy: number;
+  attackType: PokemonElementType;
+  priority?: TargetPriority;
+  candidates: readonly UnitTargetCandidate[];
+}): UnitTargetCandidate | null {
+  const priority: TargetPriority = input.priority ?? 'first';
+  let best: UnitTargetCandidate | null = null;
+  let bestPrimary = 0;
+  let bestSecondary = 0;
+
+  for (const c of input.candidates) {
+    if (c.hp <= 0) continue;
+
+    let primary: number;
+    let secondary: number;
+    let higherIsBetter: boolean;
+
+    switch (priority) {
+      case 'last':
+        primary = c.coreProgressDist;
+        secondary = c.hp;
+        higherIsBetter = true;
+        break;
+      case 'close':
+        primary = Math.hypot(c.gx - input.unitGx, c.gy - input.unitGy);
+        secondary = c.coreProgressDist;
+        higherIsBetter = false;
+        break;
+      case 'strong':
+        primary = c.hp;
+        secondary = c.coreProgressDist;
+        higherIsBetter = true;
+        break;
+      case 'advantageous':
+        primary = computeTypeEffectiveness(
+          input.attackType,
+          getSpeciesTypes(c.speciesId),
+        ).multiplier;
+        secondary = c.coreProgressDist;
+        higherIsBetter = true;
+        break;
+      case 'first':
+      default:
+        primary = c.coreProgressDist;
+        secondary = c.hp;
+        higherIsBetter = false;
+        break;
+    }
+
+    if (!best) {
+      best = c;
+      bestPrimary = primary;
+      bestSecondary = secondary;
+      continue;
+    }
+
+    const isBetterPrimary = higherIsBetter
+      ? primary > bestPrimary + 1e-6
+      : primary < bestPrimary - 1e-6;
+    const isTiedPrimary = Math.abs(primary - bestPrimary) <= 1e-6;
+
+    if (isBetterPrimary || (isTiedPrimary && secondary < bestSecondary)) {
+      best = c;
+      bestPrimary = primary;
+      bestSecondary = secondary;
+    }
+  }
+
+  return best;
 }

@@ -1,12 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  EVOLUTION_NEXT,
+  getBaseFamilyId,
+  getEvolutionTargets,
+} from '../src/data/evolutions';
 import { describe, expect, it } from 'vitest';
+import {
+  EVOLUTION_NEXT,
+  getBaseFamilyId,
+  getEvolutionTargets,
+} from '../src/data/evolutions';
 import {
   BGM_ASSETS,
   getSpeciesAttackSfx,
   getSpeciesUltSfx,
   SFX_ASSETS,
 } from '../src/audio/sfx';
+import {
+  EVOLUTION_NEXT,
+  getBaseFamilyId,
+  getEvolutionTargets,
+} from '../src/data/evolutions';
 import {
   ENEMY_SPECIES,
   HELD_ITEMS,
@@ -57,14 +72,25 @@ describe('Data & Asset Manifest Integrity', () => {
     }
   });
 
-  it('has 10 enemy species (base + evolved) with valid PMD sprites, PVFX hit keys, and 10 waves', () => {
+  it('has 13 enemy species (base + evolved + ranged) with valid PMD sprites, PVFX hit keys, and 10 waves', () => {
     const enemies = Object.values(ENEMY_SPECIES);
-    expect(enemies).toHaveLength(10);
+    expect(enemies).toHaveLength(13);
 
     for (const en of enemies) {
       const spriteKey = en.spriteId ?? en.id;
       expect(pokeManifest[spriteKey]).toBeDefined();
       expect(vfxManifest[en.hitVfx]).toBeDefined();
+      if (en.projectileVfx) {
+        expect(vfxManifest[en.projectileVfx]).toBeDefined();
+      }
+      if (en.range !== undefined) {
+        expect(Number.isFinite(en.range) && en.range >= 1).toBe(true);
+      }
+      if (en.attackIntervalMs !== undefined) {
+        expect(
+          Number.isFinite(en.attackIntervalMs) && en.attackIntervalMs > 0,
+        ).toBe(true);
+      }
     }
 
     expect(WAVE_DEFINITIONS).toHaveLength(10);
@@ -90,7 +116,12 @@ describe('Data & Asset Manifest Integrity', () => {
       expect(POKEMON_SPECIES[id].unlockedStarter).toBe(true);
     }
     expect(Object.keys(HELD_ITEMS)).toHaveLength(3);
-    expect(Object.keys(STRUCTURE_SPECS)).toHaveLength(4);
+    expect(Object.keys(STRUCTURE_SPECS)).toHaveLength(9);
+    for (const kind of Object.keys(STRUCTURE_SPECS)) {
+      expect(
+        fs.existsSync(path.join(PUBLIC_ASSETS, 'structures', `${kind}.png`)),
+      ).toBe(true);
+    }
     expect(REWARD_POOL.length).toBeGreaterThanOrEqual(6);
   });
 
@@ -129,5 +160,24 @@ describe('Data & Asset Manifest Integrity', () => {
       rewardIds.add(reward.id);
       expect(reward.desc.length).toBeGreaterThan(0);
     }
+  });
+
+  it('has valid Gen 1 evolution chains and unified family branches', () => {
+    for (const [fromId, targets] of Object.entries(EVOLUTION_NEXT)) {
+      expect(POKEMON_SPECIES[fromId]).toBeDefined();
+      expect(targets.length).toBeGreaterThan(0);
+      expect(getEvolutionTargets(fromId)).toEqual(targets);
+      for (const toId of targets) {
+        expect(POKEMON_SPECIES[toId]).toBeDefined();
+        const baseId = getBaseFamilyId(toId);
+        expect(POKEMON_SPECIES[baseId]).toBeDefined();
+        expect(POKEMON_SPECIES[toId].branches).toEqual(
+          POKEMON_SPECIES[baseId].branches,
+        );
+      }
+    }
+    expect(getBaseFamilyId('0003')).toBe('0001');
+    expect(getBaseFamilyId('0135')).toBe('0133');
+    expect(getBaseFamilyId('0001')).toBe('0001');
   });
 });

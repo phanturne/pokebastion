@@ -18,6 +18,7 @@ export interface TerrainRenderRefs {
 export interface PortalVisualState {
   portalGraphics: Phaser.GameObjects.Graphics;
   portalMarkers: Phaser.GameObjects.Rectangle[];
+  portalBadges: Phaser.GameObjects.GameObject[];
   portalTween: Phaser.Tweens.Tween | null;
 }
 
@@ -498,6 +499,7 @@ export function refreshPortalVisuals(
   activePortals: SpawnPortal[],
   state: PortalVisualState,
   closingPortalId?: string,
+  threats?: { hasFly: boolean; hasBurrow: boolean },
 ): void {
   if (state.portalTween) {
     state.portalTween.stop();
@@ -505,6 +507,8 @@ export function refreshPortalVisuals(
   }
   for (const m of state.portalMarkers) m.destroy();
   state.portalMarkers = [];
+  for (const b of state.portalBadges) b.destroy();
+  state.portalBadges = [];
   state.portalGraphics.clear();
 
   for (const portal of activePortals) {
@@ -590,6 +594,56 @@ export function refreshPortalVisuals(
           TILE_SIZE - 4,
         );
       }
+    }
+
+    if ((threats?.hasFly || threats?.hasBurrow) && portal.cells.length > 0) {
+      const avgX =
+        portal.cells.reduce((sum, pt) => sum + tileCenterX(pt.gx), 0) /
+        portal.cells.length;
+      const avgY =
+        portal.cells.reduce((sum, pt) => sum + tileCenterY(pt.gy), 0) /
+        portal.cells.length;
+      const bx = Phaser.Math.Clamp(
+        avgX + dirX * TILE_SIZE * 0.9,
+        24,
+        CANVAS_WIDTH - 24,
+      );
+      const by = Phaser.Math.Clamp(
+        avgY + dirY * TILE_SIZE * 0.9,
+        14,
+        CANVAS_HEIGHT - 14,
+      );
+
+      const badges: Array<{
+        label: string;
+        colorHex: number;
+        colorCss: string;
+      }> = [];
+      if (threats.hasFly) {
+        badges.push({ label: 'FLY', colorHex: 0x38bdf8, colorCss: '#38bdf8' });
+      }
+      if (threats.hasBurrow) {
+        badges.push({ label: 'DIG', colorHex: 0xf59e0b, colorCss: '#f59e0b' });
+      }
+
+      const startOffsetY = badges.length > 1 ? -9 : 0;
+      badges.forEach((badge, idx) => {
+        const py = by + startOffsetY + idx * 18;
+        const pill = scene.add
+          .rectangle(bx, py, 30, 15, 0x0f172a, 0.9)
+          .setStrokeStyle(1, badge.colorHex, 0.9)
+          .setDepth(7);
+        const text = scene.add
+          .text(bx, py, badge.label, {
+            fontFamily: 'monospace',
+            fontSize: '9px',
+            fontStyle: 'bold',
+            color: badge.colorCss,
+          })
+          .setOrigin(0.5)
+          .setDepth(7);
+        state.portalBadges.push(pill, text);
+      });
     }
   }
 

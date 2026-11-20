@@ -15,8 +15,8 @@ import {
   getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveMaxHp,
-  getEffectiveMoveRange,
   getEffectiveRange,
+  getPokemonReleaseRefund,
   getRepairCost,
   isShopAfterWave,
 } from '../engine/rules';
@@ -37,6 +37,8 @@ import {
   escapeHtml,
   pct,
   renderPokeIcon,
+  renderSpeciesTypeBadges,
+  renderTargetPriorityControl,
 } from './hudShared';
 
 export type CombatStatTab = 'dealt' | 'taken' | 'healed';
@@ -192,6 +194,7 @@ export function renderTopBarHtml(
       <button type="button" class="btn btn-speed" data-action="toggle-speed" aria-pressed="${snap.speedMult > 1}" title="Toggle simulation speed (1× / 2×)">${snap.speedMult}×</button>
       <button type="button" class="btn btn-icon" data-action="toggle-mute" aria-pressed="${snap.muted}" aria-label="${snap.muted ? 'Unmute audio' : 'Mute audio'}" title="${snap.muted ? 'Unmute audio (BGM & SFX)' : 'Mute audio (BGM & SFX)'}">${snap.muted ? SVG_SOUND_OFF : SVG_SOUND_ON}</button>
       <button type="button" class="btn btn-icon" data-action="toggle-shake" aria-pressed="${!snap.screenShakeEnabled}" aria-label="${snap.screenShakeEnabled ? 'Disable screen shake' : 'Enable screen shake'}" title="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}">${snap.screenShakeEnabled ? SVG_SHAKE_ON : SVG_SHAKE_OFF}</button>
+      <button type="button" class="btn" data-action="open-type-chart" title="Type Effectiveness Chart">Types</button>
       <button type="button" class="btn" data-action="toggle-credits">Credits</button>
       <button type="button" class="btn" data-action="back-home" title="Return to Home Screen">Home</button>
     </div>
@@ -387,18 +390,11 @@ function renderActiveModeBar(snap: GameSnapshot): string {
 
   if (snap.selectedTool === null) return '';
 
-  let text: string;
-  let barClass = 'active-mode-bar';
-  if (snap.selectedTool === 'sell_struct') {
-    text = 'Selling Structure — Click structure to refund 70%';
-    barClass = 'active-mode-bar sell';
-  } else {
-    const spec = STRUCTURE_SPECS[snap.selectedTool];
-    text = `Placing ${escapeHtml(spec.name)} — Click grass tile`;
-  }
+  const spec = STRUCTURE_SPECS[snap.selectedTool];
+  const text = `Placing ${escapeHtml(spec.name)} — Click grass tile`;
 
   return `
-    <div class="${barClass}">
+    <div class="active-mode-bar">
       <span class="active-mode-text">${text}</span>
       <button type="button" class="btn btn-danger btn-xs" data-action="cancel-action">Cancel (Esc / Right-Click)</button>
     </div>
@@ -412,19 +408,6 @@ export function renderShopTooltipContent(
   const tool = hoveredTool ?? snap.selectedTool;
   if (!tool) {
     return '';
-  }
-
-  if (tool === 'sell_struct') {
-    return `
-      <div class="shop-tooltip-head">
-        <span>Sell Structure</span>
-        <span class="tool-cost refund">+70% ₽</span>
-      </div>
-      <div class="shop-tooltip-tags">
-        <span class="tag">Refund</span>
-      </div>
-      <div class="shop-tooltip-desc">Click an existing structure to dismantle it and refund 70% of its build cost.</div>
-    `;
   }
 
   const spec = STRUCTURE_SPECS[tool];
@@ -473,8 +456,6 @@ function renderBuildPalette(snap: GameSnapshot): string {
     })
     .join('');
 
-  const sellActive = snap.selectedTool === 'sell_struct' ? 'active-danger' : '';
-
   const damagedStructs = snap.structures.filter(
     (s) => s.ruined || s.hp < s.maxHp,
   );
@@ -487,20 +468,6 @@ function renderBuildPalette(snap: GameSnapshot): string {
     <section class="card">
       <div class="tool-grid">
         ${structButtons}
-        <button
-          type="button"
-          class="tool-btn ${sellActive}"
-          data-action="select-tool"
-          data-id="sell_struct"
-          data-tool-tip="sell_struct"
-          aria-pressed="${snap.selectedTool === 'sell_struct'}"
-        >
-          <span class="tool-icon">${TOOL_ICONS.sell_struct}</span>
-          <span class="tool-meta">
-            <span class="tool-name">${TOOL_SHORT_NAME.sell_struct}</span>
-            <span class="tool-cost refund">+70% ₽</span>
-          </span>
-        </button>
       </div>
       ${
         damagedStructs.length > 0 && totalRepairCost > 0
@@ -606,16 +573,10 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
     snap.upgrades,
   );
   const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const mov = getEffectiveMoveRange(
-    species.moveRange,
-    snap.upgrades,
-    branch,
-    unit.speciesId,
-  );
 
   const tipLines = [
     `${species.name}${branch ? ` (${branch.name})` : ''} · ${species.pokeClass}`,
-    `HP ${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp} | ATK ${atk} | DEF ${def} | RNG ${range} | MOV ${mov}`,
+    `HP ${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp} | ATK ${atk} | DEF ${def} | RNG ${range}`,
     `Ult: ${species.ultName} (${Math.floor(unit.ult)}/${unit.ultMax})`,
     'Click to select · Double-click for Details',
   ].join('\n');
@@ -723,10 +684,9 @@ export function renderBottomBarHtml(snap: GameSnapshot): string {
     if (sp) {
       const hp = getEffectiveMaxHp(sp.id, snap.upgrades);
       const atk = getEffectiveAtk(sp.id, snap.upgrades);
-      const mov = getEffectiveMoveRange(sp.moveRange, snap.upgrades);
       tooltip = [
         `${sp.name} (${sp.pokeClass})`,
-        `HP ${hp} | ATK ${atk} | Range ${sp.range} | MOV ${mov}`,
+        `HP ${hp} | ATK ${atk} | Range ${sp.range}`,
         `Passive: ${sp.passiveDesc}`,
         `Ult — ${sp.ultName}: ${sp.ultDesc}`,
         canDeploy
@@ -737,21 +697,33 @@ export function renderBottomBarHtml(snap: GameSnapshot): string {
       ].join('\n');
     }
 
+    const reserveRefund = getPokemonReleaseRefund(id);
+    const releaseBtn =
+      snap.phase === 'PREP'
+        ? `<button type="button" class="bp-info-btn" data-action="release-reserve" data-id="${id}" aria-label="Release ${escapeHtml(name)} (+₽${reserveRefund})" title="Release ${escapeHtml(name)} (+₽${reserveRefund})">×</button>`
+        : '';
+
     if (canDeploy) {
       reserveSlots.push(`
         <div class="bp-slot reserve">
-          <button type="button" class="bp-portrait-btn reserve" data-action="deploy-reserve" data-id="${id}" title="${escapeHtml(tooltip)}">
-            ${renderPokeIcon(id)}
-          </button>
+          <div class="bp-portrait-wrap">
+            <button type="button" class="bp-portrait-btn reserve" data-action="deploy-reserve" data-id="${id}" title="${escapeHtml(tooltip)}">
+              ${renderPokeIcon(id)}
+            </button>
+            ${releaseBtn}
+          </div>
           <span class="bp-name">${escapeHtml(name)}</span>
         </div>
       `);
     } else {
       reserveSlots.push(`
         <div class="bp-slot reserve">
-          <button type="button" class="bp-portrait-btn reserve" data-action="swap-reserve" data-id="${id}" ${canSwap ? '' : 'disabled'} title="${escapeHtml(tooltip)}">
-            ${renderPokeIcon(id)}
-          </button>
+          <div class="bp-portrait-wrap">
+            <button type="button" class="bp-portrait-btn reserve" data-action="swap-reserve" data-id="${id}" ${canSwap ? '' : 'disabled'} title="${escapeHtml(tooltip)}">
+              ${renderPokeIcon(id)}
+            </button>
+            ${releaseBtn}
+          </div>
           <span class="bp-name">${escapeHtml(name)}</span>
         </div>
       `);
@@ -869,12 +841,6 @@ export function renderUnitPopoverHtml(
     snap.upgrades,
   );
   const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const mov = getEffectiveMoveRange(
-    species.moveRange,
-    snap.upgrades,
-    branch,
-    unit.speciesId,
-  );
   const intervalMs = getEffectiveAttackIntervalMs(
     unit.speciesId,
     snap.artifacts,
@@ -949,13 +915,14 @@ export function renderUnitPopoverHtml(
       </div>
       <button type="button" class="popover-close" data-action="close-popover" aria-label="Close">×</button>
     </div>
+    <div class="type-badge-row">${renderSpeciesTypeBadges(unit.speciesId)}</div>
+    ${renderTargetPriorityControl(unit)}
     <div class="popover-stats-grid">
       <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp}</span></div>
       <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
       <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
       <div class="unit-stat"><span class="unit-stat-lbl">RNG</span><span class="unit-stat-val">${range}</span></div>
       <div class="unit-stat"><span class="unit-stat-lbl">SPD</span><span class="unit-stat-val">${atkSpd}</span></div>
-      <div class="unit-stat"><span class="unit-stat-lbl">MOV</span><span class="unit-stat-val">${mov}</span></div>
     </div>
     <div class="popover-kit">
       <div class="popover-kit-line"><strong>Passive:</strong> ${escapeHtml(species.passiveDesc)}</div>
@@ -970,6 +937,11 @@ export function renderUnitPopoverHtml(
           : ''
       }
       ${prepBtn}
+      ${
+        snap.phase === 'PREP'
+          ? `<button type="button" class="btn btn-danger btn-xs" data-action="release-unit" data-id="${unit.uid}" ${snap.activeUnits.length > 1 ? '' : 'disabled'}>Release (+₽${getPokemonReleaseRefund(unit.speciesId, unit.branchId)})</button>`
+          : ''
+      }
       <button type="button" class="btn btn-xs" data-action="expand-unit" data-id="${unit.uid}">Details</button>
     </div>
   `;

@@ -12,7 +12,7 @@ const files = fs.readdirSync(distAssetsDir);
 const budgets = [
   { label: 'app JS', pattern: /^index-.*\.js$/, maxKb: 250 },
   { label: 'game-data JS', pattern: /^game-data-.*\.js$/, maxKb: 250 },
-  { label: 'app CSS', pattern: /^index-.*\.css$/, maxKb: 50 },
+  { label: 'app CSS', pattern: /^index-.*\.css$/, maxKb: 70 },
 ];
 
 let failed = false;

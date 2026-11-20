@@ -15,6 +15,7 @@ import {
   SfxKey,
   SfxPlayer,
 } from '../audio/sfx';
+import { getEvolutionTargets } from '../data/evolutions';
 import { MAP_BY_ID, createGridForMap } from '../data/maps';
 import {
   ENEMY_SPECIES,
@@ -37,7 +38,17 @@ import {
   computeUnitDef,
   computeUnitMaxHp as computeCombatUnitMaxHp,
   computeUnitRange,
+  selectEnemyTarget,
+  selectUnitTarget,
+  TARGET_PRIORITIES,
+  UnitTargetCandidate,
 } from '../engine/combat';
+import {
+  EffectivenessTier,
+  computeTypeEffectiveness,
+  getSpeciesAttackType,
+  getSpeciesTypes,
+} from '../engine/typeChart';
 import { getUnlockShardCost, RECRUIT_SHARDS } from '../engine/progression';
 import {
   addShardsToSpecies,
@@ -54,6 +65,7 @@ import {
 } from '../engine/save';
 import {
   CORE_CELLS,
+  findEnemyPathToTarget,
   findNearestBlockingWall,
   findPath,
   findUnitPath,
@@ -65,17 +77,24 @@ import {
 } from '../engine/pathfinding';
 import {
   canDraftSpecies,
+  canUnitEnterWater,
   computeProjectileLaunch,
   DRAFT_BUDGET,
   generateRewardChoices as buildRewardChoices,
   getBranchSpec,
   getDraftCost,
   getEffectiveMoveRange,
+  getEffectiveStructureMaxHp,
+  getPokemonReleaseRefund,
   getRepairCost,
+  getRewardRerollCost,
   getSellRefund,
   HEAL_COST,
+  RARE_CANDY_COST,
+  isFlyingSpecies,
   isInCircularRange,
   isShopAfterWave,
+  isSpecialEnemy,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   MAX_RESERVE_UNITS,
@@ -136,6 +155,7 @@ interface StructureEntity {
   sprite: Phaser.GameObjects.Image;
   hpBarBg: Phaser.GameObjects.Rectangle;
   hpBarFill: Phaser.GameObjects.Rectangle;
+  lightningRodTimerMs?: number;
 }
 
 interface EnemyEntity {
@@ -157,6 +177,7 @@ interface EnemyEntity {
   hitFlashTimerMs: number;
   path: GridPoint[];
   targetWallUid: string | null;
+  aggroUnitUid: string | null;
   repathTimerMs: number;
   sprite: Phaser.GameObjects.Sprite;
   hpBarBg: Phaser.GameObjects.Rectangle;
@@ -269,7 +290,7 @@ export class BattleScene extends Phaser.Scene {
   private slowMo = false;
   private screenShakeEnabled = true;
 
-  private selectedTool: StructureKind | 'sell_struct' | null = null;
+  private selectedTool: StructureKind | null = null;
   private selectedUnitUid: string | null = null;
   private selectedStructureUid: string | null = null;
   private movingStructureUid: string | null = null;
@@ -291,12 +312,14 @@ export class BattleScene extends Phaser.Scene {
   private artifacts: string[] = [];
   private upgrades: string[] = [];
   private rewardChoices: RewardOption[] = [];
+  private rewardRerollsUsed = 0;
   private pendingBranchUnitUid: string | null = null;
   private statusMessage = 'Prepare your defenses and position Pokémon.';
 
   private waveElapsedMs = 0;
   private berryHealTimerMs = 0;
   private nextUidCounter = 1;
+  private seenSpecialEnemies = new Set<string>();
   private hoverTile: GridPoint | null = null;
   private hoveredUnitUid: string | null = null;
   private hoveredEnemyUid: string | null = null;
@@ -373,6 +396,7 @@ export class BattleScene extends Phaser.Scene {
     this.portalVisualState = {
       portalGraphics: renderGridAndMarkers(this),
       portalMarkers: [],
+      portalBadges: [],
       portalTween: null,
     };
     this.coreHpBarFill = renderBastionCore(this);
@@ -600,7 +624,8 @@ export class BattleScene extends Phaser.Scene {
     this.inCombatFrame = true;
     try {
       this.processSpawnQueue();
-      this.updateBerryBushes(simDtMs);
+      this.updateSupportStructures(simDtMs);
+      this.updateLightningRods(simDtMs);
       this.updateEnemies(simDtMs);
       this.updateUnits(simDtMs);
     } finally {
@@ -683,6 +708,7 @@ export class BattleScene extends Phaser.Scene {
       artifacts: [...this.artifacts],
       upgrades: [...this.upgrades],
       rewardChoices: this.rewardChoices.map((r) => ({ ...r })),
+      rewardRerollsUsed: this.rewardRerollsUsed,
       pendingBranchUnitUid: this.pendingBranchUnitUid,
       statusMessage: this.statusMessage,
       pokemonProgress: buildPokemonProgressMap(this.playerSave),
@@ -698,7 +724,7 @@ export class BattleScene extends Phaser.Scene {
     };
   }
 
-  public selectTool(tool: StructureKind | 'sell_struct' | null): void {
+  public selectTool(tool: StructureKind | null): void {
     if (this.phase !== 'PREP' && tool !== null) {
       this.setStatus(
         'Structures can only be built, moved, or sold during Prep.',
@@ -811,7 +837,6 @@ export class BattleScene extends Phaser.Scene {
     this.pathPreviewGraphics.clear();
     this.pathPreviewStaticGraphics.clear();
     this.refreshHighlights();
-    this.sfx.play('wave_start', 0);
 
     const waveDef = this.activeWaves[this.wave - 1];
     this.setStatus(
@@ -852,6 +877,18 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit) return;
     unit.data.autoUlt = !unit.data.autoUlt;
+    this.emitSnapshot();
+  }
+
+  public cycleUnitTargetPriority(uid: string, delta: 1 | -1 = 1): void {
+    const unit = this.units.find((u) => u.data.uid === uid);
+    if (!unit) return;
+    const current = unit.data.targetPriority ?? 'first';
+    const idx = TARGET_PRIORITIES.indexOf(current);
+    const nextIdx =
+      (idx + delta + TARGET_PRIORITIES.length) % TARGET_PRIORITIES.length;
+    unit.data.targetPriority = TARGET_PRIORITIES[nextIdx];
+    this.sfx.play('ui_click', 40);
     this.emitSnapshot();
   }
 
@@ -1170,8 +1207,9 @@ export class BattleScene extends Phaser.Scene {
     if (reserveIdx === -1) return;
 
     const openPos =
-      PREP_INITIAL_POSITIONS.find((p) => this.isValidUnitTile(p.gx, p.gy)) ??
-      this.findOpenPrepTile();
+      PREP_INITIAL_POSITIONS.find((p) =>
+        this.isValidUnitTile(p.gx, p.gy, reserveSpeciesId),
+      ) ?? this.findOpenPrepTile(reserveSpeciesId);
     if (!openPos) {
       this.setStatus('No open tile available to deploy.');
       return;
@@ -1186,11 +1224,11 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  private findOpenPrepTile(): GridPoint | null {
+  private findOpenPrepTile(speciesId?: string): GridPoint | null {
     for (let radius = 2; radius <= 6; radius++) {
       for (let gy = 9 - radius; gy <= 9 + radius; gy++) {
         for (let gx = 14 - radius; gx <= 14 + radius; gx++) {
-          if (this.isValidUnitTile(gx, gy)) return { gx, gy };
+          if (this.isValidUnitTile(gx, gy, speciesId)) return { gx, gy };
         }
       }
     }
@@ -1211,6 +1249,80 @@ export class BattleScene extends Phaser.Scene {
     this.gold -= item.cost;
     this.heldItemInventory.push(item.id);
     this.setStatus(`Purchased ${item.name} for ₽${item.cost}.`);
+  }
+
+  public buyRareCandy(unitUid: string, targetSpeciesId: string): void {
+    if (this.phase !== 'SHOP') {
+      this.setStatus('Rare Candy can only be purchased in the Merchant Shop.');
+      return;
+    }
+    if (this.gold < RARE_CANDY_COST) {
+      this.setStatus(`Need ₽${RARE_CANDY_COST} to buy Rare Candy.`);
+      return;
+    }
+    const unit = this.units.find((u) => u.data.uid === unitUid);
+    if (!unit) return;
+    const validTargets = getEvolutionTargets(unit.data.speciesId);
+    if (!validTargets.includes(targetSpeciesId)) return;
+
+    const fromName =
+      POKEMON_SPECIES[unit.data.speciesId]?.name ?? unit.data.speciesId;
+    const toName = POKEMON_SPECIES[targetSpeciesId]?.name ?? targetSpeciesId;
+    this.gold -= RARE_CANDY_COST;
+    if (!this.evolveUnit(unitUid, targetSpeciesId)) {
+      this.gold += RARE_CANDY_COST;
+      return;
+    }
+    this.setStatus(
+      `${fromName} evolved into ${toName} using Rare Candy (-₽${RARE_CANDY_COST})!`,
+    );
+  }
+
+  private evolveUnit(uid: string, targetSpeciesId: string): boolean {
+    const unit = this.units.find((u) => u.data.uid === uid);
+    if (!unit) return false;
+    if (!getEvolutionTargets(unit.data.speciesId).includes(targetSpeciesId)) {
+      return false;
+    }
+    const targetSpec = POKEMON_SPECIES[targetSpeciesId];
+    if (!targetSpec) return false;
+
+    const prevMax = Math.max(1, unit.data.maxHp);
+    const hpRatio = unit.data.fainted ? 0 : unit.data.hp / prevMax;
+    unit.data.speciesId = targetSpeciesId;
+    unit.data.ultMax = targetSpec.ultMax;
+    unit.data.ult = Math.min(unit.data.ult, targetSpec.ultMax);
+    unit.data.maxHp = this.computeUnitMaxHp(
+      targetSpeciesId,
+      unit.data.branchId,
+      unit.data.heldItems,
+    );
+    if (!unit.data.fainted) {
+      unit.data.hp = Math.max(
+        1,
+        Math.min(unit.data.maxHp, Math.round(unit.data.maxHp * hpRatio)),
+      );
+    }
+
+    const idleTex = `pmd:${targetSpeciesId}:Idle`;
+    if (this.textures.exists(idleTex)) {
+      unit.sprite.setTexture(idleTex);
+    }
+    ensureSpeciesSpritesLoaded(this, targetSpeciesId, () => {
+      if (
+        unit.data.speciesId === targetSpeciesId &&
+        !unit.data.fainted &&
+        unit.sprite.active
+      ) {
+        this.playUnitAnim(unit, 'Idle');
+      }
+    });
+
+    this.updateUnitBars(unit);
+    this.spawnOneShotVfx('holy/holy-heal', unit.sprite.x, unit.sprite.y, 1.15);
+    this.sfx.play('ui_confirm', 0);
+    this.refreshHighlights();
+    return true;
   }
 
   public equipHeldItem(unitUid: string, itemId: string): void {
@@ -1295,6 +1407,80 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
+  public releaseUnit(uid: string): void {
+    if (this.phase !== 'PREP') {
+      this.setStatus('Pokémon can only be released during Prep.');
+      return;
+    }
+    if (this.units.length <= 1) {
+      this.setStatus('Cannot release your last active Pokémon.');
+      return;
+    }
+    const idx = this.units.findIndex((u) => u.data.uid === uid);
+    if (idx === -1) return;
+
+    const [unit] = this.units.splice(idx, 1);
+    const returnedItems = unit.data.heldItems.length;
+    if (returnedItems > 0) {
+      this.heldItemInventory.push(...unit.data.heldItems);
+    }
+    const refund = getPokemonReleaseRefund(
+      unit.data.speciesId,
+      unit.data.branchId,
+    );
+    this.gold += refund;
+    this.sfx.play('ui_click', 0);
+
+    this.tweens.killTweensOf(unit.sprite);
+    unit.sprite.destroy();
+    unit.hpBarBg.destroy();
+    unit.hpBarFill.destroy();
+    unit.ultBarFill.destroy();
+
+    if (this.selectedUnitUid === uid) this.selectedUnitUid = null;
+    if (this.aimingUltUnitUid === uid) this.aimingUltUnitUid = null;
+    if (this.hoveredUnitUid === uid) this.hoveredUnitUid = null;
+
+    this.refreshHighlights();
+    const name =
+      POKEMON_SPECIES[unit.data.speciesId]?.name ?? unit.data.speciesId;
+    const itemNote =
+      returnedItems > 0
+        ? ` (${returnedItems} item${returnedItems > 1 ? 's' : ''} moved to bag)`
+        : '';
+    this.setStatus(`Released ${name} (+₽${refund})${itemNote}.`);
+  }
+
+  public releaseReserve(speciesId: string): void {
+    if (this.phase !== 'PREP') {
+      this.setStatus('Pokémon can only be released during Prep.');
+      return;
+    }
+    const idx = this.reserveIds.indexOf(speciesId);
+    if (idx === -1) return;
+    this.reserveIds.splice(idx, 1);
+    const refund = getPokemonReleaseRefund(speciesId);
+    this.gold += refund;
+    this.sfx.play('ui_click', 0);
+    const name = POKEMON_SPECIES[speciesId]?.name ?? speciesId;
+    this.setStatus(`Released ${name} from reserve (+₽${refund}).`);
+  }
+
+  public rerollRewards(): void {
+    if (this.phase !== 'REWARD' || this.pendingBranchUnitUid) return;
+    const cost = getRewardRerollCost(this.rewardRerollsUsed);
+    if (this.gold < cost) {
+      this.setStatus(`Need ₽${cost} to reroll rewards.`);
+      return;
+    }
+    this.gold -= cost;
+    this.rewardRerollsUsed += 1;
+    const excludeRewardIds = new Set(this.rewardChoices.map((c) => c.id));
+    this.rewardChoices = this.generateRewardChoices(excludeRewardIds);
+    this.sfx.play('ui_click', 0);
+    this.setStatus(`Rerolled wave rewards (-₽${cost}).`);
+  }
+
   public pickReward(rewardId: string): void {
     if (this.phase !== 'REWARD') return;
     const choice = this.rewardChoices.find((r) => r.id === rewardId);
@@ -1320,9 +1506,7 @@ export class BattleScene extends Phaser.Scene {
       if (choice.id === 'fortification_core') {
         for (const s of this.structures) {
           const prevMax = s.data.maxHp;
-          s.data.maxHp = this.computeStructureMaxHp(
-            STRUCTURE_SPECS[s.data.kind].maxHp,
-          );
+          s.data.maxHp = this.computeStructureMaxHp(s.data.kind);
           if (!s.data.ruined) {
             s.data.hp = Math.min(
               s.data.maxHp,
@@ -1336,8 +1520,8 @@ export class BattleScene extends Phaser.Scene {
       const openPos =
         this.units.length < MAX_ACTIVE_UNITS
           ? (PREP_INITIAL_POSITIONS.find((p) =>
-              this.isValidUnitTile(p.gx, p.gy),
-            ) ?? this.findOpenPrepTile())
+              this.isValidUnitTile(p.gx, p.gy, choice.speciesId),
+            ) ?? this.findOpenPrepTile(choice.speciesId))
           : null;
       if (openPos) {
         this.spawnUnit(choice.speciesId, openPos.gx, openPos.gy);
@@ -1350,6 +1534,12 @@ export class BattleScene extends Phaser.Scene {
       }
       const shardText = this.awardRecruitShards(choice.speciesId);
       statusDetail = `${statusDetail} (${shardText})`;
+    } else if (
+      choice.kind === 'evolve' &&
+      choice.unitUid &&
+      choice.targetSpeciesId
+    ) {
+      this.evolveUnit(choice.unitUid, choice.targetSpeciesId);
     }
 
     this.rewardChoices = [];
@@ -1478,11 +1668,23 @@ export class BattleScene extends Phaser.Scene {
       this.wave >= 4 && this.wave % 2 === 0
         ? this.activePortals[0]?.id
         : undefined;
+    const spawns =
+      this.phase === 'PREP'
+        ? (this.activeWaves[this.wave - 1]?.spawns ?? [])
+        : [];
+    let hasFly = false;
+    let hasBurrow = false;
+    for (const group of spawns) {
+      const mt = ENEMY_SPECIES[group.speciesId]?.movementType ?? 'ground';
+      if (mt === 'fly') hasFly = true;
+      else if (mt === 'burrow') hasBurrow = true;
+    }
     refreshPortalVisuals(
       this,
       this.activePortals,
       this.portalVisualState,
       closingPortalId,
+      { hasFly, hasBurrow },
     );
   }
 
@@ -1514,6 +1716,7 @@ export class BattleScene extends Phaser.Scene {
     this.artifacts = [];
     this.upgrades = [];
     this.rewardChoices = [];
+    this.rewardRerollsUsed = 0;
     this.pendingBranchUnitUid = null;
     this.draftIds = [...STARTER_UNLOCKED_IDS];
     this.reserveIds = [];
@@ -1522,6 +1725,8 @@ export class BattleScene extends Phaser.Scene {
     this.spawnQueueIndex = 0;
     this.waveElapsedMs = 0;
     this.berryHealTimerMs = 0;
+    this.seenSpecialEnemies.clear();
+    this.game.events.emit('run-reset');
     for (const u of this.units) {
       u.data.damageDealt = 0;
       u.data.damageTaken = 0;
@@ -1891,13 +2096,6 @@ export class BattleScene extends Phaser.Scene {
     const clickedStructure = this.getStructureAt(gx, gy);
     const clickedUnit = this.getUnitAt(gx, gy);
 
-    if (this.selectedTool === 'sell_struct') {
-      if (clickedStructure) {
-        this.sellStructure(clickedStructure);
-      }
-      return;
-    }
-
     if (this.selectedTool !== null) {
       if (clickedUnit && !shiftHeld) {
         this.selectUnit(clickedUnit.data.uid);
@@ -1934,13 +2132,9 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (
-      this.selectedUnitUid &&
-      !clickedStructure &&
-      this.isValidUnitTile(gx, gy)
-    ) {
+    if (this.selectedUnitUid && !clickedStructure) {
       const unit = this.units.find((u) => u.data.uid === this.selectedUnitUid);
-      if (unit) {
+      if (unit && this.isValidUnitTile(gx, gy, unit.data.speciesId)) {
         this.moveUnitToTile(unit, gx, gy, false);
         this.refreshHighlights();
         this.emitSnapshot();
@@ -2063,12 +2257,20 @@ export class BattleScene extends Phaser.Scene {
         const isDifferentTile = unit.data.gx !== gx || unit.data.gy !== gy;
         const apCost = 1;
 
-        if (isDifferentTile && this.isValidUnitTile(gx, gy)) {
+        if (
+          isDifferentTile &&
+          this.isValidUnitTile(gx, gy, unit.data.speciesId)
+        ) {
+          const allowWater = canUnitEnterWater(
+            unit.data.speciesId,
+            POKEMON_SPECIES[unit.data.speciesId],
+          );
           const path = findUnitPath(
             { gx: unit.data.gx, gy: unit.data.gy },
             { gx, gy },
             this.tiles,
-            this.getBlockedStructureKeys(),
+            new Set(),
+            allowWater,
           );
           if (!path || path.length < 2) {
             this.setStatus('No path to that tile.');
@@ -2130,7 +2332,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.gold -= spec.cost;
-    const maxHp = this.computeStructureMaxHp(spec.maxHp);
+    const maxHp = this.computeStructureMaxHp(kind);
     const data: GridStructure = {
       uid: `struct_${this.nextUidCounter++}`,
       kind,
@@ -2209,10 +2411,7 @@ export class BattleScene extends Phaser.Scene {
     const { gx, gy } = this.hoverTile;
     if (!this.isValidBuildTile(gx, gy)) return null;
 
-    if (
-      this.selectedTool === 'wood_wall' ||
-      this.selectedTool === 'stone_wall'
-    ) {
+    if (this.selectedTool && STRUCTURE_SPECS[this.selectedTool].blocksGround) {
       return {
         addKey: keyOf(gx, gy),
         removeKey: null,
@@ -2281,7 +2480,20 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const previewPaths: Array<{ points: GridPoint[]; color: number }> = [];
+    const spawns = this.activeWaves[this.wave - 1]?.spawns ?? [];
+    let hasGround = spawns.length === 0;
+    for (const group of spawns) {
+      const mt = ENEMY_SPECIES[group.speciesId]?.movementType ?? 'ground';
+      if (mt === 'ground') {
+        hasGround = true;
+        break;
+      }
+    }
+
+    const previewPaths: Array<{
+      points: GridPoint[];
+      color: number;
+    }> = [];
     const blockingWalls: GridPoint[] = [];
 
     const specPreview = this.getSpeculativeWallPreview();
@@ -2296,38 +2508,45 @@ export class BattleScene extends Phaser.Scene {
         ]
       : this.structures.map((s) => s.data);
 
-    for (const portal of this.activePortals) {
-      for (const start of portal.cells) {
-        const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
-        if (openPath && openPath.length > 1) {
-          previewPaths.push({ points: openPath, color: 0xffffff });
-          continue;
-        }
-
-        const blockingWall = findNearestBlockingWall(
-          start,
-          this.tiles,
-          previewStructures,
-        );
-        if (blockingWall) {
-          const toWall = this.findPathToTile(
-            start,
-            { gx: blockingWall.gx, gy: blockingWall.gy },
-            blockedWalls,
-          );
-          if (toWall.length > 1) {
-            previewPaths.push({ points: toWall, color: 0xf97316 });
+    if (hasGround) {
+      for (const portal of this.activePortals) {
+        for (const start of portal.cells) {
+          const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
+          if (openPath && openPath.length > 1) {
+            previewPaths.push({
+              points: openPath,
+              color: 0xffffff,
+            });
+          } else {
+            const blockingWall = findNearestBlockingWall(
+              start,
+              this.tiles,
+              previewStructures,
+            );
+            if (blockingWall) {
+              const toWall = this.findPathToTile(
+                start,
+                { gx: blockingWall.gx, gy: blockingWall.gy },
+                blockedWalls,
+              );
+              if (toWall.length > 1) {
+                previewPaths.push({
+                  points: toWall,
+                  color: 0xf97316,
+                });
+              }
+              blockingWalls.push({
+                gx: blockingWall.gx,
+                gy: blockingWall.gy,
+              });
+            }
           }
-          blockingWalls.push({
-            gx: blockingWall.gx,
-            gy: blockingWall.gy,
-          });
         }
       }
     }
 
     const drawnSegments = new Set<string>();
-    const drawnArrows = new Set<string>();
+    const drawnMarkers = new Set<string>();
 
     for (const { points, color } of previewPaths) {
       for (let i = 0; i < points.length - 1; i++) {
@@ -2339,32 +2558,32 @@ export class BattleScene extends Phaser.Scene {
 
         const x1 = tileCenterX(p0.gx);
         const y1 = tileCenterY(p0.gy);
-        const dist = Math.hypot(
-          tileCenterX(p1.gx) - x1,
-          tileCenterY(p1.gy) - y1,
-        );
+        const x2 = tileCenterX(p1.gx);
+        const y2 = tileCenterY(p1.gy);
+        const dist = Math.hypot(x2 - x1, y2 - y1);
         if (dist <= 0) continue;
 
         this.cachedDashSegments.push({
           color,
           x1,
           y1,
-          ux: (tileCenterX(p1.gx) - x1) / dist,
-          uy: (tileCenterY(p1.gy) - y1) / dist,
+          ux: (x2 - x1) / dist,
+          uy: (y2 - y1) / dist,
           dist,
         });
       }
 
-      // Directional arrowheads at portal exit & every 3 tiles along the route
+      // Directional markers at portal exit & every 3 tiles along the route
       for (let i = 0; i < points.length - 1; i += 3) {
         const p0 = points[i];
         const p1 = points[i + 1];
-        const arrowKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
-        if (drawnArrows.has(arrowKey)) continue;
-        drawnArrows.add(arrowKey);
+        const markerKey = `${p0.gx},${p0.gy}->${p1.gx},${p1.gy}`;
+        if (drawnMarkers.has(markerKey)) continue;
+        drawnMarkers.add(markerKey);
 
         const mx = (tileCenterX(p0.gx) + tileCenterX(p1.gx)) / 2;
         const my = (tileCenterY(p0.gy) + tileCenterY(p1.gy)) / 2;
+
         const rawDx = p1.gx - p0.gx;
         const rawDy = p1.gy - p0.gy;
         const len = Math.hypot(rawDx, rawDy) || 1;
@@ -2424,25 +2643,26 @@ export class BattleScene extends Phaser.Scene {
     const startOffset = -period + (this.pathDashOffset % period);
 
     const drawPass = (
+      gfx: Phaser.GameObjects.Graphics,
       width: number,
       fixedColor: number | null,
       alpha: number,
     ) => {
       let lastColor = -1;
       if (fixedColor !== null) {
-        this.pathPreviewGraphics.lineStyle(width, fixedColor, alpha);
+        gfx.lineStyle(width, fixedColor, alpha);
       }
       for (const seg of this.cachedDashSegments) {
         if (fixedColor === null && seg.color !== lastColor) {
           lastColor = seg.color;
-          this.pathPreviewGraphics.lineStyle(width, seg.color, alpha);
+          gfx.lineStyle(width, seg.color, alpha);
         }
         let d = startOffset;
         while (d < seg.dist) {
           const startD = Math.max(0, d);
           const endD = Math.min(d + dashLen, seg.dist);
           if (endD > startD) {
-            this.pathPreviewGraphics.lineBetween(
+            gfx.lineBetween(
               seg.x1 + seg.ux * startD,
               seg.y1 + seg.uy * startD,
               seg.x1 + seg.ux * endD,
@@ -2455,8 +2675,8 @@ export class BattleScene extends Phaser.Scene {
     };
 
     // Dark outline first for crisp contrast over grass & sand
-    drawPass(5, 0x0f172a, 0.75);
-    drawPass(2.5, null, 0.95);
+    drawPass(this.pathPreviewGraphics, 5, 0x0f172a, 0.75);
+    drawPass(this.pathPreviewGraphics, 2.5, null, 0.95);
   }
 
   /**
@@ -2613,14 +2833,44 @@ export class BattleScene extends Phaser.Scene {
     gx: number,
     gy: number,
   ): void {
-    if (kind === 'berry_bush') {
+    if (
+      kind === 'berry_bush' ||
+      kind === 'tempo_shrine' ||
+      kind === 'flame_brazier'
+    ) {
+      const color =
+        kind === 'berry_bush'
+          ? 0x4ade80
+          : kind === 'tempo_shrine'
+            ? 0xa855f7
+            : 0xef4444;
       const zx = (gx - 1) * TILE_SIZE;
       const zy = (gy - 1) * TILE_SIZE;
       const size = 3 * TILE_SIZE;
-      this.highlightGraphics.fillStyle(0x4ade80, 0.14);
+      this.highlightGraphics.fillStyle(color, 0.14);
       this.highlightGraphics.fillRect(zx, zy, size, size);
-      this.highlightGraphics.lineStyle(1.5, 0x4ade80, 0.6);
+      this.highlightGraphics.lineStyle(1.5, color, 0.6);
       this.highlightGraphics.strokeRect(zx + 1, zy + 1, size - 2, size - 2);
+    } else if (kind === 'lightning_rod') {
+      const cx = tileCenterX(gx);
+      const cy = tileCenterY(gy);
+      const radiusPx = 3 * TILE_SIZE;
+      this.highlightGraphics.fillStyle(0x22d3ee, 0.12);
+      this.highlightGraphics.fillCircle(cx, cy, radiusPx);
+      this.highlightGraphics.lineStyle(1.8, 0x22d3ee, 0.72);
+      this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
+    } else if (kind === 'honey_trap') {
+      const zx = gx * TILE_SIZE;
+      const zy = gy * TILE_SIZE;
+      this.highlightGraphics.fillStyle(0xf59e0b, 0.18);
+      this.highlightGraphics.fillRect(zx, zy, TILE_SIZE, TILE_SIZE);
+      this.highlightGraphics.lineStyle(1.5, 0xf59e0b, 0.75);
+      this.highlightGraphics.strokeRect(
+        zx + 1,
+        zy + 1,
+        TILE_SIZE - 2,
+        TILE_SIZE - 2,
+      );
     } else if (kind === 'barrel') {
       const cx = tileCenterX(gx);
       const cy = tileCenterY(gy);
@@ -2688,7 +2938,7 @@ export class BattleScene extends Phaser.Scene {
           if (gx === selectedUnit.data.gx && gy === selectedUnit.data.gy) {
             continue;
           }
-          if (!this.isValidUnitTile(gx, gy)) {
+          if (!this.isValidUnitTile(gx, gy, selectedUnit.data.speciesId)) {
             this.drawNonPlaceableTile(gx, gy);
             continue;
           }
@@ -2723,7 +2973,7 @@ export class BattleScene extends Phaser.Scene {
         const { gx: hx, gy: hy } = this.hoverTile;
         const isValidDest =
           (hx !== selectedUnit.data.gx || hy !== selectedUnit.data.gy) &&
-          this.isValidUnitTile(hx, hy);
+          this.isValidUnitTile(hx, hy, selectedUnit.data.speciesId);
 
         if (isValidDest) {
           const apCost = this.phase === 'PREP' ? 0 : 1;
@@ -2803,8 +3053,7 @@ export class BattleScene extends Phaser.Scene {
     // Non-placeable tile overlay (grayed + light X) when placing or moving a structure
     const isPlacingStruct =
       this.phase === 'PREP' &&
-      ((this.selectedTool !== null && this.selectedTool !== 'sell_struct') ||
-        (this.selectedTool === null && Boolean(this.movingStructureUid)));
+      (this.selectedTool !== null || Boolean(this.movingStructureUid));
     if (isPlacingStruct) {
       for (let gy = 0; gy < GRID_ROWS; gy++) {
         for (let gx = 0; gx < GRID_COLS; gx++) {
@@ -2862,27 +3111,7 @@ export class BattleScene extends Phaser.Scene {
       (this.selectedTool !== null || this.movingStructureUid !== null)
     ) {
       const { gx, gy } = this.hoverTile;
-      if (this.selectedTool === 'sell_struct') {
-        const hoveredStruct = this.getStructureAt(gx, gy);
-        if (hoveredStruct) {
-          this.highlightGraphics.fillStyle(0xef4444, 0.24);
-          this.highlightGraphics.fillRect(
-            gx * TILE_SIZE + 2,
-            gy * TILE_SIZE + 2,
-            TILE_SIZE - 4,
-            TILE_SIZE - 4,
-          );
-          this.highlightGraphics.lineStyle(2.5, 0xf59e0b, 0.95);
-        } else {
-          this.highlightGraphics.lineStyle(1.5, 0x64748b, 0.55);
-        }
-        this.highlightGraphics.strokeRect(
-          gx * TILE_SIZE + 2,
-          gy * TILE_SIZE + 2,
-          TILE_SIZE - 4,
-          TILE_SIZE - 4,
-        );
-      } else if (this.selectedTool === null && this.movingStructureUid) {
+      if (this.selectedTool === null && this.movingStructureUid) {
         const canPlace = this.isValidBuildTile(gx, gy);
         this.highlightGraphics.lineStyle(
           2,
@@ -3035,6 +3264,7 @@ export class BattleScene extends Phaser.Scene {
       ult: computeStartingUlt(spec.ultMax, this.getSpeciesPotential(speciesId)),
       ultMax: spec.ultMax,
       autoUlt: spec.ultAutoDefault,
+      targetPriority: 'first',
       fainted: false,
       facingDir: 0,
       attackCooldownMs: 0,
@@ -3087,6 +3317,21 @@ export class BattleScene extends Phaser.Scene {
     const ay = a.data.gy;
     const bx = b.data.gx;
     const by = b.data.gy;
+    const aAllowWater = canUnitEnterWater(
+      a.data.speciesId,
+      POKEMON_SPECIES[a.data.speciesId],
+    );
+    const bAllowWater = canUnitEnterWater(
+      b.data.speciesId,
+      POKEMON_SPECIES[b.data.speciesId],
+    );
+    if (
+      (this.tiles[by][bx] === 'water' && !aAllowWater) ||
+      (this.tiles[ay][ax] === 'water' && !bAllowWater)
+    ) {
+      this.setStatus('Only Water or Flying Pokémon can swap onto water tiles.');
+      return;
+    }
     this.moveUnitToTile(a, bx, by, false);
     this.moveUnitToTile(b, ax, ay, false);
     this.selectedUnitUid = null;
@@ -3216,11 +3461,7 @@ export class BattleScene extends Phaser.Scene {
 
       if (unit.data.attackCooldownMs > 0) continue;
 
-      const target = this.findNearestEnemyInRange(
-        unit.data.gx,
-        unit.data.gy,
-        this.getUnitRange(unit),
-      );
+      const target = this.findUnitTargetInRange(unit, this.getUnitRange(unit));
       if (!target) continue;
 
       unit.data.facingDir = vectorToPmdDir(
@@ -3247,6 +3488,7 @@ export class BattleScene extends Phaser.Scene {
     const potential = this.getSpeciesPotential(unit.data.speciesId);
     unit.data.hitCount += 1;
 
+    const attackType = getSpeciesAttackType(unit.data.speciesId);
     const {
       damage: dmg,
       isCrit,
@@ -3254,6 +3496,7 @@ export class BattleScene extends Phaser.Scene {
       lifestealHeal,
       chainDamage,
       chainTargets,
+      effectivenessTier,
     } = computeBasicAttackDamage({
       baseAtk: this.getUnitAtk(unit),
       speciesId: unit.data.speciesId,
@@ -3266,6 +3509,8 @@ export class BattleScene extends Phaser.Scene {
       potential,
       subclass: spec.subclass,
       targetMovementType: ENEMY_SPECIES[target.speciesId]?.movementType,
+      attackType,
+      defenderTypes: getSpeciesTypes(target.speciesId),
     });
 
     this.addUnitUlt(unit, ultCharge);
@@ -3299,7 +3544,7 @@ export class BattleScene extends Phaser.Scene {
           );
           target.slowTimerMs = Math.max(target.slowTimerMs, slowDuration);
         }
-        this.damageEnemy(target, dmg, unit, isCrit);
+        this.damageEnemy(target, dmg, unit, isCrit, effectivenessTier);
 
         if (lifestealHeal > 0 && !unit.data.fainted) {
           const prevHp = unit.data.hp;
@@ -3376,12 +3621,8 @@ export class BattleScene extends Phaser.Scene {
       if (unit.data.speciesId === '0001') return null;
     }
 
-    const nearest = this.findNearestEnemyInRange(
-      unit.data.gx,
-      unit.data.gy,
-      unitRange + 2,
-    );
-    return nearest ? { gx: nearest.gx, gy: nearest.gy } : null;
+    const target = this.findUnitTargetInRange(unit, unitRange + 2);
+    return target ? { gx: target.gx, gy: target.gy } : null;
   }
 
   private executeAimedUlt(gx: number, gy: number): void {
@@ -3465,6 +3706,7 @@ export class BattleScene extends Phaser.Scene {
         potential,
         spec.subclass,
       );
+      const attackType = getSpeciesAttackType(unit.data.speciesId);
       for (const enemy of [...this.enemies]) {
         if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
           if (unit.data.speciesId === '0143') {
@@ -3476,7 +3718,12 @@ export class BattleScene extends Phaser.Scene {
           ) {
             this.knockbackEnemy(enemy, tx, ty);
           }
-          this.damageEnemy(enemy, ultDmg, unit, true);
+          const eff = computeTypeEffectiveness(
+            attackType,
+            getSpeciesTypes(enemy.speciesId),
+          );
+          const finalUltDmg = Math.max(1, Math.round(ultDmg * eff.multiplier));
+          this.damageEnemy(enemy, finalUltDmg, unit, true, eff.tier);
         }
       }
     }
@@ -3578,6 +3825,7 @@ export class BattleScene extends Phaser.Scene {
       hitFlashTimerMs: 0,
       path: [],
       targetWallUid: null,
+      aggroUnitUid: null,
       repathTimerMs: 0,
       sprite,
       hpBarBg,
@@ -3587,11 +3835,39 @@ export class BattleScene extends Phaser.Scene {
     this.enemies.push(enemy);
     this.computeEnemyPath(enemy);
     this.playEnemyAnim(enemy, 'Walk');
+    if (isSpecialEnemy(spec) && !this.seenSpecialEnemies.has(speciesId)) {
+      this.seenSpecialEnemies.add(speciesId);
+      this.game.events.emit('enemy-introduced', speciesId);
+    }
   }
 
   private updateEnemies(simDtMs: number): void {
     this.isUpdatingEnemies = true;
     this.enemiesDirty = false;
+    const livingUnits: Array<{
+      uid: string;
+      gx: number;
+      gy: number;
+      hp: number;
+      isFlying: boolean;
+    }> = [];
+    const livingUnitByUid = new Map<string, UnitEntity>();
+    for (const unit of this.units) {
+      if (unit.data.fainted || unit.data.hp <= 0) continue;
+      livingUnits.push({
+        uid: unit.data.uid,
+        gx: unit.data.gx,
+        gy: unit.data.gy,
+        hp: unit.data.hp,
+        isFlying: isFlyingSpecies(
+          unit.data.speciesId,
+          POKEMON_SPECIES[unit.data.speciesId],
+        ),
+      });
+      livingUnitByUid.set(unit.data.uid, unit);
+    }
+    const flyBlocked = this.getFlyingUnitKeys();
+
     try {
       for (let i = 0; i < this.enemies.length; i++) {
         const enemy = this.enemies[i];
@@ -3642,34 +3918,78 @@ export class BattleScene extends Phaser.Scene {
 
         if (enemy.stunTimerMs > 0) continue;
 
-        // Barrel trap trigger for non-flying enemies
+        // Barrel & Honey Trap triggers for non-flying enemies
         if (spec.movementType !== 'fly') {
           const structHere = this.getStructureAt(enemy.gx, enemy.gy);
-          if (
-            structHere &&
-            structHere.data.kind === 'barrel' &&
-            !structHere.data.ruined
-          ) {
-            this.explodeBarrel(structHere);
-            if (enemy.hp <= 0) continue;
+          if (structHere && !structHere.data.ruined) {
+            if (structHere.data.kind === 'barrel') {
+              this.explodeBarrel(structHere);
+              if (enemy.hp <= 0) continue;
+            } else if (structHere.data.kind === 'honey_trap') {
+              enemy.slowTimerMs = Math.max(enemy.slowTimerMs, 2500);
+            }
           }
         }
 
-        // Check adjacent attack targets: Core -> blocking unit -> blocking wall
-        const adjCore = CORE_CELLS.find(
-          (c) => manhattanDist(enemy.gx, enemy.gy, c.gx, c.gy) <= 1,
-        );
-        if (adjCore) {
-          this.enemyAttackCore(enemy, adjCore);
-          continue;
-        }
+        // Target priority: units in range -> aggro nearby units -> Core in range -> blocking wall
+        const decision = selectEnemyTarget({
+          gx: enemy.gx,
+          gy: enemy.gy,
+          range: spec.range ?? 1,
+          aggroRadius: 1,
+          ignoresUnits: spec.ignoresUnits ?? false,
+          movementType: spec.movementType,
+          units: livingUnits,
+          coreCells: CORE_CELLS,
+        });
 
-        if (spec.movementType !== 'fly') {
-          const adjUnit = this.findAdjacentLivingUnit(enemy);
-          if (adjUnit) {
-            this.enemyAttackUnit(enemy, adjUnit);
+        if (decision.attackUnitUid) {
+          const targetUnit = livingUnitByUid.get(decision.attackUnitUid);
+          if (targetUnit) {
+            this.enemyAttackUnit(enemy, targetUnit);
             continue;
           }
+        }
+
+        if (decision.aggroUnitUid) {
+          const aggroUnit = livingUnitByUid.get(decision.aggroUnitUid);
+          if (aggroUnit) {
+            if (
+              enemy.aggroUnitUid !== aggroUnit.data.uid ||
+              enemy.path.length === 0 ||
+              enemy.repathTimerMs <= 0
+            ) {
+              this.computeEnemyPath(enemy, aggroUnit, flyBlocked);
+            }
+            if (spec.movementType === 'ground' && enemy.targetWallUid) {
+              const wall = this.structures.find(
+                (s) =>
+                  s.data.uid === enemy.targetWallUid &&
+                  !s.data.ruined &&
+                  s.data.hp > 0,
+              );
+              if (
+                wall &&
+                manhattanDist(enemy.gx, enemy.gy, wall.data.gx, wall.data.gy) <=
+                  1
+              ) {
+                this.enemyAttackStructure(enemy, wall);
+                continue;
+              }
+            }
+            this.moveEnemyAlongPath(enemy, simDtMs, flyBlocked);
+            continue;
+          }
+        }
+
+        if (enemy.aggroUnitUid !== null) {
+          enemy.aggroUnitUid = null;
+          enemy.repathTimerMs = 0;
+        }
+
+        if (decision.attackCoreCell) {
+          this.enemyAttackCore(enemy, decision.attackCoreCell);
+          continue;
         }
 
         if (spec.movementType === 'ground' && enemy.targetWallUid) {
@@ -3690,10 +4010,10 @@ export class BattleScene extends Phaser.Scene {
 
         // Recompute path if needed
         if (enemy.path.length === 0 || enemy.repathTimerMs <= 0) {
-          this.computeEnemyPath(enemy);
+          this.computeEnemyPath(enemy, undefined, flyBlocked);
         }
 
-        this.moveEnemyAlongPath(enemy, simDtMs);
+        this.moveEnemyAlongPath(enemy, simDtMs, flyBlocked);
       }
     } finally {
       this.isUpdatingEnemies = false;
@@ -3704,15 +4024,39 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private computeEnemyPath(enemy: EnemyEntity): void {
+  private computeEnemyPath(
+    enemy: EnemyEntity,
+    aggroUnit?: UnitEntity,
+    flyBlocked?: Set<string>,
+  ): void {
     const spec = ENEMY_SPECIES[enemy.speciesId];
     const blockedWalls = this.getBlockedWallKeys();
+    const activeFlyBlocked =
+      spec.movementType === 'fly' && !spec.ignoresUnits
+        ? (flyBlocked ?? this.getFlyingUnitKeys())
+        : undefined;
     const start: GridPoint = { gx: enemy.gx, gy: enemy.gy };
 
     enemy.repathTimerMs = 400;
     enemy.targetWallUid = null;
+    enemy.aggroUnitUid = aggroUnit ? aggroUnit.data.uid : null;
 
-    const path = findPath(start, this.tiles, blockedWalls, spec.movementType);
+    const path = aggroUnit
+      ? findEnemyPathToTarget(
+          start,
+          { gx: aggroUnit.data.gx, gy: aggroUnit.data.gy },
+          this.tiles,
+          blockedWalls,
+          spec.movementType,
+          activeFlyBlocked,
+        )
+      : findPath(
+          start,
+          this.tiles,
+          blockedWalls,
+          spec.movementType,
+          activeFlyBlocked,
+        );
     if (path && path.length > 0) {
       enemy.path = path;
     } else if (spec.movementType === 'ground') {
@@ -3746,7 +4090,11 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private moveEnemyAlongPath(enemy: EnemyEntity, simDtMs: number): void {
+  private moveEnemyAlongPath(
+    enemy: EnemyEntity,
+    simDtMs: number,
+    flyBlocked?: Set<string>,
+  ): void {
     if (enemy.path.length === 0) return;
 
     while (enemy.path.length > 1) {
@@ -3759,7 +4107,19 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
+    const spec = ENEMY_SPECIES[enemy.speciesId];
     const nextPt = enemy.path[0];
+    if (
+      spec.movementType === 'fly' &&
+      !spec.ignoresUnits &&
+      flyBlocked &&
+      (nextPt.gx !== enemy.gx || nextPt.gy !== enemy.gy) &&
+      flyBlocked.has(keyOf(nextPt.gx, nextPt.gy))
+    ) {
+      enemy.repathTimerMs = 0;
+      return;
+    }
+
     const tx = tileCenterX(nextPt.gx);
     const ty = tileCenterY(nextPt.gy);
     const dx = tx - enemy.x;
@@ -3771,7 +4131,6 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const spec = ENEMY_SPECIES[enemy.speciesId];
     const slowMult = enemy.slowTimerMs > 0 ? 0.6 : 1;
     const step = (spec.speed * TILE_SIZE * slowMult * simDtMs) / 1000;
 
@@ -3803,25 +4162,41 @@ export class BattleScene extends Phaser.Scene {
     if (enemy.attackCooldownMs > 0) return;
 
     const spec = ENEMY_SPECIES[enemy.speciesId];
-    enemy.attackCooldownMs = 1000;
+    enemy.attackCooldownMs = spec.attackIntervalMs ?? 1000;
     this.playEnemyAnim(enemy, 'Attack');
-    this.spawnOneShotVfx(spec.hitVfx, tx, ty, 0.9);
 
-    this.coreHp = Math.max(0, this.coreHp - spec.atk);
-    this.updateCoreBar();
-    this.coreHitFlashTimerMs = 90;
-    this.coreSprite?.setTint(0xff9999);
-    if (this.time.now - this.lastCoreShakeAtMs >= 750) {
-      this.lastCoreShakeAtMs = this.time.now;
-      this.triggerScreenShake(45, 0.0007);
+    const applyCoreHit = (): void => {
+      this.coreHp = Math.max(0, this.coreHp - spec.atk);
+      this.updateCoreBar();
+      this.coreHitFlashTimerMs = 90;
+      this.coreSprite?.setTint(0xff9999);
+      if (this.time.now - this.lastCoreShakeAtMs >= 750) {
+        this.lastCoreShakeAtMs = this.time.now;
+        this.triggerScreenShake(45, 0.0007);
+      }
+      this.spawnFloatingText(
+        (GRID_COLS / 2) * TILE_SIZE,
+        (GRID_ROWS / 2) * TILE_SIZE - 24,
+        `-${spec.atk}`,
+        '#f43f5e',
+      );
+      this.emitSnapshot();
+    };
+
+    if ((spec.range ?? 1) > 1 && spec.projectileVfx) {
+      this.spawnProjectileVfx(
+        spec.projectileVfx,
+        spec.hitVfx,
+        enemy.x,
+        enemy.y,
+        tx,
+        ty,
+        applyCoreHit,
+      );
+    } else {
+      this.spawnOneShotVfx(spec.hitVfx, tx, ty, 0.9);
+      applyCoreHit();
     }
-    this.spawnFloatingText(
-      (GRID_COLS / 2) * TILE_SIZE,
-      (GRID_ROWS / 2) * TILE_SIZE - 24,
-      `-${spec.atk}`,
-      '#f43f5e',
-    );
-    this.emitSnapshot();
   }
 
   private enemyAttackUnit(enemy: EnemyEntity, unit: UnitEntity): void {
@@ -3833,60 +4208,89 @@ export class BattleScene extends Phaser.Scene {
     if (enemy.attackCooldownMs > 0) return;
 
     const enemySpec = ENEMY_SPECIES[enemy.speciesId];
-    enemy.attackCooldownMs = 1000;
+    enemy.attackCooldownMs = enemySpec.attackIntervalMs ?? 1000;
     this.playEnemyAnim(enemy, 'Attack');
-    this.spawnOneShotVfx(enemySpec.hitVfx, unit.sprite.x, unit.sprite.y, 0.85);
 
-    const unitBranch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
-    const { damage: dmg, reflectedThorns } = computeEnemyAttackDamage({
-      enemyAtk: enemySpec.atk,
-      unitDef: this.getUnitDef(unit),
-      unitSpeciesId: unit.data.speciesId,
-      unitStationaryMs: unit.stationaryMs,
-      unitHeldItems: unit.data.heldItems,
-      unitAdjacentToStructure: this.isAdjacentToAnyStructure(
-        unit.data.gx,
-        unit.data.gy,
-      ),
-      unitBranchSpecial: unitBranch?.special,
-    });
+    const tx = unit.sprite.x;
+    const ty = unit.sprite.y;
+    const applyUnitHit = (): void => {
+      if (unit.data.fainted || unit.data.hp <= 0) return;
+      const unitBranch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
+      const {
+        damage: dmg,
+        reflectedThorns,
+        effectivenessTier,
+      } = computeEnemyAttackDamage({
+        enemyAtk: enemySpec.atk,
+        unitDef: this.getUnitDef(unit),
+        unitSpeciesId: unit.data.speciesId,
+        unitStationaryMs: unit.stationaryMs,
+        unitHeldItems: unit.data.heldItems,
+        unitAdjacentToStructure: this.isAdjacentToAnyStructure(
+          unit.data.gx,
+          unit.data.gy,
+        ),
+        unitBranchSpecial: unitBranch?.special,
+        attackType: getSpeciesAttackType(enemy.speciesId),
+        defenderTypes: getSpeciesTypes(unit.data.speciesId),
+      });
 
-    const taken = Math.min(unit.data.hp, Math.max(0, dmg));
-    unit.data.hp = Math.max(0, unit.data.hp - dmg);
-    if (taken > 0) {
-      unit.data.damageTaken = (unit.data.damageTaken ?? 0) + Math.round(taken);
+      const taken = Math.min(unit.data.hp, Math.max(0, dmg));
+      unit.data.hp = Math.max(0, unit.data.hp - dmg);
+      if (taken > 0) {
+        unit.data.damageTaken =
+          (unit.data.damageTaken ?? 0) + Math.round(taken);
+        this.emitSnapshot();
+      }
+      if (reflectedThorns > 0 && enemy.hp > 0) {
+        this.damageEnemy(enemy, reflectedThorns, unit, false);
+      }
+      const effFloat = this.formatEffectivenessFloat(
+        effectivenessTier,
+        '#fb7185',
+      );
+      this.spawnFloatingText(
+        unit.sprite.x,
+        unit.sprite.y - 24,
+        `-${dmg}${effFloat.suffix}`,
+        effFloat.color,
+      );
+      if (unit.data.hp <= 0) {
+        unit.data.fainted = true;
+        unit.movePath = [];
+        unit.moveTarget = null;
+        unit.sprite.setAlpha(0.35);
+        unit.sprite.setTint(0x64748b);
+        unit.sprite.anims.stop();
+        if (this.selectedUnitUid === unit.data.uid) {
+          this.selectedUnitUid = null;
+          this.slowMo = false;
+          this.refreshHighlights();
+        }
+        if (this.aimingUltUnitUid === unit.data.uid) {
+          this.aimingUltUnitUid = null;
+          this.slowMo = false;
+          this.refreshHighlights();
+        }
+      }
+      this.updateUnitBars(unit);
       this.emitSnapshot();
-    }
-    if (reflectedThorns > 0 && enemy.hp > 0) {
-      this.damageEnemy(enemy, reflectedThorns, unit, false);
-    }
-    this.spawnFloatingText(
-      unit.sprite.x,
-      unit.sprite.y - 24,
-      `-${dmg}`,
-      '#fb7185',
-    );
+    };
 
-    if (unit.data.hp <= 0) {
-      unit.data.fainted = true;
-      unit.movePath = [];
-      unit.moveTarget = null;
-      unit.sprite.setAlpha(0.35);
-      unit.sprite.setTint(0x64748b);
-      unit.sprite.anims.stop();
-      if (this.selectedUnitUid === unit.data.uid) {
-        this.selectedUnitUid = null;
-        this.slowMo = false;
-        this.refreshHighlights();
-      }
-      if (this.aimingUltUnitUid === unit.data.uid) {
-        this.aimingUltUnitUid = null;
-        this.slowMo = false;
-        this.refreshHighlights();
-      }
+    if ((enemySpec.range ?? 1) > 1 && enemySpec.projectileVfx) {
+      this.spawnProjectileVfx(
+        enemySpec.projectileVfx,
+        enemySpec.hitVfx,
+        enemy.x,
+        enemy.y,
+        tx,
+        ty,
+        applyUnitHit,
+      );
+    } else {
+      this.spawnOneShotVfx(enemySpec.hitVfx, tx, ty, 0.85);
+      applyUnitHit();
     }
-    this.updateUnitBars(unit);
-    this.emitSnapshot();
   }
 
   private enemyAttackStructure(
@@ -3901,7 +4305,7 @@ export class BattleScene extends Phaser.Scene {
     if (enemy.attackCooldownMs > 0) return;
 
     const spec = ENEMY_SPECIES[enemy.speciesId];
-    enemy.attackCooldownMs = 1000;
+    enemy.attackCooldownMs = spec.attackIntervalMs ?? 1000;
     this.playEnemyAnim(enemy, 'Attack');
     this.spawnOneShotVfx(spec.hitVfx, struct.sprite.x, struct.sprite.y, 0.85);
 
@@ -3913,6 +4317,15 @@ export class BattleScene extends Phaser.Scene {
       `-${dmg}`,
       '#fdba74',
     );
+
+    if (struct.data.kind === 'thorn_wall') {
+      const reflectDmg = Math.max(2, Math.round(dmg * 0.5));
+      this.spawnOneShotVfx('melee/dagger-slash', enemy.x, enemy.y, 0.75);
+      this.damageEnemy(enemy, reflectDmg, null, false);
+    } else if (struct.data.kind === 'flame_brazier') {
+      enemy.burnTimerMs = Math.max(enemy.burnTimerMs, 3000);
+      enemy.burnDps = Math.max(enemy.burnDps, 6);
+    }
 
     if (struct.data.hp <= 0) {
       if (struct.data.kind === 'barrel') {
@@ -3930,11 +4343,30 @@ export class BattleScene extends Phaser.Scene {
     this.emitSnapshot();
   }
 
+  private formatEffectivenessFloat(
+    tier: EffectivenessTier | undefined,
+    fallbackColor: string,
+  ): { suffix: string; color: string } {
+    switch (tier) {
+      case 'extremely':
+        return { suffix: ' 2×!', color: '#facc15' };
+      case 'super':
+        return { suffix: ' 1.5×!', color: '#fbbf24' };
+      case 'not_very':
+        return { suffix: ' 0.5×', color: '#94a3b8' };
+      case 'very_ineffective':
+        return { suffix: ' 0.35×', color: '#64748b' };
+      default:
+        return { suffix: '', color: fallbackColor };
+    }
+  }
+
   private damageEnemy(
     enemy: EnemyEntity,
     amount: number,
     attacker: UnitEntity | null,
     isCrit: boolean,
+    effectivenessTier?: EffectivenessTier,
   ): void {
     if (enemy.hp <= 0) return;
     const dealt = Math.min(enemy.hp, Math.max(0, amount));
@@ -3952,11 +4384,15 @@ export class BattleScene extends Phaser.Scene {
     const hpRatio = Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1);
     enemy.hpBarFill.width = 30 * hpRatio;
 
+    const effFloat = this.formatEffectivenessFloat(
+      effectivenessTier,
+      isCrit ? '#fde047' : '#f8fafc',
+    );
     this.spawnFloatingText(
       enemy.x,
       enemy.y - 22,
-      isCrit ? `${amount}!` : `${amount}`,
-      isCrit ? '#fde047' : '#f8fafc',
+      `${amount}${isCrit ? '!' : ''}${effFloat.suffix}`,
+      effFloat.color,
     );
 
     if (enemy.hp <= 0) {
@@ -4085,51 +4521,137 @@ export class BattleScene extends Phaser.Scene {
   // Structures & Wave End
   // ---------------------------------------------------------------------------
 
-  private updateBerryBushes(simDtMs: number): void {
+  private updateSupportStructures(simDtMs: number): void {
     this.berryHealTimerMs += simDtMs;
     if (this.berryHealTimerMs < 1000) return;
     this.berryHealTimerMs -= 1000;
 
-    let healedAny = false;
+    let changedAny = false;
     for (const struct of this.structures) {
-      if (
-        struct.data.kind !== 'berry_bush' ||
-        struct.data.ruined ||
-        struct.data.hp <= 0
-      )
-        continue;
+      if (struct.data.ruined || struct.data.hp <= 0) continue;
 
-      for (const unit of this.units) {
-        if (unit.data.fainted || unit.data.hp >= unit.data.maxHp) continue;
-        if (
-          chebyshevDist(
-            unit.data.gx,
-            unit.data.gy,
-            struct.data.gx,
-            struct.data.gy,
-          ) <= 1
-        ) {
-          const prev = unit.data.hp;
-          unit.data.hp = Math.min(
-            unit.data.maxHp,
-            unit.data.hp + BERRY_HEAL_PER_SEC,
-          );
-          const diff = Math.round(unit.data.hp - prev);
-          if (diff > 0) {
-            this.updateUnitBars(unit);
-            this.spawnFloatingText(
-              unit.sprite.x,
-              unit.sprite.y - 24,
-              `+${diff}`,
-              '#4ade80',
+      if (struct.data.kind === 'berry_bush') {
+        for (const unit of this.units) {
+          if (unit.data.fainted || unit.data.hp >= unit.data.maxHp) continue;
+          if (
+            chebyshevDist(
+              unit.data.gx,
+              unit.data.gy,
+              struct.data.gx,
+              struct.data.gy,
+            ) <= 1
+          ) {
+            const prev = unit.data.hp;
+            unit.data.hp = Math.min(
+              unit.data.maxHp,
+              unit.data.hp + BERRY_HEAL_PER_SEC,
             );
-            healedAny = true;
+            const diff = Math.round(unit.data.hp - prev);
+            if (diff > 0) {
+              this.updateUnitBars(unit);
+              this.spawnFloatingText(
+                unit.sprite.x,
+                unit.sprite.y - 24,
+                `+${diff}`,
+                '#4ade80',
+              );
+              changedAny = true;
+            }
+          }
+        }
+      } else if (struct.data.kind === 'tempo_shrine') {
+        for (const unit of this.units) {
+          if (unit.data.fainted || unit.data.ult >= unit.data.ultMax) continue;
+          if (
+            chebyshevDist(
+              unit.data.gx,
+              unit.data.gy,
+              struct.data.gx,
+              struct.data.gy,
+            ) <= 1
+          ) {
+            unit.data.ult = Math.min(unit.data.ultMax, unit.data.ult + 3);
+            this.updateUnitBars(unit);
+            changedAny = true;
+          }
+        }
+      } else if (struct.data.kind === 'flame_brazier') {
+        for (const enemy of this.enemies) {
+          if (enemy.hp <= 0) continue;
+          if (ENEMY_SPECIES[enemy.speciesId].movementType === 'fly') continue;
+          if (
+            chebyshevDist(enemy.gx, enemy.gy, struct.data.gx, struct.data.gy) <=
+            1
+          ) {
+            enemy.burnTimerMs = Math.max(enemy.burnTimerMs, 3000);
+            enemy.burnDps = Math.max(enemy.burnDps, 6);
           }
         }
       }
     }
 
-    if (healedAny) this.emitSnapshot();
+    if (changedAny) this.emitSnapshot();
+  }
+
+  private updateLightningRods(simDtMs: number): void {
+    for (const struct of this.structures) {
+      if (
+        struct.data.kind !== 'lightning_rod' ||
+        struct.data.ruined ||
+        struct.data.hp <= 0
+      ) {
+        continue;
+      }
+
+      struct.lightningRodTimerMs = (struct.lightningRodTimerMs ?? 0) + simDtMs;
+      if (struct.lightningRodTimerMs < 2200) continue;
+
+      let nearest: EnemyEntity | null = null;
+      let nearestDist = Infinity;
+      for (const enemy of this.enemies) {
+        if (enemy.hp <= 0) continue;
+        if (ENEMY_SPECIES[enemy.speciesId].movementType !== 'fly') continue;
+        if (
+          !isInCircularRange(
+            struct.data.gx,
+            struct.data.gy,
+            enemy.gx,
+            enemy.gy,
+            3,
+          )
+        ) {
+          continue;
+        }
+        const dist = Math.hypot(
+          enemy.gx - struct.data.gx,
+          enemy.gy - struct.data.gy,
+        );
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = enemy;
+        }
+      }
+
+      if (!nearest) {
+        struct.lightningRodTimerMs = 2200;
+        continue;
+      }
+
+      struct.lightningRodTimerMs -= 2200;
+      const eff = computeTypeEffectiveness(
+        'Electric',
+        getSpeciesTypes(nearest.speciesId),
+      );
+      const zapDmg = Math.max(1, Math.round(35 * eff.multiplier));
+      nearest.stunTimerMs = Math.max(nearest.stunTimerMs, 500);
+      this.spawnOneShotVfx(
+        'lightning/lightning-strike',
+        nearest.x,
+        nearest.y,
+        0.9,
+      );
+      this.damageEnemy(nearest, zapDmg, null, false, eff.tier);
+    }
   }
 
   private explodeBarrel(barrel: StructureEntity): void {
@@ -4198,6 +4720,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    this.rewardRerollsUsed = 0;
     this.rewardChoices = this.generateRewardChoices();
     this.phase = 'REWARD';
     this.refreshHighlights();
@@ -4213,7 +4736,9 @@ export class BattleScene extends Phaser.Scene {
     this.setStatus('Defeat! The Bastion Core was destroyed.');
   }
 
-  private generateRewardChoices(): RewardOption[] {
+  private generateRewardChoices(
+    excludeRewardIds?: Set<string>,
+  ): RewardOption[] {
     const ownedSpecies = new Set([
       ...this.units.map((u) => u.data.speciesId),
       ...this.reserveIds,
@@ -4221,6 +4746,22 @@ export class BattleScene extends Phaser.Scene {
     const unbranchedUnits = this.units
       .filter((u) => !u.data.branchId)
       .map((u) => ({ uid: u.data.uid, speciesId: u.data.speciesId }));
+    const evolvableUnits = this.units
+      .map((u) => {
+        const targets = getEvolutionTargets(u.data.speciesId);
+        if (targets.length === 0) return null;
+        const targetSpeciesId =
+          targets[Math.floor(this.rng() * targets.length)];
+        return {
+          uid: u.data.uid,
+          speciesId: u.data.speciesId,
+          targetSpeciesId,
+        };
+      })
+      .filter(
+        (u): u is { uid: string; speciesId: string; targetSpeciesId: string } =>
+          u !== null,
+      );
 
     return buildRewardChoices(
       ownedSpecies,
@@ -4231,6 +4772,8 @@ export class BattleScene extends Phaser.Scene {
       false,
       this.units.length < MAX_ACTIVE_UNITS ||
         this.reserveIds.length < MAX_RESERVE_UNITS,
+      evolvableUnits,
+      excludeRewardIds,
     );
   }
 
@@ -4403,10 +4946,8 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  private computeStructureMaxHp(baseMaxHp: number): number {
-    return this.artifacts.includes('fortification_core')
-      ? Math.round(baseMaxHp * 1.4)
-      : baseMaxHp;
+  private computeStructureMaxHp(kind: StructureKind): number {
+    return getEffectiveStructureMaxHp(kind, this.artifacts);
   }
 
   private getUnitRange(unit: UnitEntity): number {
@@ -4582,18 +5123,13 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private getBlockedStructureKeys(): Set<string> {
-    const blocked = new Set<string>();
-    for (const s of this.structures) {
-      if (!s.data.ruined) {
-        blocked.add(`${s.data.gx},${s.data.gy}`);
-      }
+  private isValidUnitTile(gx: number, gy: number, speciesId?: string): boolean {
+    const allowWater = speciesId
+      ? canUnitEnterWater(speciesId, POKEMON_SPECIES[speciesId])
+      : false;
+    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals, allowWater)) {
+      return false;
     }
-    return blocked;
-  }
-
-  private isValidUnitTile(gx: number, gy: number): boolean {
-    if (isNoBuildTile(gx, gy, this.tiles, this.activePortals)) return false;
     if (this.getUnitAt(gx, gy)) return false;
     if (
       this.units.some(
@@ -4616,38 +5152,65 @@ export class BattleScene extends Phaser.Scene {
     return this.structures.find((s) => s.data.gx === gx && s.data.gy === gy);
   }
 
-  private findNearestEnemyInRange(
-    gx: number,
-    gy: number,
+  private findUnitTargetInRange(
+    unit: UnitEntity,
     range: number,
   ): EnemyEntity | null {
-    let best: EnemyEntity | null = null;
-    let bestDist = Infinity;
+    const inRangeEnemies: EnemyEntity[] = [];
+    const candidates: UnitTargetCandidate[] = [];
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
-      if (!isInCircularRange(gx, gy, enemy.gx, enemy.gy, range)) continue;
-      const euclid = Math.hypot(enemy.gx - gx, enemy.gy - gy);
-      if (euclid < bestDist) {
-        bestDist = euclid;
-        best = enemy;
+      if (
+        !isInCircularRange(
+          unit.data.gx,
+          unit.data.gy,
+          enemy.gx,
+          enemy.gy,
+          range,
+        )
+      ) {
+        continue;
       }
+      inRangeEnemies.push(enemy);
+      const coreProgressDist =
+        enemy.path.length > 0
+          ? enemy.path.length
+          : Math.min(
+              ...CORE_CELLS.map((c) =>
+                Math.hypot(enemy.gx - c.gx, enemy.gy - c.gy),
+              ),
+            );
+      candidates.push({
+        uid: enemy.uid,
+        gx: enemy.gx,
+        gy: enemy.gy,
+        hp: enemy.hp,
+        speciesId: enemy.speciesId,
+        coreProgressDist,
+      });
     }
-    return best;
+    if (candidates.length === 0) return null;
+    const picked = selectUnitTarget({
+      unitGx: unit.data.gx,
+      unitGy: unit.data.gy,
+      attackType: getSpeciesAttackType(unit.data.speciesId),
+      priority: unit.data.targetPriority,
+      candidates,
+    });
+    if (!picked) return null;
+    return inRangeEnemies.find((e) => e.uid === picked.uid) ?? null;
   }
 
-  private findAdjacentLivingUnit(enemy: EnemyEntity): UnitEntity | null {
-    let best: UnitEntity | null = null;
-    let bestHp = Infinity;
+  private getFlyingUnitKeys(): Set<string> {
+    const keys = new Set<string>();
     for (const unit of this.units) {
-      if (unit.data.fainted) continue;
-      if (manhattanDist(enemy.gx, enemy.gy, unit.data.gx, unit.data.gy) <= 1) {
-        if (unit.data.hp < bestHp) {
-          bestHp = unit.data.hp;
-          best = unit;
-        }
+      if (unit.data.fainted || unit.data.hp <= 0) continue;
+      const sp = POKEMON_SPECIES[unit.data.speciesId];
+      if (isFlyingSpecies(unit.data.speciesId, sp)) {
+        keys.add(keyOf(unit.data.gx, unit.data.gy));
       }
     }
-    return best;
+    return keys;
   }
 
   private updateCoreBar(): void {

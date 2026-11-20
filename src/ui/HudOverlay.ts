@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { BattleScene } from '../scenes/BattleScene';
-import { POKEMON_SPECIES } from '../data/pokemon';
+import { ENEMY_SPECIES, POKEMON_SPECIES } from '../data/pokemon';
+import { getEnemyThreatSummary } from '../engine/rules';
 import {
   ContextInspectTarget,
   EggHatchResult,
@@ -10,7 +11,12 @@ import {
   PokemonClass,
   PokemonRarity,
 } from '../types';
-import { ToolId } from './hudShared';
+import {
+  escapeHtml,
+  renderPokeIcon,
+  renderSpeciesTypeBadges,
+  ToolId,
+} from './hudShared';
 import {
   CombatStatTab,
   formatTimerMs,
@@ -30,12 +36,19 @@ export class HudOverlay {
   private readonly bottomBar: HTMLElement | null;
   private readonly mapPopover: HTMLElement | null;
   private readonly modalRoot: HTMLElement | null;
+  private readonly enemyIntroBanner: HTMLElement | null;
+
+  private enemyIntroQueue: string[] = [];
+  private enemyIntroActiveId: string | null = null;
+  private enemyIntroLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private enemyIntroNextTimer: ReturnType<typeof setTimeout> | null = null;
 
   private lastSnap: GameSnapshot | null = null;
   private popoverTarget: ContextInspectTarget | null = null;
   private lastPopoverHtml = '';
   private showCredits = false;
   private showPokedex = false;
+  private typeChartOpen = false;
   private showEggs = false;
   private showHatchRates = false;
   private hatchResult: EggHatchResult | null = null;
@@ -76,6 +89,24 @@ export class HudOverlay {
   ): void => {
     this.popoverTarget = target;
     this.renderPopover();
+  };
+
+  private readonly onEnemyIntroduced = (speciesId: string): void => {
+    if (!speciesId || !ENEMY_SPECIES[speciesId]) return;
+    if (
+      this.enemyIntroActiveId === speciesId ||
+      this.enemyIntroQueue.includes(speciesId)
+    ) {
+      return;
+    }
+    this.enemyIntroQueue.push(speciesId);
+    if (!this.enemyIntroActiveId) {
+      this.showNextEnemyIntro();
+    }
+  };
+
+  private readonly onRunReset = (): void => {
+    this.clearEnemyIntroQueue();
   };
 
   private readonly onDocumentPointerDown = (ev: PointerEvent): void => {
@@ -121,6 +152,19 @@ export class HudOverlay {
     if (action === 'close-pokedex') {
       this.scene()?.playUiSfx?.('ui_click');
       this.showPokedex = false;
+      this.renderModal();
+      return;
+    }
+    if (action === 'open-type-chart') {
+      this.scene()?.playUiSfx?.('ui_click');
+      if (!this.typeChartOpen) this.capturePreviousFocus();
+      this.typeChartOpen = true;
+      this.renderModal();
+      return;
+    }
+    if (action === 'close-type-chart') {
+      this.scene()?.playUiSfx?.('ui_click');
+      this.typeChartOpen = false;
       this.renderModal();
       return;
     }
@@ -198,7 +242,9 @@ export class HudOverlay {
     if (
       action !== 'toggle-speed' &&
       action !== 'toggle-mute' &&
-      action !== 'start-wave'
+      action !== 'start-wave' &&
+      action !== 'target-prev' &&
+      action !== 'target-next'
     ) {
       if (
         action === 'buy-item' ||
@@ -275,6 +321,12 @@ export class HudOverlay {
       case 'revive-unit':
         scene.reviveUnit?.(id);
         break;
+      case 'target-prev':
+        scene.cycleUnitTargetPriority?.(id, -1);
+        break;
+      case 'target-next':
+        scene.cycleUnitTargetPriority?.(id, 1);
+        break;
       case 'select-unit':
         scene.selectUnit?.(id);
         break;
@@ -285,6 +337,9 @@ export class HudOverlay {
       }
       case 'pick-reward':
         scene.pickReward?.(id);
+        break;
+      case 'reroll-rewards':
+        scene.rerollRewards?.();
         break;
       case 'home-play':
         scene.startPlayFromHome?.();
@@ -329,6 +384,17 @@ export class HudOverlay {
       case 'deploy-reserve':
         scene.deployReserve?.(id);
         break;
+      case 'release-unit':
+        scene.releaseUnit?.(id);
+        this.closePopover();
+        if (this.expandedUnitUid === id) {
+          this.expandedUnitUid = null;
+          this.renderModal();
+        }
+        break;
+      case 'release-reserve':
+        scene.releaseReserve?.(id);
+        break;
       case 'switch-stat-tab':
         this.combatStatTab = id === 'taken' || id === 'healed' ? id : 'dealt';
         if (this.lastSnap) this.renderSidePanel(this.lastSnap);
@@ -349,6 +415,11 @@ export class HudOverlay {
       case 'buy-item':
         scene.buyHeldItem?.(id);
         break;
+      case 'buy-rare-candy': {
+        const unitUid = target.dataset.unit;
+        if (unitUid && id) scene.buyRareCandy?.(unitUid, id);
+        break;
+      }
       case 'equip-item': {
         const unitUid = target.dataset.unit ?? this.lastSnap?.selectedUnitUid;
         if (unitUid) scene.equipHeldItem?.(unitUid, id);
@@ -448,12 +519,23 @@ export class HudOverlay {
 
   private readonly onModalClick = (ev: Event): void => {
     const target = ev.target as HTMLElement | null;
+    if (target?.classList.contains('home-bg-hit')) {
+      this.scene()?.playUiSfx?.('ui_confirm');
+      this.scene()?.startPlayFromHome?.();
+      return;
+    }
     if (
       target === this.modalRoot ||
-      target?.classList.contains('menu-backdrop')
+      target?.classList.contains('menu-backdrop') ||
+      (this.showCredits && target?.classList.contains('modal-card'))
     ) {
       if (this.hatchResult) {
         this.hatchResult = null;
+        this.renderModal();
+        return;
+      }
+      if (this.typeChartOpen) {
+        this.typeChartOpen = false;
         this.renderModal();
         return;
       }
@@ -509,7 +591,11 @@ export class HudOverlay {
   };
 
   private readonly onKeyDown = (ev: KeyboardEvent): void => {
-    if (ev.key === 'Tab' && this.lastModalHtml !== '' && this.modalRoot) {
+    if (
+      ev.key === 'Tab' &&
+      this.lastModalHtml !== '' &&
+      this.modalRoot?.classList.contains('is-fullscreen')
+    ) {
       const focusables = this.getModalFocusables();
       if (focusables.length === 0) {
         ev.preventDefault();
@@ -543,6 +629,11 @@ export class HudOverlay {
     if (ev.key !== 'Escape') return;
     if (this.hatchResult) {
       this.hatchResult = null;
+      this.renderModal();
+      return;
+    }
+    if (this.typeChartOpen) {
+      this.typeChartOpen = false;
       this.renderModal();
       return;
     }
@@ -583,17 +674,24 @@ export class HudOverlay {
     this.bottomBar = document.getElementById('bottom-bar');
     this.mapPopover = document.getElementById('map-popover');
     this.modalRoot = document.getElementById('modal-root');
+    this.enemyIntroBanner = this.createEnemyIntroBanner();
 
     this.bindEvents();
     this.game.events.on('snapshot', this.onSnapshot);
     this.game.events.on('inspect-unit', this.onInspectUnit);
     this.game.events.on('context-inspect', this.onContextInspect);
+    this.game.events.on('enemy-introduced', this.onEnemyIntroduced);
+    this.game.events.on('run-reset', this.onRunReset);
   }
 
   public destroy(): void {
+    this.clearEnemyIntroQueue();
+    this.enemyIntroBanner?.remove();
     this.game.events.off('snapshot', this.onSnapshot);
     this.game.events.off('inspect-unit', this.onInspectUnit);
     this.game.events.off('context-inspect', this.onContextInspect);
+    this.game.events.off('enemy-introduced', this.onEnemyIntroduced);
+    this.game.events.off('run-reset', this.onRunReset);
     this.topBar?.removeEventListener('click', this.onClick);
     this.topBar?.removeEventListener('contextmenu', this.onContextMenu);
     this.topBar?.removeEventListener('mouseover', this.onToolEnter);
@@ -843,31 +941,40 @@ export class HudOverlay {
 
   private renderModal(): void {
     if (!this.modalRoot) return;
-    const { html, invalidExpandedUnit } = renderModalHtml(this.lastSnap, {
-      showCredits: this.showCredits,
-      showPokedex: this.showPokedex,
-      showEggs: this.showEggs,
-      showHatchRates: this.showHatchRates,
-      hatchResult: this.hatchResult,
-      hatchSeq: this.hatchSeq,
-      pokedexFilter: this.pokedexFilter,
-      rosterClassFilter: this.rosterClassFilter,
-      rosterRarityFilter: this.rosterRarityFilter,
-      rosterCostFilter: this.rosterCostFilter,
-      inspectedPokedexId: this.inspectedPokedexId,
-      mapDifficultyFilter: this.mapDifficultyFilter,
-      inspectedDraftId: this.inspectedDraftId,
-      expandedUnitUid: this.expandedUnitUid,
-    });
+    const { html, invalidExpandedUnit, layoutMode } = renderModalHtml(
+      this.lastSnap,
+      {
+        showCredits: this.showCredits,
+        showPokedex: this.showPokedex,
+        typeChartOpen: this.typeChartOpen,
+        showEggs: this.showEggs,
+        showHatchRates: this.showHatchRates,
+        hatchResult: this.hatchResult,
+        hatchSeq: this.hatchSeq,
+        pokedexFilter: this.pokedexFilter,
+        rosterClassFilter: this.rosterClassFilter,
+        rosterRarityFilter: this.rosterRarityFilter,
+        rosterCostFilter: this.rosterCostFilter,
+        inspectedPokedexId: this.inspectedPokedexId,
+        mapDifficultyFilter: this.mapDifficultyFilter,
+        inspectedDraftId: this.inspectedDraftId,
+        expandedUnitUid: this.expandedUnitUid,
+      },
+    );
     if (invalidExpandedUnit) {
       this.expandedUnitUid = null;
     }
+    this.modalRoot.classList.toggle('is-docked', layoutMode === 'docked');
+    this.modalRoot.classList.toggle(
+      'is-fullscreen',
+      layoutMode === 'fullscreen',
+    );
     const modalKind = this.getModalKind();
     if (html !== this.lastModalHtml) {
       const sameModal = modalKind === this.lastModalKind && modalKind !== '';
       if (
         sameModal &&
-        (modalKind === 'pokedex' || modalKind === 'draft') &&
+        (modalKind === 'pokedex' || modalKind === 'DRAFT') &&
         this.patchRosterModalInPlace(html)
       ) {
         this.lastModalHtml = html;
@@ -888,6 +995,9 @@ export class HudOverlay {
           }
         : null;
       this.modalRoot.innerHTML = html;
+      this.modalRoot
+        .querySelector<HTMLElement>('.modal-card')
+        ?.classList.toggle('docked-panel', layoutMode === 'docked');
       this.lastModalHtml = html;
       if (savedScrolls) {
         const gridEl =
@@ -1001,6 +1111,7 @@ export class HudOverlay {
 
   private getModalKind(): string {
     if (this.hatchResult) return `hatch-result:${this.hatchSeq}`;
+    if (this.typeChartOpen) return 'type-chart';
     if (this.showCredits) return 'credits';
     if (this.showPokedex) return 'pokedex';
     if (this.showEggs) return this.showHatchRates ? 'eggs-rates' : 'eggs';
@@ -1059,5 +1170,98 @@ export class HudOverlay {
       }
     }
     document.body.focus();
+  }
+
+  private createEnemyIntroBanner(): HTMLElement {
+    const existing = document.getElementById('enemy-intro-banner');
+    if (existing) return existing;
+    const banner = document.createElement('div');
+    banner.id = 'enemy-intro-banner';
+    banner.className = 'enemy-intro-banner';
+    banner.setAttribute('aria-live', 'polite');
+    banner.hidden = true;
+    document.body.appendChild(banner);
+    return banner;
+  }
+
+  private clearEnemyIntroQueue(): void {
+    if (this.enemyIntroLeaveTimer !== null) {
+      clearTimeout(this.enemyIntroLeaveTimer);
+      this.enemyIntroLeaveTimer = null;
+    }
+    if (this.enemyIntroNextTimer !== null) {
+      clearTimeout(this.enemyIntroNextTimer);
+      this.enemyIntroNextTimer = null;
+    }
+    this.enemyIntroQueue = [];
+    this.enemyIntroActiveId = null;
+    if (this.enemyIntroBanner) {
+      this.enemyIntroBanner.hidden = true;
+      this.enemyIntroBanner.innerHTML = '';
+      this.enemyIntroBanner.classList.remove('is-leaving');
+    }
+  }
+
+  private showNextEnemyIntro(): void {
+    if (this.enemyIntroLeaveTimer !== null) {
+      clearTimeout(this.enemyIntroLeaveTimer);
+      this.enemyIntroLeaveTimer = null;
+    }
+    if (this.enemyIntroNextTimer !== null) {
+      clearTimeout(this.enemyIntroNextTimer);
+      this.enemyIntroNextTimer = null;
+    }
+
+    const nextId = this.enemyIntroQueue.shift();
+    if (!nextId) {
+      this.enemyIntroActiveId = null;
+      if (this.enemyIntroBanner) {
+        this.enemyIntroBanner.hidden = true;
+        this.enemyIntroBanner.innerHTML = '';
+        this.enemyIntroBanner.classList.remove('is-leaving');
+      }
+      return;
+    }
+
+    const spec = ENEMY_SPECIES[nextId];
+    if (!spec || !this.enemyIntroBanner) {
+      this.showNextEnemyIntro();
+      return;
+    }
+
+    this.enemyIntroActiveId = nextId;
+    const spriteKey = spec.spriteId ?? spec.id;
+    const summary = getEnemyThreatSummary(spec);
+
+    this.enemyIntroBanner.classList.remove('is-leaving');
+    this.enemyIntroBanner.hidden = false;
+    this.enemyIntroBanner.innerHTML = `
+      <div class="enemy-intro-card" style="--enemy-accent:${escapeHtml(spec.color)}">
+        <div class="enemy-intro-stripe"></div>
+        <div class="enemy-intro-portrait">
+          ${renderPokeIcon(spriteKey, 'lg')}
+        </div>
+        <div class="enemy-intro-body">
+          <div class="enemy-intro-kicker">
+            <span class="enemy-intro-badge">NEW THREAT</span>
+            <span class="enemy-intro-role">${escapeHtml(spec.roleLabel)}</span>
+          </div>
+          <div class="enemy-intro-title-row">
+            <span class="enemy-intro-name">${escapeHtml(spec.name)}</span>
+            <span class="type-badge-row">${renderSpeciesTypeBadges(spec.id, false)}</span>
+          </div>
+          <div class="enemy-intro-summary">${escapeHtml(summary)}</div>
+        </div>
+      </div>
+    `;
+
+    this.enemyIntroLeaveTimer = setTimeout(() => {
+      this.enemyIntroBanner?.classList.add('is-leaving');
+    }, 3200);
+
+    this.enemyIntroNextTimer = setTimeout(() => {
+      this.enemyIntroActiveId = null;
+      this.showNextEnemyIntro();
+    }, 3500);
   }
 }

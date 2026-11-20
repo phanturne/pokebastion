@@ -87,7 +87,15 @@ export interface MinorUpgradeSpec {
 export type MovementType = 'ground' | 'burrow' | 'fly';
 
 export type StructureKind =
-  'wood_wall' | 'stone_wall' | 'berry_bush' | 'barrel';
+  | 'wood_wall'
+  | 'stone_wall'
+  | 'thorn_wall'
+  | 'flame_brazier'
+  | 'berry_bush'
+  | 'tempo_shrine'
+  | 'honey_trap'
+  | 'lightning_rod'
+  | 'barrel';
 
 export interface PokemonBranch {
   id: string;
@@ -158,6 +166,8 @@ export interface PokemonSpecies {
   impactVfx: string;
   ultVfx: string;
   isMelee: boolean;
+  canEnterWater?: boolean;
+  canFly?: boolean;
   branches: [PokemonBranch, PokemonBranch, PokemonBranch];
 }
 
@@ -172,6 +182,10 @@ export interface EnemySpecies {
   atk: number;
   speed: number; // tiles per second
   movementType: MovementType;
+  range?: number; // default 1
+  attackIntervalMs?: number; // default 1000
+  projectileVfx?: string;
+  ignoresUnits?: boolean;
   wallDmgMult: number;
   bounty: number;
   roleLabel: string;
@@ -198,6 +212,17 @@ export interface GridStructure {
   ruined: boolean;
 }
 
+export type TargetPriority =
+  'first' | 'last' | 'close' | 'strong' | 'advantageous';
+
+export const TARGET_PRIORITIES: readonly TargetPriority[] = [
+  'first',
+  'last',
+  'close',
+  'strong',
+  'advantageous',
+];
+
 export interface ActiveUnit {
   uid: string;
   speciesId: string;
@@ -210,6 +235,7 @@ export interface ActiveUnit {
   ult: number;
   ultMax: number;
   autoUlt: boolean;
+  targetPriority?: TargetPriority;
   fainted: boolean;
   facingDir: number; // 0..7 PMD direction
   attackCooldownMs: number;
@@ -221,10 +247,11 @@ export interface ActiveUnit {
 
 export interface RewardOption {
   id: string;
-  kind: 'upgrade' | 'artifact' | 'recruit' | 'branch';
+  kind: 'upgrade' | 'artifact' | 'recruit' | 'branch' | 'evolve';
   title: string;
   desc: string;
   speciesId?: string;
+  targetSpeciesId?: string;
   unitUid?: string;
   targetClass?: PokemonClass;
 }
@@ -244,7 +271,7 @@ export interface GameSnapshot {
   paused: boolean;
   muted: boolean;
   screenShakeEnabled: boolean;
-  selectedTool: StructureKind | 'sell_struct' | null;
+  selectedTool: StructureKind | null;
   movingStructureUid?: string | null;
   selectedUnitUid: string | null;
   selectedStructureUid: string | null;
@@ -260,6 +287,7 @@ export interface GameSnapshot {
   artifacts: string[];
   upgrades: string[];
   rewardChoices: RewardOption[];
+  rewardRerollsUsed: number;
   pendingBranchUnitUid: string | null;
   statusMessage: string;
   pokemonProgress: Record<string, PokemonProgress>;
