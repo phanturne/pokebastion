@@ -1,88 +1,78 @@
 # PokéBastion TD
 
-An open-map, real-time roguelike tower defense prototype built with **Phaser 3**, **TypeScript**, and **Vite**, inspired by _The Last Spell_, _Arknights_, and _Path to Nowhere_.
+An open-map, real-time roguelike Pokémon tower defense game inspired by _The Last Spell_, _Arknights_, and _Path to Nowhere_.
 
-Instead of fixed enemy lanes, enemies pathfind dynamically across a `28×18` grid toward your central Pokémon Center. Build walls to shape chokepoints, draft your team with a 10-point budget, pick 3-way specializations, equip held items, and trigger manual or auto-cast ultimates across a 10-wave run.
+Instead of fixed enemy lanes, wild Pokémon dynamically pathfind across a `28×18` battlefield toward your central Pokémon Center. Build walls and traps to reshape their routes, draft your squad, reposition units mid-fight with Action Points, and unleash manual or auto-cast Ultimates across 20–50 wave runs.
+
+**[Play Now on GitHub Pages](https://phanturne.github.io/pokebastion/)**
+
+![PokéBastion TD Home Screen](docs/screenshots/home.png)
 
 ---
 
-## Live Demo
+## Features
 
-Play the latest `master` build on GitHub Pages: **https://phanturne.github.io/pokebastion/**
+- **Open-Map Dynamic Pathfinding:** Enemies route around your walls in real time—with live dashed path previews during prep so you can sculpt chokepoints before every wave.
+- **152 Playable Pokémon & 3-Way Specializations:** Draft a starting squad within a 10-point budget (starting with Bulbasaur, Charmander, and Squirtle), recruit more between waves, evolve units, and unlock 3 distinct specialization branches per species.
+- **Real-Time Tactical Repositioning:** Pokémon auto-attack in range, while you spend shared **Action Points (AP)** (`1 AP` per move in combat, `0 AP` in prep) to reposition them around threats and trigger **Ultimates** at the right moment.
+- **9 Defensive Structures & Traps:** Build Barricades, Stone Walls, Thorn Walls, Flame Braziers, Berry Bushes, Tempo Shrines, Honey Traps, Lightning Rods, and Bomb Barrels—freely movable during prep, repairable, or sellable for a `70%` refund.
+- **24 Held Items & Roguelike Relics:** Equip up to 3 held items per Pokémon (`HELD_ITEM_CATALOG`), draft team-wide class/subclass upgrades, and collect global artifacts (including structure-buffing relics like _Fortification Core_).
+- **4 Maps & 4 Difficulty Modes:** Battle across distinct maps from `Easy` (20 waves) to `Expert` (50 waves), facing ground, burrowing (`Diglett`), flying (`Zubat`), and wall-breaker (`Geodude`) threats plus boss encounters.
+- **Meta-Progression:** Earn **Species Shards**, **Universal Shards**, **Eggs** (Common, Rare, Master), and **Achievements** across runs to unlock new Pokémon in the Pokédex and upgrade their **Potential (`★0–★5`)**.
 
-## Quick Start
+---
 
-**Prerequisites:** Node.js 22+ (matches CI) and npm.
+## Screenshots
+
+|     Prep Phase & Live Path Previews      |         Wave Combat & Threat Alerts          |
+| :--------------------------------------: | :------------------------------------------: |
+| ![Prep Phase](docs/screenshots/prep.png) | ![Combat Phase](docs/screenshots/combat.png) |
+
+---
+
+## How to Play
+
+1. **Draft Your Squad:** Pick a map and difficulty, then spend your 10-point draft budget to assemble your starting team.
+2. **Preparation Phase (`PREP`):**
+   - Place, move, repair, or sell structures to funnel enemies into kill zones.
+   - Reposition your Pokémon freely (`0 AP`), heal/revive injured units, equip held items, or swap with up to `3` reserve units.
+   - Watch the live dashed enemy path previews update as you build, then hit **Start Wave**.
+3. **Combat Phase (`COMBAT`):**
+   - Pokémon attack automatically. Click a unit and click any reachable tile to reposition (`1 AP`).
+   - Trigger **Ultimates** manually (or let auto-ult handle them) and toggle `1×` / `2×` speed or pause anytime.
+4. **Rewards & Shop (`REWARD` / `SHOP`):**
+   - Pick 1 of 3 roguelike rewards after waves (new recruits, evolutions, class upgrades, or artifacts) and visit the shop every 5th wave.
+5. **Shortcuts:** Press **`Esc`** or **right-click** on the battlefield to cancel active placement, unit selection, or Ultimate aiming.
+
+---
+
+## Run Locally
+
+**Prerequisites:** Node.js 22+ and npm.
 
 ```bash
 npm install
-npm run dev       # Start Vite dev server (http://localhost:5173)
+npm run dev       # Start local dev server at http://localhost:5173
 ```
-
-> **Note:** `husky` + `lint-staged` is configured via `prepare` and automatically runs ESLint and Prettier on staged files when you commit.
 
 ### Scripts
 
 | Command                | Description                                               |
 | :--------------------- | :-------------------------------------------------------- |
-| `npm run dev`          | Start local development server                            |
+| `npm run dev`          | Start Vite development server                             |
 | `npm run build`        | Type-check (`tsc`) and build production bundle to `dist/` |
-| `npm run preview`      | Preview production `dist/` build locally                  |
+| `npm run preview`      | Preview the production `dist/` build locally              |
 | `npm test`             | Run Vitest unit & data-integrity tests                    |
-| `npm run test:watch`   | Run Vitest in watch mode                                  |
+| `npm run test:e2e`     | Run Playwright browser end-to-end tests                   |
+| `npm run check:bundle` | Check production bundle size limits                       |
 | `npm run lint`         | Run ESLint across the repository                          |
-| `npm run format`       | Format files with Prettier                                |
-| `npm run format:check` | Check Prettier formatting without modifying files         |
+| `npm run format:check` | Check Prettier formatting                                 |
 
 ---
 
-## Current Prototype Scope
+## Documentation & Credits
 
-- **Battlefield:** `28×18` square grid (`32px` tiles, `896×576` logical canvas) with a `2×2` central Pokémon Center (`1000 HP`), randomized wave spawn portals, and live 8-directional A* path previews.
-- **Playable Pokémon (10):**
-  - _10-Point Starter Draft:_ Draft 1–6 starting Pokémon before Wave 1 (`Squirtle`, `Charmander`, and `Bulbasaur` are unlocked for everyone at `3 pts` each; others cost `2–4 pts`).
-  - _3-Way Branching Specializations:_ Every Pokémon has 3 distinct specialization/evolution branches, unlocked via post-wave **Specialization** reward choices.
-  - _Held Items (3 Slots):_ Purchase and equip `Bloodthirsty Edge`, `Storm Conductor`, and `Guardian Charm` during `PREP` via the unit popover.
-- **Enemy Types (10):** Rattata, Raticate, Diglett (`burrow`), Dugtrio (`burrow`), Zubat (`fly`), Golbat (`fly`), Crobat (`fly`), Geodude (wall-breaker), Graveler (heavy wall-breaker), and Golem (siege juggernaut).
-- **Structures (4):** Wood Wall (`₽20`), Stone Wall (`₽50`), Berry Bush (`₽70`, heals nearby units), Explosive Barrel (`₽30`, consumable AoE blast).
-- **Progression:** 10 consecutive waves with post-wave roguelike drafts (recruit Pokémon, team upgrades, and global artifacts).
-
----
-
-## Controls & Gameplay Loop
-
-1. **Preparation Phase (`PREP`):**
-   - Place, move, repair, or sell (70% refund) structures on valid grass/dirt tiles (the outer 2-tile border and active portal buffers are no-build zones).
-   - Reposition Pokémon freely (`0 AP`), heal (`₽15`), revive (`₽35`), deploy reserves (up to `6` active), or swap with reserves.
-   - Watch live dashed enemy path previews update as you place or hover walls.
-   - Click **Start Wave** when ready.
-2. **Combat Phase (`COMBAT`):**
-   - Pokémon auto-attack enemies in range.
-   - Click a Pokémon, then click any reachable tile to reposition using shared **AP** (`1 AP` anywhere; `+3 AP` per wave, `+1 AP` every 6 kills).
-   - Trigger ultimates manually (or toggle auto-ult per unit) and switch between `1×` / `2×` simulation speed.
-3. **Reward Phase (`REWARD`):**
-   - Pick 1 of 3 randomized rewards (recruit a new Pokémon, team upgrade, or global artifact) before the next wave's prep phase.
-4. **Shortcuts:**
-   - **Right-click** on the canvas or press **`Esc`** to cancel active tool placement, unit selection, or ultimate aiming (`Esc` also closes the Credits modal). No other keyboard hotkeys are bound yet.
-
----
-
-## Project Layout
-
-- `src/types.ts`, `src/main.ts` — Shared domain types, grid constants, and Phaser bootstrap
-- `src/engine/` — Framework-free simulation rules (`pathfinding.ts`, `rules.ts`)
-- `src/data/` — Species, structure, reward, and wave definitions (`pokemon.ts`)
-- `src/scenes/` — Phaser 3 asset loading (`BootScene.ts`) and battlefield loop (`BattleScene.ts`)
-- `src/ui/` — DOM/CSS HUD overlay (`HudOverlay.ts`)
-- `public/assets/` — Committed spritesheets, tilesets, props, and generated asset manifests
-- `scripts/` — Asset manifest sync helper (`sync-assets.mjs`)
-- `tests/` — Vitest suites (`pathfinding.test.ts`, `rules.test.ts`, `dataIntegrity.test.ts`)
-- `docs/` — [Game Design Document](docs/gdd.md) & [Architecture Overview](docs/architecture.md)
-
----
-
-## Credits & Docs
-
-- Full design vision & prototype status: [docs/gdd.md](docs/gdd.md)
-- Technical architecture: [docs/architecture.md](docs/architecture.md)
-- Asset & sprite credits: [CREDITS.md](CREDITS.md)
+- **New to the codebase?** Start with the [Developer Onboarding Guide](docs/developer-guide.md).
+- **Architecture & AI agent rules:** [docs/architecture.md](docs/architecture.md) · [AGENTS.md](AGENTS.md)
+- **Full Game Design Document:** [docs/gdd.md](docs/gdd.md)
+- **Asset & sprite credits:** [CREDITS.md](CREDITS.md)

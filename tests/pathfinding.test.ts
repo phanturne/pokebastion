@@ -4,6 +4,7 @@ import {
   SPAWN_EAST,
   SPAWN_WEST,
   createBaseGrid,
+  findEnemyPathToTarget,
   findNearestBlockingWall,
   findPath,
   findUnitPath,
@@ -472,5 +473,34 @@ describe('A* Pathfinding & Grid Rules', () => {
       'fly',
     );
     expect(unblocked).not.toBeNull();
+  });
+
+  it('finds aggro paths with findEnemyPathToTarget for ground and flying enemies', () => {
+    const grid = createBaseGrid();
+    const blockedWalls = new Set(['11,8']);
+
+    const groundPath = findEnemyPathToTarget(
+      { gx: 10, gy: 8 },
+      { gx: 12, gy: 8 },
+      grid,
+      blockedWalls,
+      'ground',
+    );
+    expect(groundPath).not.toBeNull();
+    expect(groundPath![groundPath!.length - 1]).toEqual({ gx: 12, gy: 8 });
+    expect(groundPath!.some((p) => p.gx === 11 && p.gy === 8)).toBe(false);
+
+    // Flying enemy can step onto target even if target tile is in flyBlocked
+    const flyBlocked = new Set(['12,8']);
+    const flyPath = findEnemyPathToTarget(
+      { gx: 10, gy: 8 },
+      { gx: 12, gy: 8 },
+      grid,
+      new Set(),
+      'fly',
+      flyBlocked,
+    );
+    expect(flyPath).not.toBeNull();
+    expect(flyPath![flyPath!.length - 1]).toEqual({ gx: 12, gy: 8 });
   });
 });

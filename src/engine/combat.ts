@@ -136,6 +136,14 @@ export function computeKillBounty(
   return Math.round(baseBounty * artifactMult * bonuses.killGoldMult);
 }
 
+/**
+ * ★5 subclass passives handled in pure combat math:
+ * - Bastion, Sniper, Chain, Healer, Elemental AoE, Displacer, Artillery (+10% AoE dmg),
+ *   Status (computeStatusDurationMs), Duelist, Interceptor, Ambusher, Rapid-Fire, Juggernaut.
+ * Scene-level hooks required for: Wallguard (adjacent structure DR), Cleave (splash),
+ * Buffer (aura +5% ATK/SPD), Tactician (ally ult charge aura), Hazard Setter (hazard dmg/duration),
+ * and Artillery (+20% splash radius).
+ */
 export function computeUltPower(
   baseAtk: number,
   ultMult: number,
@@ -149,7 +157,12 @@ export function computeUltPower(
     const healMult = bonuses.subclassPassive === 'Healer' ? 1.25 : 1;
     return Math.round(baseAtk * 2.5 * ultMult * healMult * kitPowerMult);
   }
-  const aoeMult = bonuses.subclassPassive === 'Elemental AoE' ? 1.15 : 1;
+  const aoeMult =
+    bonuses.subclassPassive === 'Elemental AoE'
+      ? 1.15
+      : bonuses.subclassPassive === 'Artillery'
+        ? 1.1
+        : 1;
   return Math.round(baseAtk * 2.2 * ultMult * aoeMult * kitPowerMult);
 }
 
@@ -161,6 +174,16 @@ export function computeSlowDurationMs(
   const bonuses = getPotentialBonuses(potential, subclass);
   const slowMult = bonuses.subclassPassive === 'Displacer' ? 1.25 : 1;
   return Math.round(baseDurationMs * slowMult);
+}
+
+export function computeStatusDurationMs(
+  baseDurationMs: number,
+  potential = 0,
+  subclass?: PokemonSubclass,
+): number {
+  const bonuses = getPotentialBonuses(potential, subclass);
+  const statusMult = bonuses.subclassPassive === 'Status' ? 1.25 : 1;
+  return Math.round(baseDurationMs * statusMult);
 }
 
 export interface BasicAttackDamageInput {
@@ -175,6 +198,9 @@ export interface BasicAttackDamageInput {
   potential?: number;
   subclass?: PokemonSubclass;
   targetMovementType?: MovementType;
+  targetIsBoss?: boolean;
+  targetIsLeaking?: boolean;
+  isFirstAttackAfterMove?: boolean;
   attackType?: PokemonElementType;
   defenderTypes?: readonly PokemonElementType[];
 }
@@ -182,6 +208,7 @@ export interface BasicAttackDamageInput {
 export interface BasicAttackDamageResult {
   damage: number;
   isCrit: boolean;
+  extraBolt: boolean;
   ultCharge: number;
   lifestealHeal: number;
   chainDamage: number;
@@ -201,10 +228,18 @@ export function computeBasicAttackDamage(
   let damage = input.baseAtk;
   let isCrit = false;
 
-  if (kit.critEveryN && input.hitCount % kit.critEveryN === 0) {
+  if (
+    kit.critEveryN &&
+    input.hitCount > 0 &&
+    input.hitCount % kit.critEveryN === 0
+  ) {
     damage = Math.round(damage * (kit.critMult ?? 1.75));
     isCrit = true;
-  } else if (input.branchSpecial === 'crit_boost' && input.hitCount % 5 === 0) {
+  } else if (
+    input.branchSpecial === 'crit_boost' &&
+    input.hitCount > 0 &&
+    input.hitCount % 5 === 0
+  ) {
     damage = Math.round(damage * 1.6);
     isCrit = true;
   }
@@ -226,6 +261,18 @@ export function computeBasicAttackDamage(
     (bonuses.subclassPassive === 'Sniper' ? 0.2 : 0);
   if (antiAirPct > 0 && input.targetMovementType === 'fly') {
     damage = Math.round(damage * (1 + antiAirPct));
+  }
+
+  if (bonuses.subclassPassive === 'Duelist' && input.targetIsBoss) {
+    damage = Math.round(damage * 1.15);
+  }
+
+  if (bonuses.subclassPassive === 'Interceptor' && input.targetIsLeaking) {
+    damage = Math.round(damage * 1.15);
+  }
+
+  if (bonuses.subclassPassive === 'Ambusher' && input.isFirstAttackAfterMove) {
+    damage = Math.round(damage * 1.35);
   }
 
   if (
@@ -275,9 +322,15 @@ export function computeBasicAttackDamage(
       : baseTargets
     : 0;
 
+  const extraBolt =
+    bonuses.subclassPassive === 'Rapid-Fire' &&
+    input.hitCount > 0 &&
+    input.hitCount % 5 === 0;
+
   return {
     damage,
     isCrit,
+    extraBolt,
     ultCharge,
     lifestealHeal,
     chainDamage,
@@ -295,6 +348,9 @@ export interface EnemyAttackDamageInput {
   unitHeldItems: readonly string[];
   unitAdjacentToStructure: boolean;
   unitBranchSpecial?: PokemonBranch['special'];
+  unitPotential?: number;
+  unitSubclass?: PokemonSubclass;
+  isMelee?: boolean;
   attackType?: PokemonElementType;
   defenderTypes?: readonly PokemonElementType[];
 }
@@ -310,6 +366,11 @@ export function computeEnemyAttackDamage(
   input: EnemyAttackDamageInput,
 ): EnemyAttackDamageResult {
   const kit = getSpeciesKit(input.unitSpeciesId);
+  const bonuses = getSpeciesPotentialBonuses(
+    input.unitSpeciesId,
+    input.unitPotential ?? 0,
+    input.unitSubclass,
+  );
   let damage = Math.max(
     2,
     Math.round(input.enemyAtk * (40 / (40 + input.unitDef))),
@@ -334,9 +395,14 @@ export function computeEnemyAttackDamage(
     damage = Math.max(2, Math.round(damage * eff.multiplier));
   }
 
+  const juggernautThorns =
+    bonuses.subclassPassive === 'Juggernaut' && input.isMelee !== false
+      ? 0.15
+      : 0;
   const thornsPct = Math.max(
     input.unitBranchSpecial === 'thorns' ? 0.25 : 0,
     kit.thornsPct ?? 0,
+    juggernautThorns,
   );
   const reflectedThorns =
     thornsPct > 0 ? Math.max(2, Math.round(damage * thornsPct)) : 0;

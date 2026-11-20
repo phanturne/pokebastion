@@ -141,4 +141,17 @@ describe('Pokemon Kits, Teleport, Hazards & Sniper Ults', () => {
     });
     expect(snorlaxStationary.damage).toBeLessThan(snorlaxMoving.damage);
   });
+
+  it('derives fallback kits for non-signature species and returns empty kit for unknown IDs', () => {
+    // '0019' (Rattata) uses deriveFallbackKit
+    const rattataKit = getSpeciesKit('0019');
+    expect(Object.keys(rattataKit).length).toBeGreaterThan(0);
+
+    // '0029' (Nidoran♀, Poison) derives onHitPoison from element
+    const nidoranFKit = getSpeciesKit('0029');
+    expect(nidoranFKit.onHitPoison).toBeDefined();
+
+    // Unknown species ID returns empty kit safely
+    expect(getSpeciesKit('unknown_species')).toEqual({});
+  });
 });

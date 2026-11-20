@@ -258,6 +258,7 @@ export class HudOverlay {
         action === 'confirm-draft' ||
         action === 'pick-reward' ||
         action === 'pick-branch' ||
+        action === 'pick-branch-reward' ||
         action === 'unlock-species' ||
         action === 'upgrade-potential' ||
         action === 'hatch-egg' ||
@@ -340,6 +341,13 @@ export class HudOverlay {
       case 'pick-reward':
         scene.pickReward?.(id);
         break;
+      case 'pick-branch-reward':
+        if (id) {
+          (
+            scene as { pickBranchReward?: (id: string) => void }
+          ).pickBranchReward?.(id);
+        }
+        break;
       case 'reroll-rewards':
         scene.rerollRewards?.();
         break;
@@ -394,9 +402,6 @@ export class HudOverlay {
           this.inspectedDraftId = id;
           this.renderModal();
         }
-        break;
-      case 'toggle-draft':
-        scene.toggleDraftSpecies?.(id);
         break;
       case 'clear-draft':
         scene.clearDraft?.();
@@ -740,6 +745,7 @@ export class HudOverlay {
     this.sidePanel?.removeEventListener('focusin', this.onToolEnter);
     this.sidePanel?.removeEventListener('focusout', this.onToolLeave);
     this.modalRoot?.removeEventListener('click', this.onModalClick);
+    this.modalRoot?.removeEventListener('change', this.onModalChange);
     this.modalRoot?.removeEventListener('dblclick', this.onModalDblClick);
     document.removeEventListener('pointerdown', this.onDocumentPointerDown);
     window.removeEventListener('keydown', this.onKeyDown);

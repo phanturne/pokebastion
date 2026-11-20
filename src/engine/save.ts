@@ -197,14 +197,20 @@ export function upgradeSpeciesPotential(
 
   const fromSpecies = Math.min(speciesShards, cost);
   const fromUniversal = cost - fromSpecies;
-  save.pokemon[speciesId] = {
-    ...entry,
-    mastery: currentPotential + 1,
-    shards: speciesShards - fromSpecies,
-  };
+  const newPotential = currentPotential + 1;
+  let remainingSpeciesShards = speciesShards - fromSpecies;
   if (fromUniversal > 0) {
     save.universalShards = (save.universalShards ?? 0) - fromUniversal;
   }
+  if (newPotential >= MAX_POTENTIAL && remainingSpeciesShards > 0) {
+    save.universalShards = (save.universalShards ?? 0) + remainingSpeciesShards;
+    remainingSpeciesShards = 0;
+  }
+  save.pokemon[speciesId] = {
+    ...entry,
+    mastery: newPotential,
+    shards: remainingSpeciesShards,
+  };
   return true;
 }
 
@@ -401,13 +407,15 @@ export function loadPlayerSave(
           unlocked:
             Boolean(entry.unlocked) || Boolean(save.pokemon[id]?.unlocked),
           ...(entry.shiny !== undefined ? { shiny: Boolean(entry.shiny) } : {}),
-          ...(typeof entry.mastery === 'number'
-            ? { mastery: entry.mastery }
+          ...(typeof entry.mastery === 'number' &&
+          Number.isFinite(entry.mastery) &&
+          entry.mastery >= 0
+            ? { mastery: Math.min(MAX_POTENTIAL, Math.floor(entry.mastery)) }
             : {}),
           ...(typeof entry.shards === 'number' &&
           Number.isFinite(entry.shards) &&
           entry.shards >= 0
-            ? { shards: entry.shards }
+            ? { shards: Math.floor(entry.shards) }
             : {}),
         };
       }

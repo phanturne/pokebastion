@@ -19,13 +19,13 @@ A roguelike tactical defense game combining wave-based survival and between-wave
 
 Unlike traditional tower defense games, enemies do not follow predetermined paths. The battlefield is a **grid**, and enemies navigate across it toward the player's core, taking available routes around obstacles and defensive structures. Players can construct walls, obstacles, and defensive structures on grid cells to shape the battlefield. Walls and persistent structures have durability values, entering a ruined state when destroyed so they can be repaired, while one-time use items disappear once consumed.
 
-Combat is real-time. Pokémon remain stationed in grid cells and automatically perform their basic attacks, while the player actively repositions them to nearby cells (limited by each Pokémon's movement stat and action points) and triggers manual ultimates (while some Pokémon feature auto-cast ultimates). Between waves, players spend limited Pokédollars to construct defenses, repair and upgrade structures, heal or revive Pokémon, and improve their team. Each run features randomized rewards, upgrades, and artifacts, creating different team compositions and defensive strategies.
+Combat is real-time. Pokémon remain stationed in grid cells and automatically perform their basic attacks, while the player actively repositions them to nearby cells (limited by each Pokémon's movement stat and action points) and triggers manual ultimates (while some Pokémon feature auto-cast ultimates). Between waves, players spend limited Pokédollars to construct defenses, repair structures, heal or revive Pokémon, and improve their team. Each run features randomized rewards, upgrades, and artifacts, creating different team compositions and defensive strategies.
 
 ## Design Pillars
 
 1. **Open tactical battlefields:** No fixed enemy paths. Players influence enemy routes by constructing defenses.
 2. **Real-time tactical control:** Pokémon automatically attack while players decide when to move units and activate abilities.
-3. **Persistent fortification:** Defensive structures remain throughout a run and can be repaired, upgraded, or destroyed.
+3. **Persistent fortification:** Defensive structures remain throughout a run and can be repaired, buffed by artifacts, or destroyed.
 4. **Meaningful preparation:** Pokédollars is limited, so players must prioritize construction, repairs, healing, and upgrades.
 5. **Distinct Pokémon identities:** Every Pokémon has unique passive abilities, basic attacks, and ultimate abilities (manual or auto-cast depending on the Pokémon).
 6. **Roguelike variety:** Random rewards, artifacts, recruitment, and upgrades create different builds across runs.
@@ -46,7 +46,6 @@ Players can spend Pokédollars and other available resources to:
 - Build walls and obstacles.
 - Construct defensive structures and traps.
 - Repair damaged walls and structures.
-- Upgrade existing fortifications.
 - Access the **preparation shop** (available whenever not in combat) to purchase revives, healing items, held items, and other consumables.
 - Heal injured Pokémon or revive fainted Pokémon.
 - Upgrade Pokémon abilities and stats.
@@ -159,11 +158,10 @@ Walls have HP and can be damaged by enemies. When a wall reaches zero HP, it is 
 Players can:
 
 - Repair damaged walls.
-- Upgrade walls to stronger variants.
 - Replace destroyed walls.
 - Construct new walls in different locations.
 
-Repairing and upgrading walls requires Pokédollars.
+Repairing walls requires Pokédollars.
 
 ### Persistent Fortifications
 
@@ -172,7 +170,6 @@ Walls remain in their constructed locations throughout the run, including betwee
 Players must consider:
 
 - Which walls are worth protecting?
-- Where should they spend Pokédollars on upgrades?
 - Is it better to repair a damaged wall or build a new one?
 - Should they redirect enemies rather than try to block them completely?
 
@@ -191,9 +188,9 @@ Potential structures:
 
 Structures require Pokédollars to construct. Persistent structures have durability: when reduced to zero HP, they display a **ruined state** and stop functioning until repaired with Pokédollars during the preparation phase. In contrast, **one-time use items** (such as explosive barrels) **disappear permanently** after being triggered or destroyed. Structures should complement Pokémon rather than replace them as the primary source of combat power.
 
-### Structure Upgrades, Selling, and Baseline Costs
+### Structure Buffs, Selling, and Baseline Costs
 
-- **Linear Upgrades:** Structures upgrade linearly (e.g., Tier 1 → Tier 2 → Tier 3) rather than branching, keeping buildcrafting focused on Pokémon.
+- **No Per-Structure Upgrades:** Structures do not have individual upgrade tiers; instead, they are buffed globally via run **artifacts** (e.g., _Fortification Core_), keeping buildcrafting and micromanagement focused on Pokémon.
 - **Moving & Selling:** During the preparation phase, players can **freely move placed walls, structures, and unconsumed items** across valid grid cells, or **sell/salvage them for a 70% Pokédollar refund**.
 - **Baseline Cost Ratios (assuming ~₽80–₽120 earned per early wave):**
   - Walls: Wooden Barricade `₽20`, Reinforced Timber `₽45`, Boulder / Rock Tomb `₽80`, Screen Barrier `~₽70`.
@@ -564,7 +561,6 @@ Pokédollars is spent on:
 - Building walls.
 - Building defensive structures.
 - Repairing walls and structures.
-- Upgrading fortifications.
 - Healing Pokémon.
 - Reviving fainted Pokémon.
 - Other preparation-phase services.
@@ -576,7 +572,7 @@ For example:
 - Repairing a damaged wall may prevent an enemy breakthrough.
 - Placing a Field Healing Station or Explosive Barrel may sustain the frontline or clear a dangerous chokepoint.
 - Reviving a fainted Pokémon may restore an important team role.
-- Upgrading a wall may be more economical than repeatedly repairing a weak one.
+- Building a Stone Wall may be more economical than repeatedly repairing a Wooden Barricade.
 
 ## Pokédollars Sources
 
@@ -794,19 +790,19 @@ This section tracks what is **currently playable in the repository** versus the 
 
 ## Implemented Today
 
-- **Battlefield & Grid:** `28×18` square grid (`32px` tiles, `896×576` logical canvas) themed as an Ekat Route-224 forest clearing with a `2×2` central Pokémon Center core (`1000 HP`) and randomized multi-side spawn portals (`north`, `south`, `west`, `east`) rolled each wave.
+- **Battlefield & Maps:** `28×18` square grid (`32px` tiles, `896×576` logical canvas) across 4 maps (`Viridian Outpost`, `Cerulean Creek`, `Lavender Hollow`, `Victory Road`), each with a `2×2` central Pokémon Center core and randomized multi-side spawn portals (`north`, `south`, `west`, `east`) rolled each wave.
 - **Pathfinding & Live Previews:** 8-directional A* (`src/engine/pathfinding.ts`) supporting `ground`, `burrow` (wall-bypassing), and `fly` (wall- and water-bypassing) movement, nearest-wall fallback when all routes are sealed, 2-tile border + portal no-build buffers, and live dashed path previews during `PREP` (including speculative hover previews).
-- **Playable Roster (10 Species) & 10-Point Starter Draft:**
-  - Pre-game `DRAFT` phase with a `10`-point budget (`Squirtle`, `Charmander`, and `Bulbasaur` unlocked for everyone at `3 pts`; remaining species cost `2–4 pts`). Unpicked species are recruited via between-wave rewards.
-  - **3-Option Branching Specializations:** Each Pokémon has 3 distinct specialization/evolution branches, offered via post-wave Specialization rewards.
-  - **Held Items (3 Slots per Pokémon):** `Bloodthirsty Edge`, `Storm Conductor`, and `Guardian Charm` purchasable in `PREP` and equippable/swappable from the unit popover next to the clicked Pokémon.
-- **Enemy Roster (10 Species across 10 Waves):** Rattata, Raticate, Diglett (`burrow`), Dugtrio (`burrow`), Zubat (`fly`), Golbat (`fly`), Crobat (`fly`), Geodude, Graveler, and Golem across `WAVE_DEFINITIONS` (Waves 1–10).
-- **Structures & Economy:** `wood_wall` (`₽20`), `stone_wall` (`₽50`), `berry_bush` (`₽70`, heals nearby units), and `barrel` (`₽30`, consumable `120`-damage AoE blast), with free `PREP` relocation, `70%` sell refund, ruined state, and proportional repair (`50%` base rate).
-- **Real-Time Combat & AP:** Shared AP pool (`8` start, `10` max, `+3` per wave, `+1` every `6` kills or `4` with `Temporal Gear`), two-ring movement (`1 AP` / `2 AP` in combat, `0 AP` in prep), manual & auto-cast ultimates, `1×`/`2×` speed toggle, and unit heal (`₽15`) / revive (`₽35`).
-- **Roguelike Rewards:** 3-choice post-wave draft offering 1 unrecruited Pokémon (when available) plus upgrades (`Thick Hide`, `Sharp Claws`, `Swift Boots`, `Quick Charge`) and global artifacts (`Fortification Core`, `Arcane Conduit`, `Temporal Gear`, `Commander's Insignia`).
+- **Playable Roster (152 Species) & 10-Point Starter Draft:**
+  - `151` Gen 1 species (`src/data/gen1.ts`) plus `Lucario` (`src/data/pokemon.ts`), with `10`-point pre-game `DRAFT` (`Squirtle`, `Charmander`, and `Bulbasaur` unlocked by default at `3 pts`; remaining species unlocked via Eggs/Shards). Up to `6` active units and `3` reserve units (`MAX_RESERVE_UNITS = 3`).
+  - **Classes, Subclasses & Evolutions:** 6 Pokémon classes and 18 subclasses (`src/data/classes.ts`), evolution chains (`src/data/evolutions.ts`), and 3-option branching specializations (`branches` on `POKEMON_SPECIES`), offered via post-wave rewards.
+  - **Held Items & Artifacts:** `24` held items (`HELD_ITEM_CATALOG`, up to `3` slots per Pokémon) and `17` global artifacts (`ARTIFACT_CATALOG`) in `src/data/items.ts`.
+- **Enemy Roster & Waves (20–50 Waves by Difficulty):** `27` core `ENEMY_SPECIES` in `src/data/pokemon.ts` plus `151` `GEN1_ENEMIES` in `src/data/gen1.ts`, across 4 run difficulties (`Easy` 20 waves, `Normal` 30, `Hard` 40, `Expert` 50) in `src/data/waves.ts`, with boss waves every 10 waves and Merchant Shops every 5 waves.
+- **Structures (9) & Economy:** `wood_wall` (`₽20`), `stone_wall` (`₽50`), `thorn_wall` (`₽40`), `flame_brazier` (`₽55`), `berry_bush` (`₽70`), `tempo_shrine` (`₽80`), `honey_trap` (`₽35`), `lightning_rod` (`₽65`), and `barrel` (`₽30`), with free `PREP` relocation, `70%` sell refund, ruined state, proportional repair (`50%` base rate), and global artifact buffs (no per-structure upgrades).
+- **Real-Time Combat, Hazards & AP:** Shared AP pool (`8` start, `10` max, `+3` per wave, `+1` every `6` kills or `4` with `Temporal Gear`), flat `1 AP` combat movement (`0 AP` in `PREP`), manual & auto-cast ultimates, `1×`/`2×` speed toggle, entry hazards (`stealth_rock`, `spikes`, `toxic_spikes` in `src/engine/kits.ts`), and wave-scaling heal (`₽15` base) / revive (`₽35` base) costs.
+- **Meta-Progression:** Persistent `localStorage` save (`src/engine/save.ts`, `src/engine/progression.ts`) with species shards, universal shards, Egg drops & hatching (`common`, `rare`, `master`), Potential upgrades (`★0–★5`), and Achievements.
 
 ## Not Yet Implemented (Planned in GDD)
 
-- Multi-tier linear structure upgrades, Type Shrines, and Resource Collectors.
-- Multi-encounter runs, elite battles, boss encounters, and map modifiers.
-- Permanent meta-progression (Egg hatching, Mastery Points, Shiny variants) and post-clear Challenge Modes.
+- Resource Collectors.
+- Multi-encounter stage transitions and map modifiers.
+- Shiny variants and post-clear Challenge Modes.

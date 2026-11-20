@@ -51,4 +51,4 @@ These guidelines adapt and synthesize best practices from:
   - Style scrollbars, text selection, and focus rings to match the dark tactical palette (`src/styles.css`).
 - **Purposeful Motion & Game Feel:**
   - Micro-animations (damage popups, hover previews, wave transitions, button feedback) should be crisp, interruptible, and honor `@media (prefers-reduced-motion: reduce)`.
-- **Verify in a Real Browser:** Before finishing UI or scene polish, inspect rendered screenshots and run `npm run test:e2e` across representative states.
+- **Verify in a Real Browser (Attach Before/After Screenshots):** Before finishing UI or scene polish, run `npm run test:e2e`, capture **before and after** Playwright screenshots across the affected states/viewports, inspect them, and attach/embed the comparison screenshots in your final response or PR.

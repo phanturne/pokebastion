@@ -177,7 +177,7 @@ export function getEligibleMinorUpgrades(
   );
 }
 
-function getMatchingMinorUpgrades(
+export function getMatchingMinorUpgrades(
   speciesId: string,
   upgrades: string[],
 ): MinorUpgradeSpec[] {
@@ -355,10 +355,7 @@ export function getEffectiveStructureMaxHp(
   artifacts: string[],
 ): number {
   const base = STRUCTURE_SPECS[kind].maxHp;
-  if (
-    STRUCTURE_SPECS[kind].blocksGround &&
-    artifacts.includes('fortification_core')
-  ) {
+  if (artifacts.includes('fortification_core')) {
     return Math.round(base * 1.4);
   }
   return base;

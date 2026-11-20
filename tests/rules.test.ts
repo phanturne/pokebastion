@@ -73,7 +73,7 @@ describe('Game Rules, AP Movement & Economy', () => {
     ).toBe(168);
     expect(
       getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
-    ).toBe(150);
+    ).toBe(210);
   });
 
   it('calculates sell refunds, repair costs, and AP/bounty artifacts', () => {
@@ -177,10 +177,10 @@ describe('Game Rules, AP Movement & Economy', () => {
     ).toBe(Math.round(140 * 1.4));
     expect(
       getEffectiveStructureMaxHp('honey_trap', ['fortification_core']),
-    ).toBe(80);
+    ).toBe(Math.round(80 * 1.4));
     expect(
       getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
-    ).toBe(150);
+    ).toBe(Math.round(150 * 1.4));
 
     // Unknown speciesId fallbacks & unboosted bounty
     expect(getEffectiveMaxHp('9999', [])).toBe(100);
@@ -576,5 +576,16 @@ describe('Special Enemy Threat Helpers', () => {
       }),
     ).toBe('Structure Breaker (3× wall dmg)');
     expect(getEnemyThreatSummary(baseEnemy)).toBe('Basic Runner');
+  });
+
+  it('applies fortification_core +40% Max HP to all structures, including non-walls', () => {
+    const baseWall = getEffectiveStructureMaxHp('wood_wall', []);
+    const baseShrine = getEffectiveStructureMaxHp('tempo_shrine', []);
+    expect(
+      getEffectiveStructureMaxHp('wood_wall', ['fortification_core']),
+    ).toBe(Math.round(baseWall * 1.4));
+    expect(
+      getEffectiveStructureMaxHp('tempo_shrine', ['fortification_core']),
+    ).toBe(Math.round(baseShrine * 1.4));
   });
 });

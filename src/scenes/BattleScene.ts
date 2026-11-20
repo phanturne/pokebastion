@@ -96,6 +96,7 @@ import {
   getDraftCost,
   getEffectiveStructureMaxHp,
   getHealCost,
+  getMatchingMinorUpgrades,
   getPokemonReleaseRefund,
   getRepairCost,
   getReviveCost,
@@ -1125,12 +1126,6 @@ export class BattleScene extends Phaser.Scene {
     this.setStatus('Select a battlefield map.');
   }
 
-  public goToMapSelect(): void {
-    if (this.phase !== 'HOME' && this.phase !== 'DRAFT') return;
-    this.phase = 'MAP_SELECT';
-    this.setStatus('Select a battlefield map.');
-  }
-
   private getDifficultySpec(): RunDifficultySpec {
     return RUN_DIFFICULTY_BY_ID[this.selectedDifficulty];
   }
@@ -1640,6 +1635,29 @@ export class BattleScene extends Phaser.Scene {
 
     this.rewardChoices = [];
     this.advanceAfterReward(`Picked ${choice.title}${statusDetail}.`);
+  }
+
+  public pickBranchReward(branchId: string): void {
+    if (this.phase !== 'REWARD' || !this.pendingBranchUnitUid) return;
+    const unit = this.units.find(
+      (u) => u.data.uid === this.pendingBranchUnitUid,
+    );
+    if (!unit || unit.data.branchId) {
+      this.pendingBranchUnitUid = null;
+      return;
+    }
+
+    const sp = POKEMON_SPECIES[unit.data.speciesId];
+    const branch = sp?.branches.find((b) => b.id === branchId);
+    if (!sp || !branch) return;
+
+    unit.data.branchId = branch.id;
+    this.recalcUnitMaxHp(unit);
+    unit.sprite.setScale(1.12);
+    this.sfx.play('ui_confirm', 0);
+    this.refreshHoverReadout();
+    this.pendingBranchUnitUid = null;
+    this.advanceAfterReward(`${sp.name} specialized into ${branch.name}!`);
   }
 
   private awardRecruitShards(speciesId: string): string {
@@ -3658,6 +3676,7 @@ export class BattleScene extends Phaser.Scene {
       potential,
       subclass: spec.subclass,
       targetMovementType: ENEMY_SPECIES[target.speciesId]?.movementType,
+      targetIsBoss: target.isBoss,
       attackType,
       defenderTypes: getSpeciesTypes(target.speciesId),
     });
@@ -4138,7 +4157,15 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private addUnitUlt(unit: UnitEntity, amount: number): void {
-    const mult = this.upgrades.includes('quick_charge') ? 1.3 : 1;
+    let mult = this.upgrades.includes('quick_charge') ? 1.3 : 1;
+    for (const u of getMatchingMinorUpgrades(
+      unit.data.speciesId,
+      this.upgrades,
+    )) {
+      if (u.ultChargeMult !== undefined) {
+        mult *= u.ultChargeMult;
+      }
+    }
     unit.data.ult = Math.min(unit.data.ultMax, unit.data.ult + amount * mult);
     this.updateUnitBars(unit);
   }
@@ -4704,6 +4731,9 @@ export class BattleScene extends Phaser.Scene {
           unit.data.gy,
         ),
         unitBranchSpecial: unitBranch?.special,
+        unitPotential: this.getSpeciesPotential(unit.data.speciesId),
+        unitSubclass: POKEMON_SPECIES[unit.data.speciesId]?.subclass,
+        isMelee: (enemySpec.range ?? 1) <= 1,
         attackType: getSpeciesAttackType(enemy.speciesId),
         defenderTypes: getSpeciesTypes(unit.data.speciesId),
       });

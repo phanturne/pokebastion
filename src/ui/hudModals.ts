@@ -7,6 +7,12 @@ import {
   getWavesForRun,
 } from '../data/waves';
 import {
+  computeUnitAtk,
+  computeUnitAttackIntervalMs,
+  computeUnitDef,
+  computeUnitRange,
+} from '../engine/combat';
+import {
   EGG_DUPLICATE_SHARDS,
   EGG_HATCH_RATES,
   MAX_POTENTIAL,
@@ -24,10 +30,6 @@ import {
   RARE_CANDY_COST,
   getBranchSpec,
   getDraftCost,
-  getEffectiveAtk,
-  getEffectiveAttackIntervalMs,
-  getEffectiveDef,
-  getEffectiveRange,
   getEnemyThreatSummary,
   getHealCost,
   getPokemonReleaseRefund,
@@ -448,8 +450,7 @@ function renderPokedexModal(
               nextUpgradeCost !== null ? pct(shards, nextUpgradeCost) : 100;
             const isReady =
               nextUpgradeCost !== null &&
-              shards + universalShards >= nextUpgradeCost &&
-              shards >= nextUpgradeCost;
+              shards + universalShards >= nextUpgradeCost;
             const classes = [
               'draft-roster-item',
               'pokedex-card',
@@ -1350,27 +1351,40 @@ function renderExpandedUnitModal(
   if (!unit || !sp) return '';
 
   const branch = getBranchSpec(unit.speciesId, unit.branchId);
-  const atk = getEffectiveAtk(
+  const potential = snap.pokemonProgress[unit.speciesId]?.potential ?? 0;
+  const baseAtk = computeUnitAtk(
     unit.speciesId,
     snap.upgrades,
     false,
     unit.branchId,
     unit.heldItems,
+    potential,
   );
-  const def = getEffectiveDef(
+  const baseDef = computeUnitDef(
     unit.speciesId,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
-  const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const intervalMs = getEffectiveAttackIntervalMs(
+  const baseRange = computeUnitRange(
+    unit.speciesId,
+    unit.branchId,
+    snap.upgrades,
+    potential,
+  );
+  const baseIntervalMs = computeUnitAttackIntervalMs(
     unit.speciesId,
     snap.artifacts,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
+  const atk = unit.effectiveAtk ?? baseAtk;
+  const def = unit.effectiveDef ?? baseDef;
+  const range = unit.effectiveRange ?? baseRange;
+  const intervalMs = unit.effectiveAttackIntervalMs ?? baseIntervalMs;
   const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
 
   const heldHtml = Array.from({ length: MAX_HELD_ITEMS })
@@ -1406,10 +1420,10 @@ function renderExpandedUnitModal(
 
       <div class="unit-stats-grid unit-stats-grid-5">
         <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.ceil(unit.hp)}/${unit.maxHp}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val">${range}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val">${atkSpd}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val ${atk > baseAtk ? 'stat-boosted' : ''}" title="Base ${baseAtk} → Live ${atk}">${atk}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val ${def > baseDef ? 'stat-boosted' : ''}" title="Base ${baseDef} → Live ${def}">${def}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val ${range > baseRange ? 'stat-boosted' : ''}">${range}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val ${intervalMs < baseIntervalMs ? 'stat-boosted' : ''}">${atkSpd}</span></div>
       </div>
 
       <div class="desc-box">
