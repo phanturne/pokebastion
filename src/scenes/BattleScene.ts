@@ -23,9 +23,13 @@ import {
   POKEMON_SPECIES,
   STARTER_UNLOCKED_IDS,
   STRUCTURE_SPECS,
-  WAVE_DEFINITIONS,
-  WaveDefinition,
 } from '../data/pokemon';
+import {
+  getWavesForRun,
+  RUN_DIFFICULTY_BY_ID,
+  RunDifficultySpec,
+  WaveDefinition,
+} from '../data/waves';
 import {
   computeBasicAttackDamage,
   computeEnemyAttackDamage,
@@ -110,6 +114,7 @@ import {
   GameSnapshot,
   GridStructure,
   RewardOption,
+  RunDifficulty,
   StructureKind,
   TILE_SIZE,
   TileKind,
@@ -161,6 +166,7 @@ interface StructureEntity {
 interface EnemyEntity {
   uid: string;
   speciesId: string;
+  isBoss: boolean;
   x: number;
   y: number;
   gx: number;
@@ -188,6 +194,7 @@ interface SpawnEntry {
   spawnAtMs: number;
   speciesId: string;
   point: GridPoint;
+  isBoss: boolean;
 }
 
 function isHealUltSpecies(speciesId: string): boolean {
@@ -264,6 +271,7 @@ function getSearchParams(): URLSearchParams | null {
 export class BattleScene extends Phaser.Scene {
   private tiles: TileKind[][] = [];
   private selectedMapId = 'viridian_outpost';
+  private selectedDifficulty: RunDifficulty = 'normal';
   private terrainRefs: TerrainRenderRefs = {};
   private phase: GamePhase = 'HOME';
   private playerSave: PlayerSave = loadPlayerSave();
@@ -273,12 +281,12 @@ export class BattleScene extends Phaser.Scene {
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? createSeededRng(parsed) : Math.random;
   })();
-  private readonly activeWaves: WaveDefinition[] =
-    getSearchParams()?.get('e2eMap') === '1'
-      ? E2E_FAST_WAVES
-      : WAVE_DEFINITIONS;
+  private readonly isE2eFastMap = getSearchParams()?.get('e2eMap') === '1';
+  private activeWaves: WaveDefinition[] = this.isE2eFastMap
+    ? E2E_FAST_WAVES
+    : getWavesForRun(this.selectedMapId, this.selectedDifficulty);
   private wave = 1;
-  private readonly maxWaves = this.activeWaves.length;
+  private maxWaves = this.activeWaves.length;
   private coreHp = CORE_MAX_HP;
   private coreMaxHp = CORE_MAX_HP;
   private gold = INITIAL_GOLD;
@@ -702,6 +710,7 @@ export class BattleScene extends Phaser.Scene {
       draftIds: [...this.draftIds],
       unlockedIds: getUnlockedIds(this.playerSave),
       selectedMapId: this.selectedMapId,
+      selectedDifficulty: this.selectedDifficulty,
       draftBudget: DRAFT_BUDGET,
       heldItemInventory: [...this.heldItemInventory],
       structures: this.structures.map((s) => ({ ...s.data })),
@@ -1085,6 +1094,22 @@ export class BattleScene extends Phaser.Scene {
     this.setStatus('Select a battlefield map.');
   }
 
+  private getDifficultySpec(): RunDifficultySpec {
+    return RUN_DIFFICULTY_BY_ID[this.selectedDifficulty];
+  }
+
+  private applyDifficultyToRun(): void {
+    const diff = this.getDifficultySpec();
+    this.activeWaves = this.isE2eFastMap
+      ? E2E_FAST_WAVES
+      : getWavesForRun(this.selectedMapId, this.selectedDifficulty);
+    this.maxWaves = this.activeWaves.length;
+    this.coreMaxHp = diff.coreMaxHp;
+    this.coreHp = diff.coreMaxHp;
+    this.gold = diff.startingGold;
+    this.updateCoreBar();
+  }
+
   public selectMapAndDraft(mapId: string): void {
     if (this.phase !== 'MAP_SELECT') return;
     const spec = MAP_BY_ID[mapId];
@@ -1095,16 +1120,35 @@ export class BattleScene extends Phaser.Scene {
       this.renderTerrain();
       this.refreshPathPreview();
     }
-    this.phase = 'DRAFT';
+    this.phase = 'DIFFICULTY_SELECT';
     this.setStatus(
-      `${MAP_BY_ID[mapId].name}: Draft your starting Pokémon (10-point budget).`,
+      `${MAP_BY_ID[mapId].name}: Select difficulty and review enemy traits.`,
+    );
+  }
+
+  public selectDifficultyAndDraft(difficulty: RunDifficulty): void {
+    if (this.phase !== 'DIFFICULTY_SELECT') return;
+    this.selectedDifficulty = difficulty;
+    this.applyDifficultyToRun();
+    this.phase = 'DRAFT';
+    const mapName = MAP_BY_ID[this.selectedMapId]?.name ?? this.selectedMapId;
+    const diffName = this.getDifficultySpec().name;
+    this.setStatus(
+      `${mapName} (${diffName}): Draft your starting Pokémon (10-point budget).`,
     );
   }
 
   public backToMapSelect(): void {
-    if (this.phase !== 'DRAFT') return;
+    if (this.phase !== 'DIFFICULTY_SELECT' && this.phase !== 'DRAFT') return;
     this.phase = 'MAP_SELECT';
     this.setStatus('Select a battlefield map.');
+  }
+
+  public backToDifficultySelect(): void {
+    if (this.phase !== 'DRAFT') return;
+    this.phase = 'DIFFICULTY_SELECT';
+    const mapName = MAP_BY_ID[this.selectedMapId]?.name ?? this.selectedMapId;
+    this.setStatus(`${mapName}: Select difficulty and review enemy traits.`);
   }
 
   public returnToHome(): void {
@@ -1692,12 +1736,10 @@ export class BattleScene extends Phaser.Scene {
     this.phase = 'HOME';
     this.playerSave = loadPlayerSave();
     this.wave = 1;
-    this.coreHp = CORE_MAX_HP;
-    this.coreMaxHp = CORE_MAX_HP;
+    this.applyDifficultyToRun();
     this.coreHitFlashTimerMs = 0;
     this.lastCoreShakeAtMs = 0;
     this.coreSprite?.clearTint();
-    this.gold = INITIAL_GOLD;
     this.ap = INITIAL_AP;
     this.maxAp = MAX_AP;
     this.kills = 0;
@@ -3542,7 +3584,10 @@ export class BattleScene extends Phaser.Scene {
             potential,
             spec.subclass,
           );
-          target.slowTimerMs = Math.max(target.slowTimerMs, slowDuration);
+          target.slowTimerMs = Math.max(
+            target.slowTimerMs,
+            target.isBoss ? Math.round(slowDuration * 0.5) : slowDuration,
+          );
         }
         this.damageEnemy(target, dmg, unit, isCrit, effectivenessTier);
 
@@ -3693,8 +3738,13 @@ export class BattleScene extends Phaser.Scene {
         );
         for (const enemy of [...this.enemies]) {
           if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
-            enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
-            enemy.slowTimerMs = Math.max(enemy.slowTimerMs, slowDuration);
+            if (!enemy.isBoss) {
+              enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
+            }
+            enemy.slowTimerMs = Math.max(
+              enemy.slowTimerMs,
+              enemy.isBoss ? Math.round(slowDuration * 0.5) : slowDuration,
+            );
           }
         }
       }
@@ -3709,7 +3759,7 @@ export class BattleScene extends Phaser.Scene {
       const attackType = getSpeciesAttackType(unit.data.speciesId);
       for (const enemy of [...this.enemies]) {
         if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
-          if (unit.data.speciesId === '0143') {
+          if (unit.data.speciesId === '0143' && !enemy.isBoss) {
             enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
           }
           if (
@@ -3764,6 +3814,7 @@ export class BattleScene extends Phaser.Scene {
           spawnAtMs: delay + i * group.intervalMs,
           speciesId: group.speciesId,
           point,
+          isBoss: Boolean(group.isBoss),
         });
       }
       portalIdx += 1;
@@ -3778,11 +3829,15 @@ export class BattleScene extends Phaser.Scene {
       this.spawnQueue[this.spawnQueueIndex].spawnAtMs <= this.waveElapsedMs
     ) {
       const next = this.spawnQueue[this.spawnQueueIndex++];
-      this.spawnEnemy(next.speciesId, next.point);
+      this.spawnEnemy(next.speciesId, next.point, next.isBoss);
     }
   }
 
-  private spawnEnemy(speciesId: string, point: GridPoint): void {
+  private spawnEnemy(
+    speciesId: string,
+    point: GridPoint,
+    isBoss = false,
+  ): void {
     const spec = ENEMY_SPECIES[speciesId];
     if (!spec) return;
 
@@ -3796,25 +3851,43 @@ export class BattleScene extends Phaser.Scene {
       .setDepth(
         spec.movementType === 'fly' ? 6.2 : 4 + (y / TILE_SIZE) * 0.1 + 0.04,
       );
-    if (spec.spriteScale) sprite.setScale(spec.spriteScale);
+    const scale = (spec.spriteScale ?? 1) * (isBoss ? 1.45 : 1);
+    if (scale !== 1) sprite.setScale(scale);
     if (spec.spriteTint !== undefined) sprite.setTint(spec.spriteTint);
+    const barW = isBoss ? 52 : 32;
+    const fillW = isBoss ? 50 : 30;
+    const barY = y - (isBoss ? 26 : 20);
     const hpBarBg = this.add
-      .rectangle(x, y - 20, 32, 4, 0x0f172a, 0.85)
+      .rectangle(x, barY, barW, isBoss ? 6 : 4, 0x0f172a, 0.9)
       .setDepth(7);
     const hpBarFill = this.add
-      .rectangle(x - 15, y - 20, 30, 2, 0xf43f5e, 1)
+      .rectangle(
+        x - fillW / 2,
+        barY,
+        fillW,
+        isBoss ? 4 : 2,
+        isBoss ? 0xf59e0b : 0xf43f5e,
+        1,
+      )
       .setOrigin(0, 0.5)
       .setDepth(7);
 
+    const scaledMaxHp = Math.max(
+      1,
+      Math.round(
+        spec.maxHp * this.getDifficultySpec().enemyHpMult * (isBoss ? 3.5 : 1),
+      ),
+    );
     const enemy: EnemyEntity = {
       uid: `enemy_${this.nextUidCounter++}`,
       speciesId,
+      isBoss,
       x,
       y,
       gx: point.gx,
       gy: point.gy,
-      hp: spec.maxHp,
-      maxHp: spec.maxHp,
+      hp: scaledMaxHp,
+      maxHp: scaledMaxHp,
       facingDir,
       attackCooldownMs: 0,
       burnTimerMs: 0,
@@ -3926,7 +3999,10 @@ export class BattleScene extends Phaser.Scene {
               this.explodeBarrel(structHere);
               if (enemy.hp <= 0) continue;
             } else if (structHere.data.kind === 'honey_trap') {
-              enemy.slowTimerMs = Math.max(enemy.slowTimerMs, 2500);
+              enemy.slowTimerMs = Math.max(
+                enemy.slowTimerMs,
+                enemy.isBoss ? 1250 : 2500,
+              );
             }
           }
         }
@@ -4132,7 +4208,9 @@ export class BattleScene extends Phaser.Scene {
     }
 
     const slowMult = enemy.slowTimerMs > 0 ? 0.6 : 1;
-    const step = (spec.speed * TILE_SIZE * slowMult * simDtMs) / 1000;
+    const speedMult = this.getDifficultySpec().enemySpeedMult;
+    const step =
+      (spec.speed * speedMult * TILE_SIZE * slowMult * simDtMs) / 1000;
 
     if (step >= dist) {
       enemy.x = tx;
@@ -4166,7 +4244,15 @@ export class BattleScene extends Phaser.Scene {
     this.playEnemyAnim(enemy, 'Attack');
 
     const applyCoreHit = (): void => {
-      this.coreHp = Math.max(0, this.coreHp - spec.atk);
+      const dmg = Math.max(
+        1,
+        Math.round(
+          spec.atk *
+            this.getDifficultySpec().enemyAtkMult *
+            (enemy.isBoss ? 1.6 : 1),
+        ),
+      );
+      this.coreHp = Math.max(0, this.coreHp - dmg);
       this.updateCoreBar();
       this.coreHitFlashTimerMs = 90;
       this.coreSprite?.setTint(0xff9999);
@@ -4177,7 +4263,7 @@ export class BattleScene extends Phaser.Scene {
       this.spawnFloatingText(
         (GRID_COLS / 2) * TILE_SIZE,
         (GRID_ROWS / 2) * TILE_SIZE - 24,
-        `-${spec.atk}`,
+        `-${dmg}`,
         '#f43f5e',
       );
       this.emitSnapshot();
@@ -4221,7 +4307,14 @@ export class BattleScene extends Phaser.Scene {
         reflectedThorns,
         effectivenessTier,
       } = computeEnemyAttackDamage({
-        enemyAtk: enemySpec.atk,
+        enemyAtk: Math.max(
+          1,
+          Math.round(
+            enemySpec.atk *
+              this.getDifficultySpec().enemyAtkMult *
+              (enemy.isBoss ? 1.6 : 1),
+          ),
+        ),
         unitDef: this.getUnitDef(unit),
         unitSpeciesId: unit.data.speciesId,
         unitStationaryMs: unit.stationaryMs,
@@ -4309,7 +4402,15 @@ export class BattleScene extends Phaser.Scene {
     this.playEnemyAnim(enemy, 'Attack');
     this.spawnOneShotVfx(spec.hitVfx, struct.sprite.x, struct.sprite.y, 0.85);
 
-    const dmg = Math.round(spec.atk * spec.wallDmgMult);
+    const dmg = Math.max(
+      1,
+      Math.round(
+        spec.atk *
+          this.getDifficultySpec().enemyAtkMult *
+          spec.wallDmgMult *
+          (enemy.isBoss ? 1.6 : 1),
+      ),
+    );
     struct.data.hp = Math.max(0, struct.data.hp - dmg);
     this.spawnFloatingText(
       struct.sprite.x,
@@ -4382,7 +4483,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     const hpRatio = Phaser.Math.Clamp(enemy.hp / enemy.maxHp, 0, 1);
-    enemy.hpBarFill.width = 30 * hpRatio;
+    enemy.hpBarFill.width = (enemy.isBoss ? 50 : 30) * hpRatio;
 
     const effFloat = this.formatEffectivenessFloat(
       effectivenessTier,
@@ -4408,10 +4509,18 @@ export class BattleScene extends Phaser.Scene {
     const potential = attacker
       ? this.getSpeciesPotential(attacker.data.speciesId)
       : 0;
-    const bounty = computeKillBounty(
+    const baseBounty = computeKillBounty(
       spec.bounty,
       this.artifacts.includes('commanders_insignia'),
       potential,
+    );
+    const bounty = Math.max(
+      1,
+      Math.round(
+        baseBounty *
+          this.getDifficultySpec().bountyMult *
+          (enemy.isBoss ? 3 : 1),
+      ),
     );
 
     this.gold += bounty;
@@ -4483,8 +4592,10 @@ export class BattleScene extends Phaser.Scene {
     if (ENEMY_SPECIES[enemy.speciesId]?.movementType !== 'fly') {
       enemy.sprite.setDepth(4 + (enemy.y / TILE_SIZE) * 0.1 + 0.04);
     }
-    enemy.hpBarBg.setPosition(enemy.x, enemy.y - 20);
-    enemy.hpBarFill.setPosition(enemy.x - 15, enemy.y - 20);
+    const barOffsetX = enemy.isBoss ? 25 : 15;
+    const barOffsetY = enemy.isBoss ? 26 : 20;
+    enemy.hpBarBg.setPosition(enemy.x, enemy.y - barOffsetY);
+    enemy.hpBarFill.setPosition(enemy.x - barOffsetX, enemy.y - barOffsetY);
   }
 
   private playEnemyAnim(enemy: EnemyEntity, animName: 'Walk' | 'Attack'): void {
@@ -4643,7 +4754,9 @@ export class BattleScene extends Phaser.Scene {
         getSpeciesTypes(nearest.speciesId),
       );
       const zapDmg = Math.max(1, Math.round(35 * eff.multiplier));
-      nearest.stunTimerMs = Math.max(nearest.stunTimerMs, 500);
+      if (!nearest.isBoss) {
+        nearest.stunTimerMs = Math.max(nearest.stunTimerMs, 500);
+      }
       this.spawnOneShotVfx(
         'lightning/lightning-strike',
         nearest.x,
@@ -4695,10 +4808,15 @@ export class BattleScene extends Phaser.Scene {
           ...this.reserveIds,
         ]),
       );
-      const mapSpec = MAP_BY_ID[this.selectedMapId];
+      const rewardDifficultyByRun = {
+        easy: 'Beginner',
+        normal: 'Intermediate',
+        hard: 'Advanced',
+        expert: 'Expert',
+      } as const;
       const reward = applyRunVictoryRewards(this.playerSave, {
         mapId: this.selectedMapId,
-        difficulty: mapSpec?.difficulty ?? 'Beginner',
+        difficulty: rewardDifficultyByRun[this.selectedDifficulty],
         squadSpeciesIds,
         coreHp: Math.max(0, Math.round(this.coreHp)),
         coreMaxHp: this.coreMaxHp,

@@ -72,9 +72,9 @@ describe('Data & Asset Manifest Integrity', () => {
     }
   });
 
-  it('has 13 enemy species (base + evolved + ranged) with valid PMD sprites, PVFX hit keys, and 10 waves', () => {
+  it('has 27 enemy species (base + evolved + ranged) with valid PMD sprites, PVFX hit keys, and 10 waves', () => {
     const enemies = Object.values(ENEMY_SPECIES);
-    expect(enemies).toHaveLength(13);
+    expect(enemies).toHaveLength(27);
 
     for (const en of enemies) {
       const spriteKey = en.spriteId ?? en.id;

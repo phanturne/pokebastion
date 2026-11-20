@@ -1,9 +1,5 @@
-import {
-  HELD_ITEMS,
-  POKEMON_SPECIES,
-  STRUCTURE_SPECS,
-  WAVE_DEFINITIONS,
-} from '../data/pokemon';
+import { HELD_ITEMS, POKEMON_SPECIES, STRUCTURE_SPECS } from '../data/pokemon';
+import { getWavesForRun } from '../data/waves';
 import {
   HEAL_COST,
   MAX_ACTIVE_UNITS,
@@ -120,9 +116,10 @@ function renderWaveTimeline(snap: GameSnapshot): string {
     isCurrent: boolean;
   }> = [];
 
+  const runWaves = getWavesForRun(snap.selectedMapId, snap.selectedDifficulty);
   for (let w = 1; w <= snap.maxWaves; w++) {
-    const waveDef = WAVE_DEFINITIONS[w - 1];
-    const isBoss = w === snap.maxWaves;
+    const waveDef = runWaves[w - 1];
+    const isBoss = w === snap.maxWaves || w % 10 === 0;
     const isDone = w < snap.wave || (w === snap.wave && snap.phase === 'SHOP');
     const isCurrent = w === snap.wave && snap.phase !== 'SHOP';
     const cls = isCurrent ? 'current' : isDone ? 'done' : 'upcoming';

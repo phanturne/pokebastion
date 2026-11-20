@@ -1,6 +1,11 @@
 import { getEvolutionTargets } from '../data/evolutions';
-import { MAP_CATALOG, createGridForMap } from '../data/maps';
-import { HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
+import { MAP_BY_ID, MAP_CATALOG, createGridForMap } from '../data/maps';
+import { ENEMY_SPECIES, HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
+import {
+  RUN_DIFFICULTIES,
+  RUN_DIFFICULTY_BY_ID,
+  getWavesForRun,
+} from '../data/waves';
 import {
   EGG_DUPLICATE_SHARDS,
   EGG_HATCH_RATES,
@@ -25,6 +30,7 @@ import {
   getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveRange,
+  getEnemyThreatSummary,
   getPokemonReleaseRefund,
   getRewardRerollCost,
 } from '../engine/rules';
@@ -41,6 +47,7 @@ import {
   PokemonClass,
   PokemonRarity,
   PokemonSpecies,
+  RunDifficulty,
 } from '../types';
 import {
   HELD_ITEM_ICONS,
@@ -74,6 +81,7 @@ export interface ModalState {
   rosterCostFilter: 'All' | '1' | '2' | '3' | '4' | '5+';
   inspectedPokedexId: string | null;
   mapDifficultyFilter: 'All' | MapDifficulty;
+  selectedDifficultyPreview: RunDifficulty;
   inspectedDraftId: string | null;
   expandedUnitUid: string | null;
 }
@@ -891,6 +899,171 @@ function renderMapSelectModal(
   `;
 }
 
+function formatPctModifier(mult: number, invertGood = false): string {
+  const delta = Math.round((mult - 1) * 100);
+  if (delta === 0) return '100%';
+  const sign = delta > 0 ? '+' : '';
+  const cls =
+    (delta > 0 && !invertGood) || (delta < 0 && invertGood)
+      ? 'mod-good'
+      : 'mod-hard';
+  return `<span class="${cls}">${sign}${delta}%</span>`;
+}
+
+function renderDifficultySelectModal(
+  snap: GameSnapshot,
+  selectedDifficulty: RunDifficulty,
+): string {
+  const mapSpec = MAP_BY_ID[snap.selectedMapId];
+  const activeDiff = RUN_DIFFICULTY_BY_ID[selectedDifficulty];
+  const activeWaves = getWavesForRun(snap.selectedMapId, selectedDifficulty);
+
+  const firstWaveByEnemy = new Map<string, number>();
+  const bossEnemyIds = new Set<string>();
+  for (const w of activeWaves) {
+    for (const grp of w.spawns) {
+      if (!firstWaveByEnemy.has(grp.speciesId)) {
+        firstWaveByEnemy.set(grp.speciesId, w.wave);
+      }
+      if (grp.isBoss) {
+        bossEnemyIds.add(grp.speciesId);
+      }
+    }
+  }
+
+  const diffCardsHtml = RUN_DIFFICULTIES.map((d) => {
+    const isSelected = d.id === selectedDifficulty;
+    const bossCount = Math.floor(d.maxWaves / 10);
+    return `
+      <button
+        type="button"
+        class="diff-card diff-tier-${d.id} ${isSelected ? 'is-selected' : ''}"
+        data-action="preview-difficulty"
+        data-id="${d.id}"
+        aria-pressed="${isSelected}"
+      >
+        <div class="diff-card-head">
+          <span class="diff-card-name">${escapeHtml(d.name)}</span>
+          <span class="tag diff-card-waves">${d.maxWaves} Waves · ${bossCount} Boss${bossCount === 1 ? '' : 'es'}</span>
+        </div>
+        <div class="diff-card-badge">${escapeHtml(d.badge)}</div>
+        <p class="diff-card-desc">${escapeHtml(d.subtitle)}</p>
+        <div class="diff-mod-table">
+          <div class="diff-mod-row"><span>Core HP</span><b>${d.coreMaxHp}</b></div>
+          <div class="diff-mod-row"><span>Start Gold</span><b>₽${d.startingGold}</b></div>
+          <div class="diff-mod-row"><span>Kill Gold</span>${formatPctModifier(d.bountyMult)}</div>
+          <div class="diff-mod-row"><span>Foe HP</span>${formatPctModifier(d.enemyHpMult, true)}</div>
+          <div class="diff-mod-row"><span>Foe ATK</span>${formatPctModifier(d.enemyAtkMult, true)}</div>
+          <div class="diff-mod-row"><span>Foe SPD</span>${formatPctModifier(d.enemySpeedMult, true)}</div>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  const enemyCardsHtml = Object.values(ENEMY_SPECIES)
+    .filter((spec) => firstWaveByEnemy.has(spec.id))
+    .sort((a, b) => {
+      const wa = firstWaveByEnemy.get(a.id) ?? 999;
+      const wb = firstWaveByEnemy.get(b.id) ?? 999;
+      return wa - wb || Number(a.id) - Number(b.id);
+    })
+    .map((spec) => {
+      const firstWave = firstWaveByEnemy.get(spec.id)!;
+      const isMapBoss = bossEnemyIds.has(spec.id);
+      const spriteId = spec.spriteId ?? spec.id;
+      const scaledHp = Math.max(
+        1,
+        Math.round(spec.maxHp * activeDiff.enemyHpMult),
+      );
+      const scaledAtk = Math.max(
+        1,
+        Math.round(spec.atk * activeDiff.enemyAtkMult),
+      );
+      const scaledSpeed = (spec.speed * activeDiff.enemySpeedMult).toFixed(2);
+      const scaledBounty = Math.max(
+        1,
+        Math.round(spec.bounty * activeDiff.bountyMult),
+      );
+      const moveLabel =
+        spec.movementType === 'fly'
+          ? 'Flying'
+          : spec.movementType === 'burrow'
+            ? 'Burrow'
+            : 'Ground';
+      const waveTag = `<span class="tag enemy-wave-tag">Wave ${firstWave}+</span>`;
+      const extraTags: string[] = [
+        `<span class="tag move-tag move-${spec.movementType}">${moveLabel}</span>`,
+      ];
+      if (isMapBoss) {
+        extraTags.push(`<span class="tag tag-boss">10-Wave Boss</span>`);
+      }
+      if ((spec.range ?? 1) > 1) {
+        extraTags.push(`<span class="tag">Range ${spec.range}</span>`);
+      }
+      if (spec.wallDmgMult >= 2) {
+        extraTags.push(
+          `<span class="tag">${spec.wallDmgMult}× Wall Dmg</span>`,
+        );
+      }
+      if (spec.ignoresUnits) {
+        extraTags.push(`<span class="tag tag-warn">Ignores Units</span>`);
+      }
+
+      return `
+        <div class="enemy-intel-card ${isMapBoss ? 'is-boss-enemy' : ''}">
+          <div class="enemy-intel-top">
+            <span class="poke-icon-wrap lg enemy-portrait" aria-hidden="true">
+              <img src="assets/pokemon/${escapeHtml(spriteId)}/Normal.png" alt="" width="40" height="40" loading="lazy" decoding="async" />
+            </span>
+            <div class="enemy-intel-title-wrap">
+              <div class="enemy-intel-name-row">
+                <span class="enemy-intel-name">${escapeHtml(spec.name)}</span>
+                ${waveTag}
+              </div>
+              <div class="enemy-intel-role">${escapeHtml(spec.roleLabel)}</div>
+            </div>
+          </div>
+          <div class="enemy-intel-trait">${escapeHtml(getEnemyThreatSummary(spec))}</div>
+          <div class="enemy-intel-tags">${extraTags.join('')}</div>
+          <div class="enemy-intel-stats">
+            <span>HP <b>${scaledHp}</b></span>
+            <span>ATK <b>${scaledAtk}</b></span>
+            <span>SPD <b>${scaledSpeed}</b></span>
+            <span>Bounty <b>₽${scaledBounty}</b></span>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
+      <div class="modal-card draft-modal difficulty-select-modal btd6-map-select" role="dialog" aria-modal="true" aria-labelledby="modal-title-difficulty" tabindex="-1">
+        <div class="btd6-map-topbar">
+          <button type="button" class="btn btd6-back-btn" data-action="back-map-select" aria-label="Back to Map Select" title="Back to Map Select">← Maps</button>
+          <div class="diff-heading-wrap">
+            <div class="modal-title btd6-map-heading" id="modal-title-difficulty">Select Mode &amp; Difficulty</div>
+            <div class="card-hint">${escapeHtml(mapSpec?.name ?? snap.selectedMapId)} · ${escapeHtml(mapSpec?.waveTheme.label ?? 'Standard')} · ${activeDiff.maxWaves} Waves</div>
+          </div>
+          <button type="button" class="btn btn-primary diff-confirm-cta" data-action="confirm-difficulty" data-id="${activeDiff.id}">Draft (${escapeHtml(activeDiff.name)}) →</button>
+        </div>
+        <div class="diff-cards-grid" role="radiogroup" aria-label="Run Difficulty">
+          ${diffCardsHtml}
+        </div>
+        <div class="enemy-intel-section">
+          <div class="enemy-intel-header">
+            <span class="enemy-intel-heading">Enemy Intel &amp; Traits (${escapeHtml(activeDiff.name)} Scaling)</span>
+            <span class="card-hint">${firstWaveByEnemy.size} active on this map · bosses spawn every 10 waves (3.5× HP, 1.6× ATK, stun-immune)</span>
+          </div>
+          <div class="enemy-intel-grid">
+            ${enemyCardsHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
   const spent = getDraftCost(snap.draftIds);
   const remaining = snap.draftBudget - spent;
@@ -1032,7 +1205,7 @@ function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
           <div class="card-hint">Remaining: ${remaining} pts · Team: ${snap.draftIds.length} / ${MAX_ACTIVE_UNITS}</div>
         </div>
         <div class="btn-row" style="margin:0">
-          <button type="button" class="btn btn-icon" data-action="back-map-select" title="Back to Map Select" aria-label="Back to Map Select">
+          <button type="button" class="btn btn-icon" data-action="back-difficulty-select" title="Back to Difficulty Select" aria-label="Back to Difficulty Select">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
           </button>
           <button type="button" class="btn btn-icon" data-action="back-home" title="Home" aria-label="Home">
@@ -1094,10 +1267,24 @@ function renderRewardModal(snap: GameSnapshot): string {
               choice.speciesId
             ? choice.speciesId
             : null;
+      const rarity: PokemonRarity | null =
+        choice.rarity ??
+        (iconSpeciesId && POKEMON_SPECIES[iconSpeciesId]
+          ? getSpeciesRarity(iconSpeciesId)
+          : null);
+      const rarityCardClass = rarity
+        ? `card-rarity-${rarity.toLowerCase()}`
+        : '';
+      const rarityBadgeHtml = rarity
+        ? `<span class="tag rarity-tag rarity-${rarity.toLowerCase()}">${escapeHtml(rarity)}</span>`
+        : '';
       const iconHtml = iconSpeciesId ? renderPokeIcon(iconSpeciesId) : '';
       return `
-        <button type="button" class="reward-card" data-action="pick-reward" data-id="${escapeHtml(choice.id)}">
-          <span class="tag">${escapeHtml(badge)}</span>
+        <button type="button" class="reward-card ${rarityCardClass}" data-action="pick-reward" data-id="${escapeHtml(choice.id)}">
+          <div class="reward-card-tags">
+            <span class="tag">${escapeHtml(badge)}</span>
+            ${rarityBadgeHtml}
+          </div>
           ${iconHtml}
           <div class="reward-title">${escapeHtml(choice.title)}</div>
           <div class="reward-desc">${escapeHtml(choice.desc)}</div>
@@ -1474,6 +1661,12 @@ export function renderModalHtml(
   if (snap.phase === 'MAP_SELECT') {
     return {
       html: renderMapSelectModal(snap, state.mapDifficultyFilter),
+      layoutMode: 'fullscreen',
+    };
+  }
+  if (snap.phase === 'DIFFICULTY_SELECT') {
+    return {
+      html: renderDifficultySelectModal(snap, state.selectedDifficultyPreview),
       layoutMode: 'fullscreen',
     };
   }

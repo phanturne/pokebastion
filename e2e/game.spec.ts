@@ -25,6 +25,12 @@ async function draftStarterTeamAndEnterPrep(
     .locator('[data-action="select-map"][data-id="viridian_outpost"]')
     .click();
 
+  await expect(page.locator('[data-action="preview-difficulty"]')).toHaveCount(
+    4,
+  );
+  await expect(page.locator('.enemy-intel-card')).toHaveCount(27);
+  await page.locator('[data-action="confirm-difficulty"]').click();
+
   const confirmBtn = page.locator('[data-action="confirm-draft"]');
   await expect(confirmBtn).toBeVisible();
 
@@ -50,7 +56,7 @@ async function draftStarterTeamAndEnterPrep(
   await confirmBtn.click();
 
   await expect(page.locator('#top-bar')).toContainText(
-    /Wave\s+1\s*\/\s*(10|2)/,
+    /Wave\s+1\s*\/\s*(20|30|40|50|15|10|2)/,
   );
   await expect(page.locator('#top-bar')).toContainText('PREP');
 }
@@ -366,6 +372,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await page
       .locator('[data-action="select-map"][data-id="viridian_outpost"]')
       .click();
+    await page.locator('[data-action="confirm-difficulty"]').click();
 
     const clearBtn = page.locator('[data-action="clear-draft"]');
     if (await clearBtn.isEnabled()) {
@@ -456,6 +463,7 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await page
       .locator('[data-action="select-map"][data-id="viridian_outpost"]')
       .click();
+    await page.locator('[data-action="confirm-difficulty"]').click();
     const clearBtn = page.locator('[data-action="clear-draft"]');
     if (await clearBtn.isEnabled()) await clearBtn.click();
     for (const id of ['0001', '0004']) {
