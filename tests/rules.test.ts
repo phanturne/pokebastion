@@ -238,7 +238,6 @@ describe('Game Rules, AP Movement & Economy', () => {
       () => 0.1,
       [{ uid: 'u1', speciesId: '0007' }],
     );
-    expect(withoutBranch.some((c) => c.kind === 'branch')).toBe(false);
     expect(withoutBranch).toHaveLength(3);
   });
 
@@ -415,7 +414,6 @@ describe('Game Rules, AP Movement & Economy', () => {
     );
     expect(rerolled).toHaveLength(3);
     expect(rerolled.every((c) => !excludeIds.has(c.id))).toBe(true);
-    expect(rerolled.some((c) => c.kind === 'branch')).toBe(false);
     expect(rerolled.some((c) => c.kind === 'recruit')).toBe(true);
   });
 

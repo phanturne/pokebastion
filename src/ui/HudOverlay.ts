@@ -258,7 +258,6 @@ export class HudOverlay {
         action === 'confirm-draft' ||
         action === 'pick-reward' ||
         action === 'pick-branch' ||
-        action === 'pick-branch-reward' ||
         action === 'unlock-species' ||
         action === 'upgrade-potential' ||
         action === 'hatch-egg' ||
@@ -340,13 +339,6 @@ export class HudOverlay {
       }
       case 'pick-reward':
         scene.pickReward?.(id);
-        break;
-      case 'pick-branch-reward':
-        if (id) {
-          (
-            scene as { pickBranchReward?: (id: string) => void }
-          ).pickBranchReward?.(id);
-        }
         break;
       case 'reroll-rewards':
         scene.rerollRewards?.();
@@ -1165,7 +1157,7 @@ export class HudOverlay {
       return phase;
     }
     if (phase === 'REWARD') {
-      return this.lastSnap.pendingBranchUnitUid ? 'REWARD_BRANCH' : 'REWARD';
+      return 'REWARD';
     }
     if (this.expandedUnitUid) {
       return `unit:${this.expandedUnitUid}`;

@@ -1227,34 +1227,6 @@ function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
   `;
 }
 
-function renderBranchRewardModal(snap: GameSnapshot): string {
-  const unit = snap.activeUnits.find(
-    (u) => u.uid === snap.pendingBranchUnitUid,
-  );
-  const sp = unit ? POKEMON_SPECIES[unit.speciesId] : undefined;
-  if (!sp) return '';
-
-  const branchCards = sp.branches
-    .map(
-      (b) => `
-        <button type="button" class="reward-card" data-action="pick-branch-reward" data-id="${escapeHtml(b.id)}">
-          <div class="reward-title">${escapeHtml(b.name)}</div>
-          <div class="reward-desc">${escapeHtml(b.desc)}</div>
-        </button>
-      `,
-    )
-    .join('');
-
-  return `
-    <div class="modal-card" role="dialog" aria-modal="false" aria-labelledby="modal-title-branch" tabindex="-1">
-      <div class="modal-header">
-        <div class="modal-title" id="modal-title-branch">${renderPokeIcon(sp.id)} Specialize ${escapeHtml(sp.name)} — Choose 1 of 3</div>
-      </div>
-      <div class="reward-grid">${branchCards}</div>
-    </div>
-  `;
-}
-
 function renderRewardModal(snap: GameSnapshot): string {
   const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed, snap.wave);
   const canReroll = snap.gold >= rerollCost;
@@ -1264,8 +1236,7 @@ function renderRewardModal(snap: GameSnapshot): string {
       const iconSpeciesId =
         choice.kind === 'evolve' && choice.targetSpeciesId
           ? choice.targetSpeciesId
-          : (choice.kind === 'recruit' || choice.kind === 'branch') &&
-              choice.speciesId
+          : choice.kind === 'recruit' && choice.speciesId
             ? choice.speciesId
             : null;
       const rarity: PokemonRarity | null =
@@ -1692,9 +1663,6 @@ export function renderModalHtml(
   }
   if (snap.phase === 'DRAFT') {
     return { html: renderDraftModal(snap, state), layoutMode: 'fullscreen' };
-  }
-  if (snap.phase === 'REWARD' && snap.pendingBranchUnitUid) {
-    return { html: renderBranchRewardModal(snap), layoutMode: 'docked' };
   }
   if (snap.phase === 'REWARD') {
     return { html: renderRewardModal(snap), layoutMode: 'docked' };

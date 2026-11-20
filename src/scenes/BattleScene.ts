@@ -350,7 +350,6 @@ export class BattleScene extends Phaser.Scene {
   private upgrades: string[] = [];
   private rewardChoices: RewardOption[] = [];
   private rewardRerollsUsed = 0;
-  private pendingBranchUnitUid: string | null = null;
   private statusMessage = 'Prepare your defenses and position Pokémon.';
 
   private waveElapsedMs = 0;
@@ -756,7 +755,6 @@ export class BattleScene extends Phaser.Scene {
       upgrades: [...this.upgrades],
       rewardChoices: this.rewardChoices.map((r) => ({ ...r })),
       rewardRerollsUsed: this.rewardRerollsUsed,
-      pendingBranchUnitUid: this.pendingBranchUnitUid,
       statusMessage: this.statusMessage,
       pokemonProgress: buildPokemonProgressMap(this.playerSave),
       universalShards: this.playerSave.universalShards ?? 0,
@@ -1558,7 +1556,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   public rerollRewards(): void {
-    if (this.phase !== 'REWARD' || this.pendingBranchUnitUid) return;
+    if (this.phase !== 'REWARD') return;
     const cost = getRewardRerollCost(this.rewardRerollsUsed, this.wave);
     if (this.gold < cost) {
       this.setStatus(`Need ₽${cost} to reroll rewards.`);
@@ -1576,13 +1574,6 @@ export class BattleScene extends Phaser.Scene {
     if (this.phase !== 'REWARD') return;
     const choice = this.rewardChoices.find((r) => r.id === rewardId);
     if (!choice) return;
-
-    if (choice.kind === 'branch' && choice.unitUid) {
-      this.pendingBranchUnitUid = choice.unitUid;
-      this.rewardChoices = [];
-      this.setStatus(`${choice.title}: choose 1 of 3 branches.`);
-      return;
-    }
 
     let statusDetail = '';
     if (choice.kind === 'upgrade') {
@@ -1635,29 +1626,6 @@ export class BattleScene extends Phaser.Scene {
 
     this.rewardChoices = [];
     this.advanceAfterReward(`Picked ${choice.title}${statusDetail}.`);
-  }
-
-  public pickBranchReward(branchId: string): void {
-    if (this.phase !== 'REWARD' || !this.pendingBranchUnitUid) return;
-    const unit = this.units.find(
-      (u) => u.data.uid === this.pendingBranchUnitUid,
-    );
-    if (!unit || unit.data.branchId) {
-      this.pendingBranchUnitUid = null;
-      return;
-    }
-
-    const sp = POKEMON_SPECIES[unit.data.speciesId];
-    const branch = sp?.branches.find((b) => b.id === branchId);
-    if (!sp || !branch) return;
-
-    unit.data.branchId = branch.id;
-    this.recalcUnitMaxHp(unit);
-    unit.sprite.setScale(1.12);
-    this.sfx.play('ui_confirm', 0);
-    this.refreshHoverReadout();
-    this.pendingBranchUnitUid = null;
-    this.advanceAfterReward(`${sp.name} specialized into ${branch.name}!`);
   }
 
   private awardRecruitShards(speciesId: string): string {
@@ -1829,7 +1797,6 @@ export class BattleScene extends Phaser.Scene {
     this.upgrades = [];
     this.rewardChoices = [];
     this.rewardRerollsUsed = 0;
-    this.pendingBranchUnitUid = null;
     this.draftIds = [...STARTER_UNLOCKED_IDS];
     this.reserveIds = [];
     this.heldItemInventory = [];

@@ -263,7 +263,7 @@ export interface ActiveUnit {
 
 export interface RewardOption {
   id: string;
-  kind: 'upgrade' | 'artifact' | 'recruit' | 'branch' | 'evolve';
+  kind: 'upgrade' | 'artifact' | 'recruit' | 'evolve';
   rarity?: PokemonRarity;
   title: string;
   desc: string;
@@ -306,7 +306,6 @@ export interface GameSnapshot {
   upgrades: string[];
   rewardChoices: RewardOption[];
   rewardRerollsUsed: number;
-  pendingBranchUnitUid: string | null;
   statusMessage: string;
   pokemonProgress: Record<string, PokemonProgress>;
   universalShards: number;
