@@ -488,6 +488,32 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(rerolled).toHaveLength(3);
     expect(rerolled.some((c) => c.id === 'evolve_u1_0002')).toBe(false);
   });
+
+  it('weights rarer recruit and reward choices lower than common ones', () => {
+    // Deterministic seeded PRNG (LCG) to verify rarity distribution across 300 rolls
+    let seed = 42;
+    const seededRng = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    const counts: Record<string, number> = {
+      Common: 0,
+      Uncommon: 0,
+      Rare: 0,
+      Epic: 0,
+      Legendary: 0,
+    };
+    const owned = new Set(['0001', '0004', '0007']);
+    for (let i = 0; i < 300; i++) {
+      const choices = generateRewardChoices(owned, [], [], seededRng);
+      const recruit = choices.find((c) => c.kind === 'recruit');
+      if (recruit?.rarity) counts[recruit.rarity] += 1;
+    }
+    expect(counts.Common + counts.Uncommon).toBeGreaterThan(
+      counts.Epic + counts.Legendary,
+    );
+    expect(counts.Common).toBeGreaterThan(counts.Legendary);
+  });
 });
 
 describe('Special Enemy Threat Helpers', () => {

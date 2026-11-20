@@ -459,9 +459,52 @@ export function getRewardRerollCost(rerollsUsed: number, wave = 1): number {
   return Math.round(base * Math.pow(1.75, Math.max(0, rerollsUsed)));
 }
 
+const RARITY_REWARD_WEIGHT: Record<PokemonRarity, number> = {
+  Common: 40,
+  Uncommon: 25,
+  Rare: 14,
+  Epic: 6,
+  Legendary: 2,
+};
+
+function getRarityWeight(rarity: PokemonRarity | undefined): number {
+  return RARITY_REWARD_WEIGHT[rarity ?? 'Uncommon'];
+}
+
+function pickWeighted<T>(
+  items: readonly T[],
+  getWeight: (item: T) => number,
+  rng: () => number,
+): T {
+  let total = 0;
+  for (const item of items) total += Math.max(0, getWeight(item));
+  if (total <= 0) return items[Math.floor(rng() * items.length)];
+  let roll = rng() * total;
+  for (const item of items) {
+    roll -= Math.max(0, getWeight(item));
+    if (roll <= 0) return item;
+  }
+  return items[items.length - 1];
+}
+
+function weightedShuffle<T>(
+  items: readonly T[],
+  getWeight: (item: T) => number,
+  rng: () => number,
+): T[] {
+  const pool = [...items];
+  const result: T[] = [];
+  while (pool.length > 0) {
+    const picked = pickWeighted(pool, getWeight, rng);
+    result.push(picked);
+    pool.splice(pool.indexOf(picked), 1);
+  }
+  return result;
+}
+
 /**
  * Generates up to 3 distinct roguelike reward choices between waves,
- * prioritizing unowned upgrades/artifacts and offering 1 unrecruited Pokémon when available.
+ * weighting rarer species, upgrades, and artifacts lower than common ones.
  */
 export function generateRewardChoices(
   ownedSpeciesIds: Set<string>,
@@ -511,15 +554,6 @@ export function generateRewardChoices(
   const pickRandom = <T>(arr: readonly T[]): T =>
     arr[Math.floor(rng() * arr.length)];
 
-  const shuffle = <T>(arr: T[]): T[] => {
-    const copy = [...arr];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
-  };
-
   const unownedSpecies = Object.values(POKEMON_SPECIES).filter(
     (sp) => !ownedSpeciesIds.has(sp.id),
   );
@@ -565,6 +599,7 @@ export function generateRewardChoices(
     choices.push({
       id: `recruit_${sp.id}`,
       kind: 'recruit',
+      rarity: sp.rarity,
       title: `Recruit ${sp.name}`,
       desc: `${sp.pokeClass} — ${sp.ultName}: ${sp.ultDesc}`,
       speciesId: sp.id,
@@ -578,10 +613,16 @@ export function generateRewardChoices(
   }
 
   if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
-    pushRecruitChoice(pickRandom(preferredSpecies));
+    pushRecruitChoice(
+      pickWeighted(preferredSpecies, (sp) => getRarityWeight(sp.rarity), rng),
+    );
   }
 
-  for (const item of shuffle(preferredRewards)) {
+  for (const item of weightedShuffle(
+    preferredRewards,
+    (r) => getRarityWeight(r.rarity),
+    rng,
+  )) {
     if (choices.length >= 3) break;
     choices.push(item);
   }
@@ -593,10 +634,16 @@ export function generateRewardChoices(
     !choices.some((c) => c.kind === 'recruit') &&
     excludedSpecies.length > 0
   ) {
-    pushRecruitChoice(pickRandom(excludedSpecies));
+    pushRecruitChoice(
+      pickWeighted(excludedSpecies, (sp) => getRarityWeight(sp.rarity), rng),
+    );
   }
 
-  for (const item of shuffle(excludedRewards)) {
+  for (const item of weightedShuffle(
+    excludedRewards,
+    (r) => getRarityWeight(r.rarity),
+    rng,
+  )) {
     if (choices.length >= 3) break;
     choices.push(item);
   }
