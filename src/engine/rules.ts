@@ -459,6 +459,14 @@ export function getRewardRerollCost(rerollsUsed: number, wave = 1): number {
   return Math.round(base * Math.pow(1.75, Math.max(0, rerollsUsed)));
 }
 
+const RARITY_TIERS: readonly PokemonRarity[] = [
+  'Common',
+  'Uncommon',
+  'Rare',
+  'Epic',
+  'Legendary',
+];
+
 const RARITY_REWARD_WEIGHT: Record<PokemonRarity, number> = {
   Common: 40,
   Uncommon: 25,
@@ -467,35 +475,51 @@ const RARITY_REWARD_WEIGHT: Record<PokemonRarity, number> = {
   Legendary: 2,
 };
 
-function getRarityWeight(rarity: PokemonRarity | undefined): number {
-  return RARITY_REWARD_WEIGHT[rarity ?? 'Uncommon'];
-}
-
-function pickWeighted<T>(
+function pickByRarityTier<T>(
   items: readonly T[],
-  getWeight: (item: T) => number,
+  getRarity: (item: T) => PokemonRarity | undefined,
   rng: () => number,
 ): T {
-  let total = 0;
-  for (const item of items) total += Math.max(0, getWeight(item));
-  if (total <= 0) return items[Math.floor(rng() * items.length)];
-  let roll = rng() * total;
+  const buckets = new Map<PokemonRarity, T[]>();
   for (const item of items) {
-    roll -= Math.max(0, getWeight(item));
-    if (roll <= 0) return item;
+    const tier = getRarity(item) ?? 'Uncommon';
+    const list = buckets.get(tier);
+    if (list) list.push(item);
+    else buckets.set(tier, [item]);
   }
-  return items[items.length - 1];
+
+  let totalWeight = 0;
+  for (const tier of RARITY_TIERS) {
+    if (buckets.has(tier)) totalWeight += RARITY_REWARD_WEIGHT[tier];
+  }
+
+  let chosenBucket: T[] = items as T[];
+  if (totalWeight > 0) {
+    let roll = rng() * totalWeight;
+    for (const tier of RARITY_TIERS) {
+      const bucket = buckets.get(tier);
+      if (!bucket) continue;
+      roll -= RARITY_REWARD_WEIGHT[tier];
+      if (roll <= 0) {
+        chosenBucket = bucket;
+        break;
+      }
+      chosenBucket = bucket;
+    }
+  }
+
+  return chosenBucket[Math.floor(rng() * chosenBucket.length)];
 }
 
-function weightedShuffle<T>(
+function shuffleByRarityTier<T>(
   items: readonly T[],
-  getWeight: (item: T) => number,
+  getRarity: (item: T) => PokemonRarity | undefined,
   rng: () => number,
 ): T[] {
   const pool = [...items];
   const result: T[] = [];
   while (pool.length > 0) {
-    const picked = pickWeighted(pool, getWeight, rng);
+    const picked = pickByRarityTier(pool, getRarity, rng);
     result.push(picked);
     pool.splice(pool.indexOf(picked), 1);
   }
@@ -614,13 +638,13 @@ export function generateRewardChoices(
 
   if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
     pushRecruitChoice(
-      pickWeighted(preferredSpecies, (sp) => getRarityWeight(sp.rarity), rng),
+      pickByRarityTier(preferredSpecies, (sp) => sp.rarity, rng),
     );
   }
 
-  for (const item of weightedShuffle(
+  for (const item of shuffleByRarityTier(
     preferredRewards,
-    (r) => getRarityWeight(r.rarity),
+    (r) => r.rarity,
     rng,
   )) {
     if (choices.length >= 3) break;
@@ -635,13 +659,13 @@ export function generateRewardChoices(
     excludedSpecies.length > 0
   ) {
     pushRecruitChoice(
-      pickWeighted(excludedSpecies, (sp) => getRarityWeight(sp.rarity), rng),
+      pickByRarityTier(excludedSpecies, (sp) => sp.rarity, rng),
     );
   }
 
-  for (const item of weightedShuffle(
+  for (const item of shuffleByRarityTier(
     excludedRewards,
-    (r) => getRarityWeight(r.rarity),
+    (r) => r.rarity,
     rng,
   )) {
     if (choices.length >= 3) break;
