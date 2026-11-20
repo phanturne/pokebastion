@@ -19,11 +19,9 @@ import {
   getUnlockShardCost,
 } from '../engine/progression';
 import {
-  HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   RARE_CANDY_COST,
-  REVIVE_COST,
   getBranchSpec,
   getDraftCost,
   getEffectiveAtk,
@@ -31,7 +29,9 @@ import {
   getEffectiveDef,
   getEffectiveRange,
   getEnemyThreatSummary,
+  getHealCost,
   getPokemonReleaseRefund,
+  getReviveCost,
   getRewardRerollCost,
 } from '../engine/rules';
 import {
@@ -1255,7 +1255,7 @@ function renderBranchRewardModal(snap: GameSnapshot): string {
 }
 
 function renderRewardModal(snap: GameSnapshot): string {
-  const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed);
+  const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed, snap.wave);
   const canReroll = snap.gold >= rerollCost;
   const cards = snap.rewardChoices
     .map((choice) => {
@@ -1379,8 +1379,8 @@ function renderExpandedUnitModal(
       const item = itemId ? HELD_ITEMS[itemId] : null;
       if (!item) return '<div class="held-slot empty">Empty Slot</div>';
       return `
-        <div class="held-slot filled">
-          <span><strong>${escapeHtml(item.name)}</strong> — ${escapeHtml(item.desc)}</span>
+        <div class="held-slot filled" title="${escapeHtml(item.desc)}">
+          <span class="held-slot-name"><strong>${escapeHtml(item.name)}</strong></span>
           ${
             snap.phase === 'PREP'
               ? `<button type="button" class="held-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" aria-label="Unequip ${escapeHtml(item.name)}">×</button>`
@@ -1392,26 +1392,17 @@ function renderExpandedUnitModal(
     .join('');
 
   return `
-    <div class="modal-card draft-modal" role="dialog" aria-modal="false" aria-labelledby="modal-title-unit" tabindex="-1">
+    <div class="modal-card draft-modal unit-inspector-modal" role="dialog" aria-modal="false" aria-labelledby="modal-title-unit" tabindex="-1">
       <div class="modal-header">
         <div class="unit-name-wrap">
           ${renderPokeIcon(sp.id)}
           <div class="modal-title" id="modal-title-unit">${escapeHtml(sp.name)}</div>
           <span class="tag">${escapeHtml(sp.pokeClass)}</span>
           ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
+          ${renderSpeciesTypeBadges(sp.id)}
         </div>
-        <div class="btn-row">
-          ${
-            snap.phase === 'PREP'
-              ? `<button type="button" class="btn btn-danger" data-action="release-unit" data-id="${unit.uid}" ${snap.activeUnits.length > 1 ? '' : 'disabled'}>Release (+₽${getPokemonReleaseRefund(unit.speciesId, unit.branchId)})</button>`
-              : ''
-          }
-          <button type="button" class="btn" data-action="close-expanded-unit">Close</button>
-        </div>
+        <button type="button" class="btn btn-xs" data-action="close-expanded-unit" aria-label="Close">✕</button>
       </div>
-
-      <div class="type-badge-row">${renderSpeciesTypeBadges(sp.id)}</div>
-      ${renderTargetPriorityControl(unit)}
 
       <div class="unit-stats-grid unit-stats-grid-5">
         <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.ceil(unit.hp)}/${unit.maxHp}</span></div>
@@ -1423,22 +1414,35 @@ function renderExpandedUnitModal(
 
       <div class="desc-box">
         <div><strong>Passive:</strong> ${escapeHtml(sp.passiveDesc)}</div>
-        <div><strong>Basic Attack:</strong> ${escapeHtml(sp.basicDesc)}</div>
-        <div><strong>Ultimate — ${escapeHtml(sp.ultName)}:</strong> ${escapeHtml(sp.ultDesc)} (${Math.floor(unit.ult)}/${unit.ultMax})</div>
+        <div><strong>Basic:</strong> ${escapeHtml(sp.basicDesc)}</div>
+        <div><strong>Ult — ${escapeHtml(sp.ultName)}:</strong> ${escapeHtml(sp.ultDesc)} (${Math.floor(unit.ult)}/${unit.ultMax})</div>
       </div>
 
       <div class="branch-header">
         <span>Specializations</span>
-        ${branch ? '' : '<span class="card-hint">Not yet specialized</span>'}
+        ${branch ? '' : `<span class="card-hint">${snap.phase === 'PREP' ? 'Choose a path below' : 'Specialize during Prep'}</span>`}
       </div>
-      ${renderBranchTree(sp, unit.branchId, snap.upgrades)}
+      ${renderBranchTree(sp, unit.branchId, snap.upgrades, {
+        unitUid: unit.uid,
+        canSpecialize: snap.phase === 'PREP',
+        gold: snap.gold,
+      })}
 
       <div class="held-box">
         <div class="branch-header">
           <span>Held Items</span>
           <span class="card-hint">${unit.heldItems.length} / ${MAX_HELD_ITEMS}</span>
         </div>
-        <div class="held-slots">${heldHtml}</div>
+        <div class="held-slots held-slots-3col">${heldHtml}</div>
+      </div>
+
+      <div class="unit-modal-footer">
+        ${renderTargetPriorityControl(unit)}
+        ${
+          snap.phase === 'PREP'
+            ? `<button type="button" class="btn btn-danger btn-xs" data-action="release-unit" data-id="${unit.uid}" ${snap.activeUnits.length > 1 ? '' : 'disabled'}>Release (+₽${getPokemonReleaseRefund(unit.speciesId, unit.branchId)})</button>`
+            : ''
+        }
       </div>
     </div>
   `;
@@ -1475,6 +1479,8 @@ function renderShopModal(snap: GameSnapshot): string {
     })
     .join('');
 
+  const healCost = getHealCost(snap.wave);
+  const reviveCost = getReviveCost(snap.wave);
   const careUnits = snap.activeUnits.filter((u) => u.fainted || u.hp < u.maxHp);
   const careRows = careUnits
     .map((u) => {
@@ -1485,7 +1491,7 @@ function renderShopModal(snap: GameSnapshot): string {
           <div class="shop-care-chip">
             ${renderPokeIcon(u.speciesId)}
             <span>${escapeHtml(name)} (Fainted)</span>
-            <button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${u.uid}" ${snap.gold >= REVIVE_COST ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>
+            <button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${u.uid}" ${snap.gold >= reviveCost ? '' : 'disabled'}>Revive ₽${reviveCost}</button>
           </div>
         `;
       }
@@ -1493,7 +1499,7 @@ function renderShopModal(snap: GameSnapshot): string {
         <div class="shop-care-chip">
           ${renderPokeIcon(u.speciesId)}
           <span>${escapeHtml(name)} (${Math.ceil(u.hp)}/${u.maxHp})</span>
-          <button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${u.uid}" ${snap.gold >= HEAL_COST ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>
+          <button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${u.uid}" ${snap.gold >= healCost ? '' : 'disabled'}>Heal ₽${healCost}</button>
         </div>
       `;
     })

@@ -44,7 +44,7 @@ export const SUBCLASS_PASSIVE_DESCS: Record<PokemonSubclass, string> = {
   Juggernaut: 'Reflects 15% of melee damage taken.',
   Duelist: '+15% damage against single targets and bosses.',
   Cleave: 'Basic attacks deal +20% splash damage to nearby foes.',
-  Interceptor: '+1 Move Range and +15% damage to leaking enemies.',
+  Interceptor: '+15% damage to leaking enemies.',
   Sniper: '+15% Crit chance and +20% damage to flying enemies.',
   'Rapid-Fire': 'Every 5th attack fires an extra bolt.',
   Artillery: '+20% splash radius and +10% AoE damage.',

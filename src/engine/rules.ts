@@ -10,6 +10,7 @@ import {
   GamePhase,
   MinorUpgradeSpec,
   PokemonBranch,
+  PokemonRarity,
   PokemonSpecies,
   RewardOption,
   StructureKind,
@@ -192,21 +193,6 @@ function getMatchingMinorUpgrades(
   return matched;
 }
 
-export function getEffectiveMoveRange(
-  baseMoveRange: number,
-  upgrades: string[],
-  branch?: PokemonBranch,
-  speciesId?: string,
-): number {
-  let bonus = branch?.moveRangeBonus ?? 0;
-  if (speciesId) {
-    for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
-      if (u.moveRangeBonus) bonus += u.moveRangeBonus;
-    }
-  }
-  return baseMoveRange + bonus;
-}
-
 /**
  * Returns the AP cost to move from (fromX, fromY) to (toX, toY), or null if same tile.
  * During PREP phase, any reachable tile costs 0 AP;
@@ -349,7 +335,7 @@ export function getEffectiveAttackIntervalMs(
   upgrades: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
-  const initMult = artifacts.includes('arcane_conduit') ? 0.8 : 1;
+  const initMult = artifacts.includes('arcane_conduit') ? 0.83 : 1;
   return Math.round(
     base *
       applyStatModifiers(
@@ -382,6 +368,24 @@ export function getSellRefund(kind: StructureKind): number {
   return Math.round(STRUCTURE_SPECS[kind].cost * SELL_REFUND_RATE);
 }
 
+/**
+ * Scales structure build cost by the number of active structures of the same kind on the board.
+ * Ground-blocking walls get a 4-wall grace threshold (+15% each thereafter);
+ * non-wall structures scale +25% per active copy after the first.
+ */
+export function getStructureBuildCost(
+  kind: StructureKind,
+  activeCount: number,
+): number {
+  const spec = STRUCTURE_SPECS[kind];
+  const count = Math.max(0, activeCount);
+  if (spec.blocksGround) {
+    const extra = Math.max(0, count - 4);
+    return Math.round(spec.cost * (1 + extra * 0.15));
+  }
+  return Math.round(spec.cost * (1 + count * 0.25));
+}
+
 export function getPokemonReleaseRefund(
   speciesId: string,
   branchId: string | null = null,
@@ -412,24 +416,126 @@ export function getApKillThreshold(artifacts: string[]): number {
 
 export function getBountyGold(baseBounty: number, artifacts: string[]): number {
   return artifacts.includes('commanders_insignia')
-    ? Math.round(baseBounty * 1.25)
+    ? Math.round(baseBounty * 1.35)
     : baseBounty;
 }
 
-export function getRewardRerollCost(rerollsUsed: number): number {
-  return 20 + Math.max(0, rerollsUsed) * 10;
+/** Gentle late-wave bounty taper (1.0× through Wave 10, decaying thereafter). */
+export function getBountyWaveMult(wave: number): number {
+  if (wave <= 10) return 1;
+  return 1 / (1 + (wave - 10) * 0.05);
+}
+
+export function getHealCost(wave: number): number {
+  return Math.round(HEAL_COST * (1 + Math.max(0, wave - 1) * 0.12));
+}
+
+export function getReviveCost(wave: number): number {
+  return Math.round(REVIVE_COST * (1 + Math.max(0, wave - 1) * 0.12));
+}
+
+const RARITY_BRANCH_BASE_COST: Record<PokemonRarity, number> = {
+  Common: 50,
+  Uncommon: 70,
+  Rare: 95,
+  Epic: 125,
+  Legendary: 160,
+};
+const BRANCH_INDEX_COST_MULT = [1, 1.25, 1.5] as const;
+
+/** Specialization cost scales with Pokémon rarity and branch index (Path 1 < Path 2 < Path 3). */
+export function getBranchCost(speciesId: string, branchIndex: number): number {
+  const rarity = POKEMON_SPECIES[speciesId]?.rarity ?? 'Common';
+  const base = RARITY_BRANCH_BASE_COST[rarity];
+  const mult =
+    BRANCH_INDEX_COST_MULT[
+      Math.max(0, Math.min(BRANCH_INDEX_COST_MULT.length - 1, branchIndex))
+    ];
+  return Math.round(base * mult);
+}
+
+export function getRewardRerollCost(rerollsUsed: number, wave = 1): number {
+  const base = Math.round(20 * (1 + Math.max(0, wave - 1) * 0.15));
+  return Math.round(base * Math.pow(1.75, Math.max(0, rerollsUsed)));
+}
+
+const RARITY_TIERS: readonly PokemonRarity[] = [
+  'Common',
+  'Uncommon',
+  'Rare',
+  'Epic',
+  'Legendary',
+];
+
+const RARITY_REWARD_WEIGHT: Record<PokemonRarity, number> = {
+  Common: 40,
+  Uncommon: 25,
+  Rare: 14,
+  Epic: 6,
+  Legendary: 2,
+};
+
+function pickByRarityTier<T>(
+  items: readonly T[],
+  getRarity: (item: T) => PokemonRarity | undefined,
+  rng: () => number,
+): T {
+  const buckets = new Map<PokemonRarity, T[]>();
+  for (const item of items) {
+    const tier = getRarity(item) ?? 'Uncommon';
+    const list = buckets.get(tier);
+    if (list) list.push(item);
+    else buckets.set(tier, [item]);
+  }
+
+  let totalWeight = 0;
+  for (const tier of RARITY_TIERS) {
+    if (buckets.has(tier)) totalWeight += RARITY_REWARD_WEIGHT[tier];
+  }
+
+  let chosenBucket: T[] = items as T[];
+  if (totalWeight > 0) {
+    let roll = rng() * totalWeight;
+    for (const tier of RARITY_TIERS) {
+      const bucket = buckets.get(tier);
+      if (!bucket) continue;
+      roll -= RARITY_REWARD_WEIGHT[tier];
+      if (roll <= 0) {
+        chosenBucket = bucket;
+        break;
+      }
+      chosenBucket = bucket;
+    }
+  }
+
+  return chosenBucket[Math.floor(rng() * chosenBucket.length)];
+}
+
+function shuffleByRarityTier<T>(
+  items: readonly T[],
+  getRarity: (item: T) => PokemonRarity | undefined,
+  rng: () => number,
+): T[] {
+  const pool = [...items];
+  const result: T[] = [];
+  while (pool.length > 0) {
+    const picked = pickByRarityTier(pool, getRarity, rng);
+    result.push(picked);
+    pool.splice(pool.indexOf(picked), 1);
+  }
+  return result;
 }
 
 /**
  * Generates up to 3 distinct roguelike reward choices between waves,
- * prioritizing unowned upgrades/artifacts and offering 1 unrecruited Pokémon when available.
+ * weighting rarer species, upgrades, and artifacts lower than common ones.
  */
 export function generateRewardChoices(
   ownedSpeciesIds: Set<string>,
   ownedUpgrades: string[],
   ownedArtifacts: string[],
   rng: () => number = Math.random,
-  unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
+  _unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
   includeClassMinorUpgrades = false,
   canRecruit = true,
   evolvableUnits: Array<{
@@ -439,6 +545,7 @@ export function generateRewardChoices(
   }> = [],
   excludeRewardIds?: Set<string>,
 ): RewardOption[] {
+  void _unbranchedUnits;
   const ownedUpgradeSet = new Set(ownedUpgrades);
   const ownedArtifactSet = new Set(ownedArtifacts);
 
@@ -471,15 +578,6 @@ export function generateRewardChoices(
   const pickRandom = <T>(arr: readonly T[]): T =>
     arr[Math.floor(rng() * arr.length)];
 
-  const shuffle = <T>(arr: T[]): T[] => {
-    const copy = [...arr];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
-  };
-
   const unownedSpecies = Object.values(POKEMON_SPECIES).filter(
     (sp) => !ownedSpeciesIds.has(sp.id),
   );
@@ -487,12 +585,6 @@ export function generateRewardChoices(
   const isExcluded = (id: string): boolean =>
     Boolean(excludeRewardIds?.has(id));
 
-  const preferredUnbranched = unbranchedUnits.filter(
-    (u) => !isExcluded(`branch_${u.uid}`),
-  );
-  const excludedUnbranched = unbranchedUnits.filter((u) =>
-    isExcluded(`branch_${u.uid}`),
-  );
   const preferredEvolvable = evolvableUnits.filter(
     (u) => !isExcluded(`evolve_${u.uid}_${u.targetSpeciesId}`),
   );
@@ -507,19 +599,6 @@ export function generateRewardChoices(
   );
   const preferredRewards = availableRewards.filter((r) => !isExcluded(r.id));
   const excludedRewards = availableRewards.filter((r) => isExcluded(r.id));
-
-  const pushBranchChoice = (unit: { uid: string; speciesId: string }): void => {
-    const sp = POKEMON_SPECIES[unit.speciesId];
-    if (!sp) return;
-    choices.push({
-      id: `branch_${unit.uid}`,
-      kind: 'branch',
-      title: `Specialize ${sp.name}`,
-      desc: `Choose 1 of 3 evolution/specialization branches for ${sp.name}.`,
-      speciesId: unit.speciesId,
-      unitUid: unit.uid,
-    });
-  };
 
   const pushEvolveChoice = (unit: {
     uid: string;
@@ -544,6 +623,7 @@ export function generateRewardChoices(
     choices.push({
       id: `recruit_${sp.id}`,
       kind: 'recruit',
+      rarity: sp.rarity,
       title: `Recruit ${sp.name}`,
       desc: `${sp.pokeClass} — ${sp.ultName}: ${sp.ultDesc}`,
       speciesId: sp.id,
@@ -552,19 +632,21 @@ export function generateRewardChoices(
 
   const choices: RewardOption[] = [];
 
-  if (preferredUnbranched.length > 0) {
-    pushBranchChoice(pickRandom(preferredUnbranched));
-  }
-
   if (preferredEvolvable.length > 0 && choices.length < 3) {
     pushEvolveChoice(pickRandom(preferredEvolvable));
   }
 
   if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
-    pushRecruitChoice(pickRandom(preferredSpecies));
+    pushRecruitChoice(
+      pickByRarityTier(preferredSpecies, (sp) => sp.rarity, rng),
+    );
   }
 
-  for (const item of shuffle(preferredRewards)) {
+  for (const item of shuffleByRarityTier(
+    preferredRewards,
+    (r) => r.rarity,
+    rng,
+  )) {
     if (choices.length >= 3) break;
     choices.push(item);
   }
@@ -576,20 +658,18 @@ export function generateRewardChoices(
     !choices.some((c) => c.kind === 'recruit') &&
     excludedSpecies.length > 0
   ) {
-    pushRecruitChoice(pickRandom(excludedSpecies));
+    pushRecruitChoice(
+      pickByRarityTier(excludedSpecies, (sp) => sp.rarity, rng),
+    );
   }
 
-  for (const item of shuffle(excludedRewards)) {
+  for (const item of shuffleByRarityTier(
+    excludedRewards,
+    (r) => r.rarity,
+    rng,
+  )) {
     if (choices.length >= 3) break;
     choices.push(item);
-  }
-
-  if (
-    choices.length < 3 &&
-    !choices.some((c) => c.kind === 'branch') &&
-    excludedUnbranched.length > 0
-  ) {
-    pushBranchChoice(pickRandom(excludedUnbranched));
   }
 
   if (

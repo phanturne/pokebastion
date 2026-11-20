@@ -231,10 +231,9 @@ export const CLASS_MINOR_UPGRADES: MinorUpgradeSpec[] = [
   {
     id: 'brawler_interceptor_stride',
     title: 'Interceptor Stride',
-    desc: 'Interceptor Brawlers gain +1 Move Range and +15% Attack Speed.',
+    desc: 'Interceptor Brawlers gain +15% Attack Speed.',
     targetClass: 'Brawler',
     targetSubclass: 'Interceptor',
-    moveRangeBonus: 1,
     attackIntervalMult: 0.87,
   },
 
@@ -361,10 +360,9 @@ export const CLASS_MINOR_UPGRADES: MinorUpgradeSpec[] = [
   {
     id: 'support_tactician_mind',
     title: 'Tactician Insight',
-    desc: 'Tactician Supports gain +1 Move Range and +25% Ult charge rate.',
+    desc: 'Tactician Supports gain +25% Ult charge rate.',
     targetClass: 'Support',
     targetSubclass: 'Tactician',
-    moveRangeBonus: 1,
     ultChargeMult: 1.25,
   },
 
@@ -372,9 +370,8 @@ export const CLASS_MINOR_UPGRADES: MinorUpgradeSpec[] = [
   {
     id: 'specialist_nimble_step',
     title: 'Nimble Step',
-    desc: 'All Specialists gain +1 Move Range and +10% Attack Speed.',
+    desc: 'All Specialists gain +10% Attack Speed.',
     targetClass: 'Specialist',
-    moveRangeBonus: 1,
     attackIntervalMult: 0.91,
   },
   {
@@ -406,10 +403,9 @@ export const CLASS_MINOR_UPGRADES: MinorUpgradeSpec[] = [
   {
     id: 'specialist_ambusher_blink',
     title: 'Shadow Blink',
-    desc: 'Ambusher Specialists gain +1 Move Range and +18% Attack Speed.',
+    desc: 'Ambusher Specialists gain +18% Attack Speed.',
     targetClass: 'Specialist',
     targetSubclass: 'Ambusher',
-    moveRangeBonus: 1,
     attackIntervalMult: 0.85,
   },
 ];

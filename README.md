@@ -58,7 +58,7 @@ npm run dev       # Start Vite dev server (http://localhost:5173)
    - Click **Start Wave** when ready.
 2. **Combat Phase (`COMBAT`):**
    - Pokémon auto-attack enemies in range.
-   - Click a Pokémon, then click a highlighted tile to reposition using shared **AP** (`1 AP` within standard `moveRange`, `2 AP` within `2× moveRange`; `+3 AP` per wave, `+1 AP` every 6 kills).
+   - Click a Pokémon, then click any reachable tile to reposition using shared **AP** (`1 AP` anywhere; `+3 AP` per wave, `+1 AP` every 6 kills).
    - Trigger ultimates manually (or toggle auto-ult per unit) and switch between `1×` / `2×` simulation speed.
 3. **Reward Phase (`REWARD`):**
    - Pick 1 of 3 randomized rewards (recruit a new Pokémon, team upgrade, or global artifact) before the next wave's prep phase.

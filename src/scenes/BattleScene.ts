@@ -90,15 +90,18 @@ import {
   computeProjectileLaunch,
   DRAFT_BUDGET,
   generateRewardChoices as buildRewardChoices,
+  getBountyWaveMult,
+  getBranchCost,
   getBranchSpec,
   getDraftCost,
-  getEffectiveMoveRange,
   getEffectiveStructureMaxHp,
+  getHealCost,
   getPokemonReleaseRefund,
   getRepairCost,
+  getReviveCost,
   getRewardRerollCost,
   getSellRefund,
-  HEAL_COST,
+  getStructureBuildCost,
   RARE_CANDY_COST,
   isFlyingSpecies,
   isInCircularRange,
@@ -107,7 +110,6 @@ import {
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   MAX_RESERVE_UNITS,
-  REVIVE_COST,
 } from '../engine/rules';
 import {
   ActiveUnit,
@@ -143,8 +145,8 @@ const INITIAL_GOLD = 140;
 const INITIAL_AP = 8;
 const MAX_AP = 10;
 const CORE_MAX_HP = 1000;
-const BERRY_HEAL_PER_SEC = 8;
-const BARREL_DAMAGE = 120;
+const BERRY_HEAL_PER_SEC = 3;
+const BARREL_DAMAGE = 85;
 const BARREL_RADIUS = 1.8;
 const ULT_RADIUS = 1.5;
 const MAX_FLOATING_TEXTS = 28;
@@ -1061,7 +1063,7 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit || unit.data.fainted || unit.data.hp >= unit.data.maxHp) return;
 
-    const cost = HEAL_COST;
+    const cost = getHealCost(this.wave);
     if (this.gold < cost) {
       this.setStatus(
         `Need ₽${cost} to heal ${POKEMON_SPECIES[unit.data.speciesId].name}.`,
@@ -1089,7 +1091,7 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.units.find((u) => u.data.uid === uid);
     if (!unit || !unit.data.fainted) return;
 
-    const cost = REVIVE_COST;
+    const cost = getReviveCost(this.wave);
     if (this.gold < cost) {
       this.setStatus(
         `Need ₽${cost} to revive ${POKEMON_SPECIES[unit.data.speciesId].name}.`,
@@ -1255,22 +1257,36 @@ export class BattleScene extends Phaser.Scene {
     this.updateUnitBars(unit);
   }
 
-  public pickBranchReward(branchId: string): void {
-    if (this.phase !== 'REWARD' || !this.pendingBranchUnitUid) return;
-    const unit = this.units.find(
-      (u) => u.data.uid === this.pendingBranchUnitUid,
-    );
-    if (!unit) return;
-    const branch = getBranchSpec(unit.data.speciesId, branchId);
-    if (!branch) return;
+  public specializeUnit(uid: string, branchId: string): void {
+    if (this.phase !== 'PREP') {
+      this.setStatus('Specializing Pokémon is only allowed during Prep.');
+      return;
+    }
+    const unit = this.units.find((u) => u.data.uid === uid);
+    if (!unit || unit.data.branchId) return;
 
+    const sp = POKEMON_SPECIES[unit.data.speciesId];
+    if (!sp) return;
+    const branchIndex = sp.branches.findIndex((b) => b.id === branchId);
+    if (branchIndex === -1) return;
+    const branch = sp.branches[branchIndex];
+
+    const cost = getBranchCost(unit.data.speciesId, branchIndex);
+    if (this.gold < cost) {
+      this.setStatus(
+        `Need ₽${cost} to specialize ${sp.name} into ${branch.name}.`,
+      );
+      return;
+    }
+
+    this.gold -= cost;
     unit.data.branchId = branch.id;
     this.recalcUnitMaxHp(unit);
     unit.sprite.setScale(1.12);
-    this.pendingBranchUnitUid = null;
-    this.advanceAfterReward(
-      `${POKEMON_SPECIES[unit.data.speciesId].name} specialized into ${branch.name}!`,
-    );
+    this.sfx.play('ui_confirm', 0);
+    this.refreshHoverReadout();
+    this.setStatus(`${sp.name} specialized into ${branch.name} (-₽${cost})!`);
+    this.emitSnapshot();
   }
 
   public deployReserve(reserveSpeciesId: string): void {
@@ -1548,7 +1564,7 @@ export class BattleScene extends Phaser.Scene {
 
   public rerollRewards(): void {
     if (this.phase !== 'REWARD' || this.pendingBranchUnitUid) return;
-    const cost = getRewardRerollCost(this.rewardRerollsUsed);
+    const cost = getRewardRerollCost(this.rewardRerollsUsed, this.wave);
     if (this.gold < cost) {
       this.setStatus(`Need ₽${cost} to reroll rewards.`);
       return;
@@ -2436,12 +2452,16 @@ export class BattleScene extends Phaser.Scene {
       this.setStatus('Tile is already occupied.');
       return;
     }
-    if (this.gold < spec.cost) {
-      this.setStatus(`Need ₽${spec.cost} to build ${spec.name}.`);
+    const activeCount = this.structures.filter(
+      (s) => s.data.kind === kind && !s.data.ruined,
+    ).length;
+    const cost = getStructureBuildCost(kind, activeCount);
+    if (this.gold < cost) {
+      this.setStatus(`Need ₽${cost} to build ${spec.name}.`);
       return;
     }
 
-    this.gold -= spec.cost;
+    this.gold -= cost;
     const maxHp = this.computeStructureMaxHp(kind);
     const data: GridStructure = {
       uid: `struct_${this.nextUidCounter++}`,
@@ -2473,7 +2493,7 @@ export class BattleScene extends Phaser.Scene {
     this.refreshPathPreview();
     this.refreshHighlights();
     this.sfx.play('build', 60);
-    this.setStatus(`Built ${spec.name} (-₽${spec.cost}).`);
+    this.setStatus(`Built ${spec.name} (-₽${cost}).`);
   }
 
   private sellStructure(entity: StructureEntity): void {
@@ -4883,6 +4903,7 @@ export class BattleScene extends Phaser.Scene {
       Math.round(
         baseBounty *
           this.getDifficultySpec().bountyMult *
+          getBountyWaveMult(this.wave) *
           (enemy.isBoss ? 3 : 1),
       ),
     );
@@ -5002,12 +5023,20 @@ export class BattleScene extends Phaser.Scene {
     this.berryHealTimerMs -= 1000;
 
     let changedAny = false;
+    const healedUids = new Set<string>();
+    const chargedUids = new Set<string>();
     for (const struct of this.structures) {
       if (struct.data.ruined || struct.data.hp <= 0) continue;
 
       if (struct.data.kind === 'berry_bush') {
         for (const unit of this.units) {
-          if (unit.data.fainted || unit.data.hp >= unit.data.maxHp) continue;
+          if (
+            unit.data.fainted ||
+            unit.data.hp >= unit.data.maxHp ||
+            healedUids.has(unit.data.uid)
+          ) {
+            continue;
+          }
           if (
             chebyshevDist(
               unit.data.gx,
@@ -5016,6 +5045,7 @@ export class BattleScene extends Phaser.Scene {
               struct.data.gy,
             ) <= 1
           ) {
+            healedUids.add(unit.data.uid);
             const prev = unit.data.hp;
             unit.data.hp = Math.min(
               unit.data.maxHp,
@@ -5036,7 +5066,13 @@ export class BattleScene extends Phaser.Scene {
         }
       } else if (struct.data.kind === 'tempo_shrine') {
         for (const unit of this.units) {
-          if (unit.data.fainted || unit.data.ult >= unit.data.ultMax) continue;
+          if (
+            unit.data.fainted ||
+            unit.data.ult >= unit.data.ultMax ||
+            chargedUids.has(unit.data.uid)
+          ) {
+            continue;
+          }
           if (
             chebyshevDist(
               unit.data.gx,
@@ -5045,6 +5081,7 @@ export class BattleScene extends Phaser.Scene {
               struct.data.gy,
             ) <= 1
           ) {
+            chargedUids.add(unit.data.uid);
             unit.data.ult = Math.min(unit.data.ultMax, unit.data.ult + 3);
             this.updateUnitBars(unit);
             changedAny = true;
@@ -5117,10 +5154,11 @@ export class BattleScene extends Phaser.Scene {
         'Electric',
         getSpeciesTypes(nearest.speciesId),
       );
-      const zapDmg = Math.max(1, Math.round(35 * eff.multiplier));
-      if (!nearest.isBoss) {
-        nearest.stunTimerMs = Math.max(nearest.stunTimerMs, 500);
-      }
+      const zapDmg = Math.max(1, Math.round(12 * eff.multiplier));
+      nearest.slowTimerMs = Math.max(
+        nearest.slowTimerMs,
+        nearest.isBoss ? 900 : 1800,
+      );
       this.spawnOneShotVfx(
         'lightning/lightning-strike',
         nearest.x,
@@ -5973,14 +6011,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private stepWalkingUnit(unit: UnitEntity, simDtMs: number): void {
-    const baseMove = POKEMON_SPECIES[unit.data.speciesId].moveRange;
-    const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
-    const moveRange = getEffectiveMoveRange(
-      baseMove,
-      this.upgrades,
-      branch,
-      unit.data.speciesId,
-    );
+    const moveRange = POKEMON_SPECIES[unit.data.speciesId].moveRange;
     const speedPxPerSec = (2.5 + moveRange * 1.5) * TILE_SIZE;
     let remainingPx = speedPxPerSec * (simDtMs / 1000);
 

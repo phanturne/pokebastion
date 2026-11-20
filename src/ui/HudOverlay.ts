@@ -404,9 +404,11 @@ export class HudOverlay {
       case 'confirm-draft':
         scene.confirmDraft?.();
         break;
-      case 'pick-branch-reward':
-        scene.pickBranchReward?.(id);
+      case 'specialize-unit': {
+        const unitUid = target.dataset.unit ?? '';
+        if (unitUid) scene.specializeUnit?.(unitUid, id);
         break;
+      }
       case 'deploy-reserve':
         scene.deployReserve?.(id);
         break;

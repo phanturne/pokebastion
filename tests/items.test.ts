@@ -33,9 +33,9 @@ describe('Held Item & Artifact Catalogs', () => {
     expect(seenRarities.size).toBe(5);
   });
 
-  it('defines 18 artifacts across all 5 rarities with valid sprite slugs', () => {
+  it('defines 17 artifacts across all 5 rarities with valid sprite slugs', () => {
     const artifacts = Object.values(ARTIFACT_CATALOG);
-    expect(artifacts).toHaveLength(18);
+    expect(artifacts).toHaveLength(17);
 
     const seenRarities = new Set<PokemonRarity>();
     for (const art of artifacts) {
