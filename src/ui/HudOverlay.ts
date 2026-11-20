@@ -10,6 +10,7 @@ import {
   MapDifficulty,
   PokemonClass,
   PokemonRarity,
+  RunDifficulty,
 } from '../types';
 import {
   escapeHtml,
@@ -59,6 +60,7 @@ export class HudOverlay {
   private rosterCostFilter: 'All' | '1' | '2' | '3' | '4' | '5+' = 'All';
   private inspectedPokedexId: string | null = '0001';
   private mapDifficultyFilter: 'All' | MapDifficulty = 'All';
+  private selectedDifficultyPreview: RunDifficulty = 'normal';
   private combatStatTab: CombatStatTab = 'dealt';
   private expandedUnitUid: string | null = null;
   private inspectedDraftId: string | null = null;
@@ -345,7 +347,31 @@ export class HudOverlay {
         scene.startPlayFromHome?.();
         break;
       case 'select-map':
+        this.selectedDifficultyPreview =
+          this.lastSnap?.selectedDifficulty ?? 'normal';
         scene.selectMapAndDraft?.(id);
+        break;
+      case 'preview-difficulty':
+        if (
+          id === 'easy' ||
+          id === 'normal' ||
+          id === 'hard' ||
+          id === 'expert'
+        ) {
+          this.selectedDifficultyPreview = id;
+          this.renderModal();
+        }
+        break;
+      case 'confirm-difficulty': {
+        const chosen =
+          id === 'easy' || id === 'normal' || id === 'hard' || id === 'expert'
+            ? id
+            : this.selectedDifficultyPreview;
+        scene.selectDifficultyAndDraft?.(chosen);
+        break;
+      }
+      case 'back-difficulty-select':
+        scene.backToDifficultySelect?.();
         break;
       case 'back-map-select':
         scene.backToMapSelect?.();
@@ -815,6 +841,7 @@ export class HudOverlay {
     const isMenuPhase =
       snap.phase === 'HOME' ||
       snap.phase === 'MAP_SELECT' ||
+      snap.phase === 'DIFFICULTY_SELECT' ||
       snap.phase === 'DRAFT';
     if (this.topBar) this.topBar.style.display = isMenuPhase ? 'none' : '';
     if (this.sidePanel)
@@ -957,6 +984,7 @@ export class HudOverlay {
         rosterCostFilter: this.rosterCostFilter,
         inspectedPokedexId: this.inspectedPokedexId,
         mapDifficultyFilter: this.mapDifficultyFilter,
+        selectedDifficultyPreview: this.selectedDifficultyPreview,
         inspectedDraftId: this.inspectedDraftId,
         expandedUnitUid: this.expandedUnitUid,
       },
@@ -1120,6 +1148,7 @@ export class HudOverlay {
     if (
       phase === 'HOME' ||
       phase === 'MAP_SELECT' ||
+      phase === 'DIFFICULTY_SELECT' ||
       phase === 'DRAFT' ||
       phase === 'SHOP' ||
       phase === 'VICTORY' ||

@@ -5,6 +5,7 @@ export const TILE_SIZE = 32;
 export type GamePhase =
   | 'HOME'
   | 'MAP_SELECT'
+  | 'DIFFICULTY_SELECT'
   | 'DRAFT'
   | 'PREP'
   | 'COMBAT'
@@ -14,6 +15,7 @@ export type GamePhase =
   | 'DEFEAT';
 
 export type MapDifficulty = 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
+export type RunDifficulty = 'easy' | 'normal' | 'hard' | 'expert';
 
 export type TileKind = 'grass' | 'dirt' | 'water' | 'core' | 'spawn' | 'tree';
 
@@ -248,6 +250,7 @@ export interface ActiveUnit {
 export interface RewardOption {
   id: string;
   kind: 'upgrade' | 'artifact' | 'recruit' | 'branch' | 'evolve';
+  rarity?: PokemonRarity;
   title: string;
   desc: string;
   speciesId?: string;
@@ -281,6 +284,7 @@ export interface GameSnapshot {
   draftIds: string[];
   unlockedIds: string[];
   selectedMapId: string;
+  selectedDifficulty: RunDifficulty;
   draftBudget: number;
   heldItemInventory: string[];
   structures: GridStructure[];

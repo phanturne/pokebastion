@@ -14,6 +14,7 @@ test.describe('PokéBastion TD — Performance & Memory Budgets', () => {
       await page
         .locator('[data-action="select-map"][data-id="viridian_outpost"]')
         .click();
+      await page.locator('[data-action="confirm-difficulty"]').click();
       await page.locator('[data-action="confirm-draft"]').click();
       await expect(page.locator('#top-bar')).toContainText('PREP');
 

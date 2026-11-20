@@ -3038,5 +3038,25 @@
       "frames": 15,
       "frameRate": 30
     }
+  },
+  "0169": {
+    "Walk": {
+      "frameWidth": 40,
+      "frameHeight": 56,
+      "frames": 8,
+      "frameRate": 10
+    },
+    "Idle": {
+      "frameWidth": 40,
+      "frameHeight": 56,
+      "frames": 8,
+      "frameRate": 5
+    },
+    "Attack": {
+      "frameWidth": 72,
+      "frameHeight": 80,
+      "frames": 14,
+      "frameRate": 35
+    }
   }
 }
