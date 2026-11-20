@@ -96,6 +96,7 @@ import {
   getDraftCost,
   getEffectiveStructureMaxHp,
   getHealCost,
+  getMatchingMinorUpgrades,
   getPokemonReleaseRefund,
   getRepairCost,
   getReviveCost,
@@ -349,7 +350,6 @@ export class BattleScene extends Phaser.Scene {
   private upgrades: string[] = [];
   private rewardChoices: RewardOption[] = [];
   private rewardRerollsUsed = 0;
-  private pendingBranchUnitUid: string | null = null;
   private statusMessage = 'Prepare your defenses and position Pokémon.';
 
   private waveElapsedMs = 0;
@@ -755,7 +755,6 @@ export class BattleScene extends Phaser.Scene {
       upgrades: [...this.upgrades],
       rewardChoices: this.rewardChoices.map((r) => ({ ...r })),
       rewardRerollsUsed: this.rewardRerollsUsed,
-      pendingBranchUnitUid: this.pendingBranchUnitUid,
       statusMessage: this.statusMessage,
       pokemonProgress: buildPokemonProgressMap(this.playerSave),
       universalShards: this.playerSave.universalShards ?? 0,
@@ -1121,12 +1120,6 @@ export class BattleScene extends Phaser.Scene {
 
   public startPlayFromHome(): void {
     if (this.phase !== 'HOME') return;
-    this.phase = 'MAP_SELECT';
-    this.setStatus('Select a battlefield map.');
-  }
-
-  public goToMapSelect(): void {
-    if (this.phase !== 'HOME' && this.phase !== 'DRAFT') return;
     this.phase = 'MAP_SELECT';
     this.setStatus('Select a battlefield map.');
   }
@@ -1563,7 +1556,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   public rerollRewards(): void {
-    if (this.phase !== 'REWARD' || this.pendingBranchUnitUid) return;
+    if (this.phase !== 'REWARD') return;
     const cost = getRewardRerollCost(this.rewardRerollsUsed, this.wave);
     if (this.gold < cost) {
       this.setStatus(`Need ₽${cost} to reroll rewards.`);
@@ -1581,13 +1574,6 @@ export class BattleScene extends Phaser.Scene {
     if (this.phase !== 'REWARD') return;
     const choice = this.rewardChoices.find((r) => r.id === rewardId);
     if (!choice) return;
-
-    if (choice.kind === 'branch' && choice.unitUid) {
-      this.pendingBranchUnitUid = choice.unitUid;
-      this.rewardChoices = [];
-      this.setStatus(`${choice.title}: choose 1 of 3 branches.`);
-      return;
-    }
 
     let statusDetail = '';
     if (choice.kind === 'upgrade') {
@@ -1811,7 +1797,6 @@ export class BattleScene extends Phaser.Scene {
     this.upgrades = [];
     this.rewardChoices = [];
     this.rewardRerollsUsed = 0;
-    this.pendingBranchUnitUid = null;
     this.draftIds = [...STARTER_UNLOCKED_IDS];
     this.reserveIds = [];
     this.heldItemInventory = [];
@@ -3658,6 +3643,7 @@ export class BattleScene extends Phaser.Scene {
       potential,
       subclass: spec.subclass,
       targetMovementType: ENEMY_SPECIES[target.speciesId]?.movementType,
+      targetIsBoss: target.isBoss,
       attackType,
       defenderTypes: getSpeciesTypes(target.speciesId),
     });
@@ -4138,7 +4124,15 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private addUnitUlt(unit: UnitEntity, amount: number): void {
-    const mult = this.upgrades.includes('quick_charge') ? 1.3 : 1;
+    let mult = this.upgrades.includes('quick_charge') ? 1.3 : 1;
+    for (const u of getMatchingMinorUpgrades(
+      unit.data.speciesId,
+      this.upgrades,
+    )) {
+      if (u.ultChargeMult !== undefined) {
+        mult *= u.ultChargeMult;
+      }
+    }
     unit.data.ult = Math.min(unit.data.ultMax, unit.data.ult + amount * mult);
     this.updateUnitBars(unit);
   }
@@ -4704,6 +4698,9 @@ export class BattleScene extends Phaser.Scene {
           unit.data.gy,
         ),
         unitBranchSpecial: unitBranch?.special,
+        unitPotential: this.getSpeciesPotential(unit.data.speciesId),
+        unitSubclass: POKEMON_SPECIES[unit.data.speciesId]?.subclass,
+        isMelee: (enemySpec.range ?? 1) <= 1,
         attackType: getSpeciesAttackType(enemy.speciesId),
         defenderTypes: getSpeciesTypes(unit.data.speciesId),
       });

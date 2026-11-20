@@ -9,9 +9,9 @@ import type {
 export const MAX_POTENTIAL = 5;
 
 export const UNLOCK_SHARD_COST: Record<PokemonRarity, number> = {
-  Common: 5,
-  Uncommon: 15,
-  Rare: 30,
+  Common: 15,
+  Uncommon: 25,
+  Rare: 40,
   Epic: 60,
   Legendary: 100,
 };
@@ -39,19 +39,19 @@ export const POTENTIAL_TIER_DESCRIPTIONS: readonly [
 ];
 
 export const SUBCLASS_PASSIVE_DESCS: Record<PokemonSubclass, string> = {
-  Bastion: '+12% DEF and +10% damage reduction while blocking.',
+  Bastion: '+5 DEF and +10% Max HP.',
   Wallguard: 'Adjacent structures take 20% less damage.',
   Juggernaut: 'Reflects 15% of melee damage taken.',
   Duelist: '+15% damage against single targets and bosses.',
   Cleave: 'Basic attacks deal +20% splash damage to nearby foes.',
   Interceptor: '+15% damage to leaking enemies.',
-  Sniper: '+15% Crit chance and +20% damage to flying enemies.',
+  Sniper: '+1 Range and +20% damage to flying enemies.',
   'Rapid-Fire': 'Every 5th attack fires an extra bolt.',
   Artillery: '+20% splash radius and +10% AoE damage.',
   'Elemental AoE': '+15% elemental AoE damage.',
-  Chain: 'Chain hits deal +15% more bounce damage.',
+  Chain: 'Chain hits strike at least 2 targets.',
   Status: 'Status effects last 25% longer.',
-  Healer: '+20% healing output to allied units.',
+  Healer: '+25% healing output.',
   Buffer: 'Aura buffs grant an extra +5% ATK & Speed.',
   Tactician: '+15% Ult charge rate for nearby allies.',
   'Hazard Setter': 'Hazards deal +20% damage and last 1 extra wave.',

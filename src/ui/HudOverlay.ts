@@ -395,9 +395,6 @@ export class HudOverlay {
           this.renderModal();
         }
         break;
-      case 'toggle-draft':
-        scene.toggleDraftSpecies?.(id);
-        break;
       case 'clear-draft':
         scene.clearDraft?.();
         break;
@@ -740,6 +737,7 @@ export class HudOverlay {
     this.sidePanel?.removeEventListener('focusin', this.onToolEnter);
     this.sidePanel?.removeEventListener('focusout', this.onToolLeave);
     this.modalRoot?.removeEventListener('click', this.onModalClick);
+    this.modalRoot?.removeEventListener('change', this.onModalChange);
     this.modalRoot?.removeEventListener('dblclick', this.onModalDblClick);
     document.removeEventListener('pointerdown', this.onDocumentPointerDown);
     window.removeEventListener('keydown', this.onKeyDown);
@@ -1159,7 +1157,7 @@ export class HudOverlay {
       return phase;
     }
     if (phase === 'REWARD') {
-      return this.lastSnap.pendingBranchUnitUid ? 'REWARD_BRANCH' : 'REWARD';
+      return 'REWARD';
     }
     if (this.expandedUnitUid) {
       return `unit:${this.expandedUnitUid}`;

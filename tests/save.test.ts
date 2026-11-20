@@ -45,13 +45,13 @@ describe('PlayerSave & Unlock State', () => {
     expect(unlockPokemon(save, '0025')).toBe(true);
     expect(unlockPokemon(save, '0025')).toBe(false);
     save.pokemon['0025'].shiny = true;
-    save.pokemon['0025'].mastery = 42;
+    save.pokemon['0025'].mastery = 4;
     persistPlayerSave(save, mockStorage);
 
     const reloaded = loadPlayerSave(mockStorage);
     expect(isPokemonUnlocked(reloaded, '0025')).toBe(true);
     expect(reloaded.pokemon['0025'].shiny).toBe(true);
-    expect(reloaded.pokemon['0025'].mastery).toBe(42);
+    expect(reloaded.pokemon['0025'].mastery).toBe(4);
     expect(isPokemonUnlocked(reloaded, '0001')).toBe(true);
   });
 
@@ -152,13 +152,13 @@ describe('Shards, Potential, Eggs, Pity & Run Victory Rewards', () => {
 
   it('unlocks species with species shards + universal shards and upgrades potential ★0..★5', () => {
     const save = createDefaultSave();
-    // '0025' (Pikachu) is Uncommon -> unlock cost 15
-    addShardsToSpecies(save, '0025', 10);
+    // '0025' (Pikachu) is Uncommon -> unlock cost 25
+    addShardsToSpecies(save, '0025', 20);
     save.universalShards = 10;
 
-    // Without universal shards, 10 < 15 -> fails
+    // Without universal shards, 20 < 25 -> fails
     expect(unlockSpeciesWithShards(save, '0025', false)).toBe(false);
-    // With universal shards, 10 + 5 -> succeeds
+    // With universal shards, 20 + 5 -> succeeds
     expect(unlockSpeciesWithShards(save, '0025', true)).toBe(true);
     expect(isPokemonUnlocked(save, '0025')).toBe(true);
     expect(save.pokemon['0025'].shards).toBe(0);
@@ -276,5 +276,46 @@ describe('Shards, Potential, Eggs, Pity & Run Victory Rewards', () => {
     expect(save.pityWins).toBe(0);
     expect(rPity.newAchievements).toEqual(['veteran_5']);
     expect(rPity.eggsEarned).toEqual({ common: 0, rare: 1, master: 1 });
+  });
+
+  it('converts leftover species shards into universalShards when reaching ★5', () => {
+    const save = createDefaultSave(['0001']);
+    save.pokemon['0001'] = { unlocked: true, mastery: 4, shards: 125 };
+    save.universalShards = 5;
+
+    expect(upgradeSpeciesPotential(save, '0001')).toBe(true);
+    expect(save.pokemon['0001'].mastery).toBe(5);
+    expect(save.pokemon['0001'].shards).toBe(0);
+    // ★4 -> ★5 costs 100 shards; 25 leftover converted to universalShards
+    expect(save.universalShards).toBe(30);
+  });
+
+  it('validates, floors, and clamps mastery and shards in loadPlayerSave', () => {
+    const store = new Map<string, string>();
+    const mockStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+    };
+    store.set(
+      SAVE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        pokemon: {
+          '0001': { unlocked: true, mastery: 99.7, shards: 14.9 },
+          '0004': { unlocked: true, mastery: -2, shards: -5 },
+          '0007': { unlocked: true, mastery: null, shards: null },
+        },
+      }),
+    );
+
+    const loaded = loadPlayerSave(mockStorage);
+    expect(loaded.pokemon['0001'].mastery).toBe(5);
+    expect(loaded.pokemon['0001'].shards).toBe(14);
+    expect(loaded.pokemon['0004'].mastery).toBeUndefined();
+    expect(loaded.pokemon['0004'].shards).toBeUndefined();
+    expect(loaded.pokemon['0007'].mastery).toBeUndefined();
+    expect(loaded.pokemon['0007'].shards).toBeUndefined();
   });
 });

@@ -27,16 +27,16 @@ import type { EggTier, PokemonSubclass } from '../src/types';
 describe('Progression Constants & Helpers', () => {
   it('defines unlock costs by rarity and defaults undefined rarity (e.g. Lucario 0448) to Rare', () => {
     expect(UNLOCK_SHARD_COST).toEqual({
-      Common: 5,
-      Uncommon: 15,
-      Rare: 30,
+      Common: 15,
+      Uncommon: 25,
+      Rare: 40,
       Epic: 60,
       Legendary: 100,
     });
     expect(getSpeciesRarity('0448')).toBe('Rare');
-    expect(getUnlockShardCost('0448')).toBe(30);
+    expect(getUnlockShardCost('0448')).toBe(40);
     expect(getSpeciesRarity('0019')).toBe('Common');
-    expect(getUnlockShardCost('0019')).toBe(5);
+    expect(getUnlockShardCost('0019')).toBe(15);
     expect(getSpeciesRarity('0150')).toBe('Legendary');
     expect(getUnlockShardCost('0150')).toBe(100);
   });

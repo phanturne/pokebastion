@@ -15,10 +15,12 @@ import {
   getEffectiveDef,
   getEffectiveMaxHp,
   getEffectiveRange,
+  getEffectiveStructureMaxHp,
   getHealCost,
   getPokemonReleaseRefund,
   getRepairCost,
   getReviveCost,
+  getSellRefund,
   getStructureBuildCost,
   isShopAfterWave,
 } from '../engine/rules';
@@ -431,7 +433,7 @@ export function renderShopTooltipContent(
       <span class="tool-cost">₽${cost}</span>
     </div>
     <div class="shop-tooltip-tags">
-      <span class="tag">HP ${spec.maxHp}</span>
+      <span class="tag">HP ${getEffectiveStructureMaxHp(tool, snap.artifacts)}</span>
       <span class="tag">${pathTag}</span>
       ${deficit > 0 ? `<span class="shop-need">Need ₽${deficit} more</span>` : ''}
     </div>
@@ -519,7 +521,7 @@ function renderSelectedStructure(
   const isBarrel = struct.kind === 'barrel' && !struct.ruined;
   const showDetonate = isBarrel && snap.phase === 'COMBAT';
   const showSell = snap.phase === 'PREP';
-  const refund = Math.floor(spec.cost * 0.7);
+  const refund = getSellRefund(spec.kind);
 
   return `
     <section class="card">
@@ -829,7 +831,7 @@ export function renderStructurePopoverHtml(
   const showDetonate =
     struct.kind === 'barrel' && !struct.ruined && snap.phase === 'COMBAT';
   const showSell = snap.phase === 'PREP';
-  const refund = Math.floor(spec.cost * 0.7);
+  const refund = getSellRefund(spec.kind);
   const pathTag = spec.blocksGround ? 'Blocks Ground' : 'Passable';
 
   return `

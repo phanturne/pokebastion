@@ -50,6 +50,7 @@ When adding new Pokémon, items, artifacts, maps, or combat mechanics:
 5. **UI/UX & Phaser Polish Standards:**
    - Follow [docs/agent-guidelines.md](docs/agent-guidelines.md) (synthesizing [`pbakaus/impeccable`](https://github.com/pbakaus/impeccable), [`pmarashian/cursor-agent-skills/phaser-gamedev`](https://github.com/pmarashian/cursor-agent-skills/tree/main/phaser-gamedev), and [`gamedev-skills/awesome-gamedev-agent-skills/game-ui-ux`](https://github.com/gamedev-skills/awesome-gamedev-agent-skills/blob/main/skills/disciplines/game-ui-ux/SKILL.md)).
    - Keep `HudOverlay` strictly event-driven (`GameSnapshot`), keyboard/focus-accessible (`Escape` handling, `:focus-visible`, modal focus management), and visually verified via headless Playwright checks when changing UI.
+   - **UI Screenshot Comparison:** Whenever making changes to UI (`src/ui/`, `src/styles.css`, `index.html`, or HUD/modal rendering), capture **before and after** screenshots via headless Playwright across the affected views/states and attach/embed them in your final response (or PR) for visual comparison.
    - Keep `BattleScene` movement/timers `delta`-based, respect Phaser `ScaleManager`, and avoid per-frame GC churn.
 6. **Keep Docs in Sync:**
    - If you change gameplay rules, unit classes/costs, controls, or module structure, update [README.md](README.md), [docs/architecture.md](docs/architecture.md), and Section 19 of [docs/gdd.md](docs/gdd.md) in the same change.

@@ -6,6 +6,7 @@ import {
   computeKillBounty,
   computeSlowDurationMs,
   computeStartingUlt,
+  computeStatusDurationMs,
   computeUltPower,
   computeUnitAtk,
   computeUnitAttackIntervalMs,
@@ -593,5 +594,129 @@ describe('selectUnitTarget (BTD6-style targeting priority)', () => {
         candidates: tied,
       })?.uid,
     ).toBe('b');
+  });
+
+  it('does not trigger modulo crit or Rapid-Fire extra bolt when hitCount is 0', () => {
+    const lucarioZero = computeBasicAttackDamage({
+      baseAtk: 40,
+      speciesId: '0448',
+      hitCount: 0,
+      branchSpecial: 'crit_boost',
+      heldItems: [],
+      targetHp: 100,
+      targetMaxHp: 100,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Rapid-Fire',
+    });
+    expect(lucarioZero.isCrit).toBe(false);
+    expect(lucarioZero.extraBolt).toBe(false);
+    expect(lucarioZero.damage).toBe(40);
+  });
+
+  it('applies Duelist, Interceptor, Ambusher, Rapid-Fire, Artillery, Status, and Juggernaut ★5 passives', () => {
+    // Duelist ★5: +15% vs bosses
+    const duelist = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: [],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Duelist',
+      targetIsBoss: true,
+    });
+    expect(duelist.damage).toBe(115);
+
+    // Interceptor ★5: +15% vs leaking enemies
+    const interceptor = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: [],
+      targetHp: 100,
+      targetMaxHp: 100,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Interceptor',
+      targetIsLeaking: true,
+    });
+    expect(interceptor.damage).toBe(115);
+
+    // Ambusher ★5: +35% on first attack after moving
+    const ambusher = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: [],
+      targetHp: 100,
+      targetMaxHp: 100,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Ambusher',
+      isFirstAttackAfterMove: true,
+    });
+    expect(ambusher.damage).toBe(135);
+
+    // Rapid-Fire ★5: extra bolt on every 5th attack
+    const rapid4 = computeBasicAttackDamage({
+      baseAtk: 40,
+      speciesId: '0025',
+      hitCount: 4,
+      heldItems: [],
+      targetHp: 100,
+      targetMaxHp: 100,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Rapid-Fire',
+    });
+    const rapid5 = computeBasicAttackDamage({
+      baseAtk: 40,
+      speciesId: '0025',
+      hitCount: 5,
+      heldItems: [],
+      targetHp: 100,
+      targetMaxHp: 100,
+      targetHasStatus: false,
+      potential: 5,
+      subclass: 'Rapid-Fire',
+    });
+    expect(rapid4.extraBolt).toBe(false);
+    expect(rapid5.extraBolt).toBe(true);
+
+    // Artillery ★5 (+10% AoE ult), Status ★5 (+25% status duration)
+    expect(computeUltPower(100, 1, false, 5, 'Artillery')).toBe(242);
+    expect(computeStatusDurationMs(2000, 4, 'Status')).toBe(2000);
+    expect(computeStatusDurationMs(2000, 5, 'Status')).toBe(2500);
+
+    // Juggernaut ★5: reflects 15% of melee damage taken, not ranged
+    const juggernautMelee = computeEnemyAttackDamage({
+      enemyAtk: 100,
+      unitDef: 0,
+      unitSpeciesId: '0001',
+      unitStationaryMs: 0,
+      unitHeldItems: [],
+      unitAdjacentToStructure: false,
+      unitPotential: 5,
+      unitSubclass: 'Juggernaut',
+      isMelee: true,
+    });
+    expect(juggernautMelee.damage).toBe(100);
+    expect(juggernautMelee.reflectedThorns).toBe(15);
+
+    const juggernautRanged = computeEnemyAttackDamage({
+      enemyAtk: 100,
+      unitDef: 0,
+      unitSpeciesId: '0001',
+      unitStationaryMs: 0,
+      unitHeldItems: [],
+      unitAdjacentToStructure: false,
+      unitPotential: 5,
+      unitSubclass: 'Juggernaut',
+      isMelee: false,
+    });
+    expect(juggernautRanged.reflectedThorns).toBe(0);
   });
 });

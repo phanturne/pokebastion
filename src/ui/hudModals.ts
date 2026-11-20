@@ -7,6 +7,12 @@ import {
   getWavesForRun,
 } from '../data/waves';
 import {
+  computeUnitAtk,
+  computeUnitAttackIntervalMs,
+  computeUnitDef,
+  computeUnitRange,
+} from '../engine/combat';
+import {
   EGG_DUPLICATE_SHARDS,
   EGG_HATCH_RATES,
   MAX_POTENTIAL,
@@ -24,10 +30,6 @@ import {
   RARE_CANDY_COST,
   getBranchSpec,
   getDraftCost,
-  getEffectiveAtk,
-  getEffectiveAttackIntervalMs,
-  getEffectiveDef,
-  getEffectiveRange,
   getEnemyThreatSummary,
   getHealCost,
   getPokemonReleaseRefund,
@@ -448,8 +450,7 @@ function renderPokedexModal(
               nextUpgradeCost !== null ? pct(shards, nextUpgradeCost) : 100;
             const isReady =
               nextUpgradeCost !== null &&
-              shards + universalShards >= nextUpgradeCost &&
-              shards >= nextUpgradeCost;
+              shards + universalShards >= nextUpgradeCost;
             const classes = [
               'draft-roster-item',
               'pokedex-card',
@@ -1226,34 +1227,6 @@ function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
   `;
 }
 
-function renderBranchRewardModal(snap: GameSnapshot): string {
-  const unit = snap.activeUnits.find(
-    (u) => u.uid === snap.pendingBranchUnitUid,
-  );
-  const sp = unit ? POKEMON_SPECIES[unit.speciesId] : undefined;
-  if (!sp) return '';
-
-  const branchCards = sp.branches
-    .map(
-      (b) => `
-        <button type="button" class="reward-card" data-action="pick-branch-reward" data-id="${escapeHtml(b.id)}">
-          <div class="reward-title">${escapeHtml(b.name)}</div>
-          <div class="reward-desc">${escapeHtml(b.desc)}</div>
-        </button>
-      `,
-    )
-    .join('');
-
-  return `
-    <div class="modal-card" role="dialog" aria-modal="false" aria-labelledby="modal-title-branch" tabindex="-1">
-      <div class="modal-header">
-        <div class="modal-title" id="modal-title-branch">${renderPokeIcon(sp.id)} Specialize ${escapeHtml(sp.name)} — Choose 1 of 3</div>
-      </div>
-      <div class="reward-grid">${branchCards}</div>
-    </div>
-  `;
-}
-
 function renderRewardModal(snap: GameSnapshot): string {
   const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed, snap.wave);
   const canReroll = snap.gold >= rerollCost;
@@ -1263,8 +1236,7 @@ function renderRewardModal(snap: GameSnapshot): string {
       const iconSpeciesId =
         choice.kind === 'evolve' && choice.targetSpeciesId
           ? choice.targetSpeciesId
-          : (choice.kind === 'recruit' || choice.kind === 'branch') &&
-              choice.speciesId
+          : choice.kind === 'recruit' && choice.speciesId
             ? choice.speciesId
             : null;
       const rarity: PokemonRarity | null =
@@ -1350,27 +1322,40 @@ function renderExpandedUnitModal(
   if (!unit || !sp) return '';
 
   const branch = getBranchSpec(unit.speciesId, unit.branchId);
-  const atk = getEffectiveAtk(
+  const potential = snap.pokemonProgress[unit.speciesId]?.potential ?? 0;
+  const baseAtk = computeUnitAtk(
     unit.speciesId,
     snap.upgrades,
     false,
     unit.branchId,
     unit.heldItems,
+    potential,
   );
-  const def = getEffectiveDef(
+  const baseDef = computeUnitDef(
     unit.speciesId,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
-  const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const intervalMs = getEffectiveAttackIntervalMs(
+  const baseRange = computeUnitRange(
+    unit.speciesId,
+    unit.branchId,
+    snap.upgrades,
+    potential,
+  );
+  const baseIntervalMs = computeUnitAttackIntervalMs(
     unit.speciesId,
     snap.artifacts,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
+  const atk = unit.effectiveAtk ?? baseAtk;
+  const def = unit.effectiveDef ?? baseDef;
+  const range = unit.effectiveRange ?? baseRange;
+  const intervalMs = unit.effectiveAttackIntervalMs ?? baseIntervalMs;
   const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
 
   const heldHtml = Array.from({ length: MAX_HELD_ITEMS })
@@ -1406,10 +1391,10 @@ function renderExpandedUnitModal(
 
       <div class="unit-stats-grid unit-stats-grid-5">
         <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.ceil(unit.hp)}/${unit.maxHp}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val">${range}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val">${atkSpd}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val ${atk > baseAtk ? 'stat-boosted' : ''}" title="Base ${baseAtk} → Live ${atk}">${atk}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val ${def > baseDef ? 'stat-boosted' : ''}" title="Base ${baseDef} → Live ${def}">${def}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val ${range > baseRange ? 'stat-boosted' : ''}">${range}</span></div>
+        <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val ${intervalMs < baseIntervalMs ? 'stat-boosted' : ''}">${atkSpd}</span></div>
       </div>
 
       <div class="desc-box">
@@ -1678,9 +1663,6 @@ export function renderModalHtml(
   }
   if (snap.phase === 'DRAFT') {
     return { html: renderDraftModal(snap, state), layoutMode: 'fullscreen' };
-  }
-  if (snap.phase === 'REWARD' && snap.pendingBranchUnitUid) {
-    return { html: renderBranchRewardModal(snap), layoutMode: 'docked' };
   }
   if (snap.phase === 'REWARD') {
     return { html: renderRewardModal(snap), layoutMode: 'docked' };
