@@ -1941,11 +1941,60 @@ input[type='checkbox']:focus-visible {
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 7px;
-  padding: 9px 10px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
+}
+
+.expanded-branch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.branch-action-btn {
+  margin-top: auto;
+  width: 100%;
+}
+
+.held-slots-3col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.held-slots-3col .held-slot {
+  min-height: 34px;
+  justify-content: center;
+  text-align: center;
+}
+
+.held-slots-3col .held-slot.filled {
+  justify-content: space-between;
+  text-align: left;
+}
+
+.held-slot-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.unit-modal-footer .target-priority-row {
+  margin: 0;
+  flex: 1;
 }
 
 .expanded-branch-card.chosen {
