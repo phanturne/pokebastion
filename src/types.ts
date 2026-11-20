@@ -88,6 +88,17 @@ export interface MinorUpgradeSpec {
 
 export type MovementType = 'ground' | 'burrow' | 'fly';
 
+export type HazardKind =
+  'stealth_rock' | 'spikes' | 'toxic_spikes' | 'sticky_web';
+
+export interface UnitStatusBadge {
+  id: string;
+  label: string;
+  desc: string;
+  kind: 'buff' | 'debuff';
+  icon: string;
+}
+
 export type StructureKind =
   | 'wood_wall'
   | 'stone_wall'
@@ -245,6 +256,11 @@ export interface ActiveUnit {
   damageDealt?: number;
   damageTaken?: number;
   healingDone?: number;
+  effectiveAtk?: number;
+  effectiveDef?: number;
+  effectiveRange?: number;
+  effectiveAttackIntervalMs?: number;
+  statusBadges?: UnitStatusBadge[];
 }
 
 export interface RewardOption {
