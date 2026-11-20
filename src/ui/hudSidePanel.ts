@@ -947,7 +947,7 @@ export function renderUnitPopoverHtml(
       prepBtn = `<button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${healCost}</button>`;
     }
     if (!unit.branchId) {
-      prepBtn += `<button type="button" class="btn btn-accent btn-xs" data-action="inspect-unit" data-id="${unit.uid}">Specialize</button>`;
+      prepBtn += `<button type="button" class="btn btn-accent btn-xs" data-action="expand-unit" data-id="${unit.uid}">Specialize</button>`;
     }
   }
 
