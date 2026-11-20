@@ -82,7 +82,6 @@ export interface MinorUpgradeSpec {
   defBonus?: number;
   rangeBonus?: number;
   attackIntervalMult?: number;
-  moveRangeBonus?: number;
   ultChargeMult?: number;
 }
 
@@ -119,7 +118,6 @@ export interface PokemonBranch {
   defBonus?: number;
   rangeBonus?: number;
   attackIntervalMult?: number;
-  moveRangeBonus?: number;
   ultMult?: number;
   special?:
     | 'burn_spread'

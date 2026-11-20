@@ -1,7 +1,7 @@
 import { CLASS_MINOR_UPGRADES } from '../data/classes';
 import { POKEMON_SPECIES, REWARD_POOL } from '../data/pokemon';
 import { TARGET_PRIORITY_LABELS } from '../engine/combat';
-import { doesMinorUpgradeMatchSpecies } from '../engine/rules';
+import { doesMinorUpgradeMatchSpecies, getBranchCost } from '../engine/rules';
 import {
   PokemonElementType,
   TYPE_COLORS,
@@ -277,7 +277,6 @@ export function formatBranchChips(b: PokemonBranch): string {
   if (b.attackIntervalMult) {
     chips.push(`+${Math.round((1 / b.attackIntervalMult - 1) * 100)}% SPD`);
   }
-  if (b.moveRangeBonus) chips.push(`+${b.moveRangeBonus} MOV`);
   if (b.ultMult) chips.push(`+${Math.round((b.ultMult - 1) * 100)}% ULT`);
   if (b.special) chips.push(SPECIAL_LABELS[b.special]);
   return chips
@@ -289,16 +288,24 @@ export function renderBranchTree(
   sp: PokemonSpecies,
   activeBranchId: string | null,
   activeUpgrades: string[],
+  opts?: { unitUid?: string; canSpecialize?: boolean; gold?: number },
 ): string {
   const pathsHtml = sp.branches
     .map((b, idx) => {
       const chosen = activeBranchId === b.id;
       const locked = Boolean(activeBranchId && !chosen);
+      const cost = getBranchCost(sp.id, idx);
       const stateBadge = chosen
         ? '<span class="tag branch-tag">Active</span>'
         : locked
           ? '<span class="tag locked-tag">Locked</span>'
-          : `<span class="tag">Path ${idx + 1}</span>`;
+          : opts?.unitUid
+            ? `<span class="tag">Path ${idx + 1} · ₽${cost}</span>`
+            : `<span class="tag">Path ${idx + 1}</span>`;
+      const actionBtn =
+        !activeBranchId && opts?.unitUid && opts.canSpecialize
+          ? `<button type="button" class="btn btn-accent btn-xs" data-action="specialize-unit" data-unit="${opts.unitUid}" data-id="${escapeHtml(b.id)}" ${(opts.gold ?? 0) >= cost ? '' : 'disabled'}>Specialize ₽${cost}</button>`
+          : '';
       return `
         <div class="expanded-branch-card ${chosen ? 'chosen' : ''} ${locked ? 'locked' : ''}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
@@ -307,6 +314,7 @@ export function renderBranchTree(
           </div>
           <div class="branch-chip-row">${formatBranchChips(b)}</div>
           <span>${escapeHtml(b.desc)}</span>
+          ${actionBtn}
         </div>
       `;
     })

@@ -131,7 +131,7 @@ export function computeKillBounty(
   hasCommandersInsignia: boolean,
   potential = 0,
 ): number {
-  const artifactMult = hasCommandersInsignia ? 1.25 : 1;
+  const artifactMult = hasCommandersInsignia ? 1.35 : 1;
   const bonuses = getPotentialBonuses(potential);
   return Math.round(baseBounty * artifactMult * bonuses.killGoldMult);
 }
@@ -232,7 +232,7 @@ export function computeBasicAttackDamage(
     input.heldItems.includes('bloodthirsty_edge') &&
     input.targetHp < input.targetMaxHp * 0.5
   ) {
-    damage = Math.round(damage * 1.35);
+    damage = Math.round(damage * 1.25);
   }
 
   const eff =
@@ -253,20 +253,20 @@ export function computeBasicAttackDamage(
   const lifestealHeal =
     lifestealPct > 0 ? Math.max(1, Math.round(damage * lifestealPct)) : 0;
 
-  const branchOrItemChain =
-    input.branchSpecial === 'chain_hit' ||
-    input.heldItems.includes('storm_conductor');
+  const branchChain = input.branchSpecial === 'chain_hit';
+  const itemChain = input.heldItems.includes('storm_conductor');
   const kitChain = kit.onHitChain;
-  const hasChain = branchOrItemChain || Boolean(kitChain);
+  const hasChain = branchChain || itemChain || Boolean(kitChain);
   const chainRatio = Math.max(
-    branchOrItemChain ? 0.4 : 0,
+    branchChain ? 0.4 : 0,
+    itemChain ? 0.25 : 0,
     kitChain?.dmgRatio ?? 0,
   );
   const chainDamage = hasChain
     ? Math.max(1, Math.round(damage * chainRatio))
     : 0;
   const baseTargets = Math.max(
-    branchOrItemChain ? 1 : 0,
+    branchChain || itemChain ? 1 : 0,
     kitChain?.targets ?? 0,
   );
   const chainTargets = hasChain
@@ -323,7 +323,7 @@ export function computeEnemyAttackDamage(
     input.unitHeldItems.includes('guardian_charm') &&
     input.unitAdjacentToStructure
   ) {
-    damage = Math.max(2, Math.round(damage * 0.75));
+    damage = Math.max(2, Math.round(damage * 0.82));
   }
 
   const eff =

@@ -280,25 +280,25 @@ export const HELD_ITEMS: Record<string, HeldItemSpec> = {
     id: 'bloodthirsty_edge',
     name: 'Bloodthirsty Edge',
     cost: 55,
-    desc: '+15% ATK; deals +35% bonus damage to enemies below 50% HP.',
+    desc: '+15% ATK; deals +25% bonus damage to enemies below 50% HP.',
     atkMult: 1.15,
     special: 'bloodthirsty',
   },
   storm_conductor: {
     id: 'storm_conductor',
     name: 'Storm Conductor',
-    cost: 60,
-    desc: '+15% Attack Speed; basic attacks chain 40% damage to 1 nearby foe.',
-    attackIntervalMult: 0.87,
+    cost: 70,
+    desc: '+10% Attack Speed; basic attacks chain 25% damage to 1 nearby foe.',
+    attackIntervalMult: 0.91,
     special: 'storm_conductor',
   },
   guardian_charm: {
     id: 'guardian_charm',
     name: 'Guardian Charm',
     cost: 50,
-    desc: '+20% Max HP, +5 DEF; -25% damage taken adjacent to structures.',
-    hpMult: 1.2,
-    defBonus: 5,
+    desc: '+18% Max HP, +6 DEF; -18% damage taken adjacent to structures.',
+    hpMult: 1.18,
+    defBonus: 6,
     special: 'guardian_charm',
   },
 };
@@ -347,7 +347,7 @@ export const STRUCTURE_SPECS: Record<StructureKind, StructureSpec> = {
     maxHp: 150,
     blocksGround: false,
     consumable: false,
-    desc: 'Heals adjacent Pokémon 8 HP/s without blocking ground paths.',
+    desc: 'Heals adjacent Pokémon 3 HP/s (non-stacking) without blocking ground paths.',
   },
   tempo_shrine: {
     kind: 'tempo_shrine',
@@ -356,7 +356,7 @@ export const STRUCTURE_SPECS: Record<StructureKind, StructureSpec> = {
     maxHp: 120,
     blocksGround: false,
     consumable: false,
-    desc: 'Grants adjacent Pokémon +3 Ult charge every second.',
+    desc: 'Grants adjacent Pokémon +3 Ult charge every second (non-stacking).',
   },
   honey_trap: {
     kind: 'honey_trap',
@@ -374,7 +374,7 @@ export const STRUCTURE_SPECS: Record<StructureKind, StructureSpec> = {
     maxHp: 160,
     blocksGround: false,
     consumable: false,
-    desc: 'Every 2.2s, zaps the nearest flying enemy within 3 tiles for 35 Electric dmg + 0.5s stun.',
+    desc: 'Every 2.2s, zaps the nearest flying enemy within 3 tiles for 12 Electric dmg + 1.8s slow.',
   },
   barrel: {
     kind: 'barrel',
@@ -383,7 +383,7 @@ export const STRUCTURE_SPECS: Record<StructureKind, StructureSpec> = {
     maxHp: 40,
     blocksGround: false,
     consumable: true,
-    desc: 'One-time trap that explodes for 120 AoE damage when triggered.',
+    desc: 'One-time trap that explodes for 85 AoE damage when triggered.',
   },
 };
 
@@ -435,7 +435,7 @@ export const REWARD_POOL: RewardOption[] = [
     kind: 'artifact',
     rarity: 'Rare',
     title: "Commander's Insignia",
-    desc: '+25% Pokédollar bounties from defeated enemies.',
+    desc: '+35% Pokédollar bounties from defeated enemies.',
   },
 ];
 

@@ -14,20 +14,24 @@ import {
   generateRewardChoices,
   getApKillThreshold,
   getBountyGold,
+  getBountyWaveMult,
+  getBranchCost,
   getDraftCost,
   getEffectiveAtk,
   getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveMaxHp,
-  getEffectiveMoveRange,
   getEffectiveRange,
   getEffectiveStructureMaxHp,
   getEnemyThreatSummary,
+  getHealCost,
   getMovementCost,
   getPokemonReleaseRefund,
   getRepairCost,
+  getReviveCost,
   getRewardRerollCost,
   getSellRefund,
+  getStructureBuildCost,
   isFlyingSpecies,
   isInCircularRange,
   isShopAfterWave,
@@ -49,8 +53,6 @@ describe('Game Rules, AP Movement & Economy', () => {
   });
 
   it('applies upgrades and artifacts to unit & structure stats', () => {
-    expect(getEffectiveMoveRange(2, [])).toBe(2);
-
     expect(getEffectiveMaxHp('0025', [])).toBe(140);
     expect(getEffectiveMaxHp('0025', ['thick_hide'])).toBe(
       Math.round(140 * 1.3),
@@ -62,7 +64,9 @@ describe('Game Rules, AP Movement & Economy', () => {
     );
 
     expect(getEffectiveAttackIntervalMs('0025', [])).toBe(900);
-    expect(getEffectiveAttackIntervalMs('0025', ['arcane_conduit'])).toBe(720);
+    expect(getEffectiveAttackIntervalMs('0025', ['arcane_conduit'])).toBe(
+      Math.round(900 * 0.83),
+    );
 
     expect(
       getEffectiveStructureMaxHp('wood_wall', ['fortification_core']),
@@ -81,10 +85,10 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(getApKillThreshold(['temporal_gear'])).toBe(
       TEMPORAL_GEAR_KILL_THRESHOLD,
     );
-    expect(getBountyGold(20, ['commanders_insignia'])).toBe(25);
+    expect(getBountyGold(20, ['commanders_insignia'])).toBe(27);
     expect(getRewardRerollCost(0)).toBe(20);
-    expect(getRewardRerollCost(1)).toBe(30);
-    expect(getRewardRerollCost(3)).toBe(50);
+    expect(getRewardRerollCost(1)).toBe(35);
+    expect(getRewardRerollCost(3)).toBe(107);
     expect(getRewardRerollCost(-2)).toBe(20);
   });
 
@@ -220,35 +224,25 @@ describe('Game Rules, AP Movement & Economy', () => {
     ).toBe(Math.round(24 * 1.3 * 1.15));
     expect(
       getEffectiveDef('0007', 'squirtle_bastion', ['guardian_charm']),
-    ).toBe(18 + 8 + 5);
+    ).toBe(18 + 8 + 6);
     expect(getEffectiveRange('0007', 'squirtle_blastoise')).toBe(3);
     expect(
       getEffectiveMaxHp('0007', [], 'squirtle_bastion', ['guardian_charm']),
-    ).toBe(Math.round(220 * 1.3 * 1.2));
+    ).toBe(Math.round(220 * 1.3 * 1.18));
 
-    // Branch reward option is offered when unbranched active units exist
-    const withBranch = generateRewardChoices(
+    // Specialization branches are purchased in Prep rather than offered in random rewards
+    const withoutBranch = generateRewardChoices(
       new Set(['0007', '0004', '0001']),
       [],
       [],
       () => 0.1,
       [{ uid: 'u1', speciesId: '0007' }],
     );
-    expect(withBranch.some((c) => c.kind === 'branch')).toBe(true);
-    expect(withBranch).toHaveLength(3);
+    expect(withoutBranch.some((c) => c.kind === 'branch')).toBe(false);
+    expect(withoutBranch).toHaveLength(3);
   });
 
-  it('covers moveRange branch bonus, attackInterval stacking, def/range fallbacks, draft limits, and minor upgrade deduplication', () => {
-    // getEffectiveMoveRange with branch.moveRangeBonus + matching minor upgrade
-    expect(
-      getEffectiveMoveRange(
-        2,
-        ['specialist_nimble_step'],
-        { id: 'test_b', name: 'Test', desc: 'Test', moveRangeBonus: 2 },
-        '0094',
-      ),
-    ).toBe(5);
-
+  it('covers attackInterval stacking, def/range fallbacks, draft limits, and minor upgrade deduplication', () => {
     // getEffectiveAttackIntervalMs with artifact + branch.attackIntervalMult + heldItems
     expect(
       getEffectiveAttackIntervalMs(
@@ -257,7 +251,7 @@ describe('Game Rules, AP Movement & Economy', () => {
         'lucario_steel',
         ['storm_conductor'],
       ),
-    ).toBe(Math.round(850 * 0.8 * 0.8 * 0.87));
+    ).toBe(Math.round(850 * 0.83 * 0.8 * 0.91));
 
     // getEffectiveRange & getEffectiveDef stacking + unknown speciesId fallbacks
     expect(getEffectiveRange('9999')).toBe(1);
@@ -269,7 +263,7 @@ describe('Game Rules, AP Movement & Economy', () => {
         ['guardian_charm'],
         ['defender_iron_plate'],
       ),
-    ).toBe(18 + 8 + 5 + 5);
+    ).toBe(18 + 8 + 6 + 5);
     expect(
       getEffectiveRange('0448', 'lucario_sphere', ['marksman_eagle_eye']),
     ).toBe(2); // marksman_eagle_eye does not apply to Brawler Lucario
@@ -402,8 +396,8 @@ describe('Game Rules, AP Movement & Economy', () => {
     );
     expect(initial).toHaveLength(3);
     expect(initial.map((c) => c.kind)).toEqual([
-      'branch',
       'recruit',
+      'upgrade',
       'upgrade',
     ]);
 
@@ -421,24 +415,40 @@ describe('Game Rules, AP Movement & Economy', () => {
     );
     expect(rerolled).toHaveLength(3);
     expect(rerolled.every((c) => !excludeIds.has(c.id))).toBe(true);
-    expect(rerolled.some((c) => c.kind === 'branch')).toBe(true);
+    expect(rerolled.some((c) => c.kind === 'branch')).toBe(false);
     expect(rerolled.some((c) => c.kind === 'recruit')).toBe(true);
+  });
 
-    // If only 1 unbranched unit exists, reroll avoids repeating that branch when 3 other choices exist
-    const singleBranchReroll = generateRewardChoices(
-      owned,
-      [],
-      [],
-      () => 0,
-      [{ uid: 'u1', speciesId: '0007' }],
-      false,
-      true,
-      [],
-      excludeIds,
+  it('scales bounty taper, heal/revive costs, rerolls, and specialization costs by rarity & branch index', () => {
+    expect(getBountyWaveMult(1)).toBe(1);
+    expect(getBountyWaveMult(10)).toBe(1);
+    expect(getBountyWaveMult(30)).toBeCloseTo(0.5, 5);
+
+    expect(getHealCost(1)).toBe(15);
+    expect(getHealCost(21)).toBeGreaterThan(getHealCost(1));
+    expect(getReviveCost(1)).toBe(35);
+    expect(getReviveCost(21)).toBeGreaterThan(getReviveCost(1));
+
+    expect(getRewardRerollCost(0, 1)).toBe(20);
+    expect(getRewardRerollCost(1, 1)).toBe(35);
+    expect(getRewardRerollCost(0, 21)).toBe(80);
+    expect(getRewardRerollCost(2, 21)).toBeGreaterThan(
+      getRewardRerollCost(1, 21) * 1.5,
     );
-    expect(singleBranchReroll).toHaveLength(3);
-    expect(singleBranchReroll.every((c) => !excludeIds.has(c.id))).toBe(true);
-    expect(singleBranchReroll.some((c) => c.kind === 'branch')).toBe(false);
+
+    // Higher rarity species cost more; later branches (Path 1 < 2 < 3) cost more
+    expect(getBranchCost('0010', 0)).toBeLessThan(getBranchCost('0007', 0)); // Common < Uncommon
+    expect(getBranchCost('0007', 0)).toBeLessThan(getBranchCost('0150', 0)); // Uncommon < Legendary
+    expect(getBranchCost('0007', 0)).toBeLessThan(getBranchCost('0007', 1));
+    expect(getBranchCost('0007', 1)).toBeLessThan(getBranchCost('0007', 2));
+
+    // Structure build cost: walls get 4-wall grace threshold; non-walls scale from 2nd copy
+    expect(getStructureBuildCost('wood_wall', 0)).toBe(20);
+    expect(getStructureBuildCost('wood_wall', 4)).toBe(20);
+    expect(getStructureBuildCost('wood_wall', 6)).toBe(26);
+    expect(getStructureBuildCost('tempo_shrine', 0)).toBe(80);
+    expect(getStructureBuildCost('tempo_shrine', 1)).toBe(100);
+    expect(getStructureBuildCost('tempo_shrine', 2)).toBe(120);
   });
 
   it('offers an evolve reward when evolvableUnits are provided and respects Rare Candy cost', () => {

@@ -13,7 +13,6 @@ import {
   getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveMaxHp,
-  getEffectiveMoveRange,
   getEffectiveRange,
   getEligibleMinorUpgrades,
 } from '../src/engine/rules';
@@ -58,7 +57,6 @@ describe('Classes, Subclasses, and Minor Upgrades', () => {
         u.defBonus !== undefined ||
         u.rangeBonus !== undefined ||
         u.attackIntervalMult !== undefined ||
-        u.moveRangeBonus !== undefined ||
         u.ultChargeMult !== undefined;
       expect(hasModifier).toBe(true);
     }
@@ -103,7 +101,7 @@ describe('Classes, Subclasses, and Minor Upgrades', () => {
       'blaster_volatile_spark', // Blaster: +18% ATK
       'marksman_eagle_eye', // Marksman: +1 Range (should NOT apply to Squirtle or Charmander)
       'blaster_quick_cast', // Blaster: *0.87 interval
-      'specialist_nimble_step', // Specialist: +1 Move Range
+      'specialist_nimble_step', // Specialist: +10% Attack Speed
     ];
 
     expect(getEffectiveMaxHp('0007', upgrades)).toBe(Math.round(220 * 1.2));
@@ -114,8 +112,9 @@ describe('Classes, Subclasses, and Minor Upgrades', () => {
     expect(getEffectiveAttackIntervalMs('0004', [], null, [], upgrades)).toBe(
       Math.round(1000 * 0.87),
     );
-    expect(getEffectiveMoveRange(2, upgrades, undefined, '0094')).toBe(3); // Gengar is Specialist
-    expect(getEffectiveMoveRange(2, upgrades, undefined, '0004')).toBe(2); // Charmander is Blaster
+    expect(getEffectiveAttackIntervalMs('0094', [], null, [], upgrades)).toBe(
+      Math.round(POKEMON_SPECIES['0094'].attackIntervalMs * 0.91),
+    ); // Gengar is Specialist
   });
 
   it('can include eligible class minor upgrades in generateRewardChoices when enabled', () => {

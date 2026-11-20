@@ -19,11 +19,9 @@ import {
   getUnlockShardCost,
 } from '../engine/progression';
 import {
-  HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   RARE_CANDY_COST,
-  REVIVE_COST,
   getBranchSpec,
   getDraftCost,
   getEffectiveAtk,
@@ -31,7 +29,9 @@ import {
   getEffectiveDef,
   getEffectiveRange,
   getEnemyThreatSummary,
+  getHealCost,
   getPokemonReleaseRefund,
+  getReviveCost,
   getRewardRerollCost,
 } from '../engine/rules';
 import {
@@ -1255,7 +1255,7 @@ function renderBranchRewardModal(snap: GameSnapshot): string {
 }
 
 function renderRewardModal(snap: GameSnapshot): string {
-  const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed);
+  const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed, snap.wave);
   const canReroll = snap.gold >= rerollCost;
   const cards = snap.rewardChoices
     .map((choice) => {
@@ -1429,9 +1429,13 @@ function renderExpandedUnitModal(
 
       <div class="branch-header">
         <span>Specializations</span>
-        ${branch ? '' : '<span class="card-hint">Not yet specialized</span>'}
+        ${branch ? '' : `<span class="card-hint">${snap.phase === 'PREP' ? 'Choose a path below' : 'Specialize during Prep'}</span>`}
       </div>
-      ${renderBranchTree(sp, unit.branchId, snap.upgrades)}
+      ${renderBranchTree(sp, unit.branchId, snap.upgrades, {
+        unitUid: unit.uid,
+        canSpecialize: snap.phase === 'PREP',
+        gold: snap.gold,
+      })}
 
       <div class="held-box">
         <div class="branch-header">
@@ -1475,6 +1479,8 @@ function renderShopModal(snap: GameSnapshot): string {
     })
     .join('');
 
+  const healCost = getHealCost(snap.wave);
+  const reviveCost = getReviveCost(snap.wave);
   const careUnits = snap.activeUnits.filter((u) => u.fainted || u.hp < u.maxHp);
   const careRows = careUnits
     .map((u) => {
@@ -1485,7 +1491,7 @@ function renderShopModal(snap: GameSnapshot): string {
           <div class="shop-care-chip">
             ${renderPokeIcon(u.speciesId)}
             <span>${escapeHtml(name)} (Fainted)</span>
-            <button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${u.uid}" ${snap.gold >= REVIVE_COST ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>
+            <button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${u.uid}" ${snap.gold >= reviveCost ? '' : 'disabled'}>Revive ₽${reviveCost}</button>
           </div>
         `;
       }
@@ -1493,7 +1499,7 @@ function renderShopModal(snap: GameSnapshot): string {
         <div class="shop-care-chip">
           ${renderPokeIcon(u.speciesId)}
           <span>${escapeHtml(name)} (${Math.ceil(u.hp)}/${u.maxHp})</span>
-          <button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${u.uid}" ${snap.gold >= HEAL_COST ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>
+          <button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${u.uid}" ${snap.gold >= healCost ? '' : 'disabled'}>Heal ₽${healCost}</button>
         </div>
       `;
     })

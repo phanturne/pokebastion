@@ -7,18 +7,19 @@ import {
   computeUnitRange,
 } from '../engine/combat';
 import {
-  HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   MAX_RESERVE_UNITS,
-  REVIVE_COST,
   getBranchSpec,
   getEffectiveAtk,
   getEffectiveDef,
   getEffectiveMaxHp,
   getEffectiveRange,
+  getHealCost,
   getPokemonReleaseRefund,
   getRepairCost,
+  getReviveCost,
+  getStructureBuildCost,
   isShopAfterWave,
 } from '../engine/rules';
 import { ActiveUnit, GameSnapshot, GridStructure } from '../types';
@@ -413,7 +414,11 @@ export function renderShopTooltipContent(
   }
 
   const spec = STRUCTURE_SPECS[tool];
-  const deficit = Math.max(0, spec.cost - snap.gold);
+  const activeCount = snap.structures.filter(
+    (s) => s.kind === tool && !s.ruined,
+  ).length;
+  const cost = getStructureBuildCost(tool, activeCount);
+  const deficit = Math.max(0, cost - snap.gold);
   const pathTag = spec.blocksGround
     ? 'Blocks Ground'
     : spec.consumable
@@ -423,7 +428,7 @@ export function renderShopTooltipContent(
   return `
     <div class="shop-tooltip-head">
       <span>${escapeHtml(spec.name)}</span>
-      <span class="tool-cost">₽${spec.cost}</span>
+      <span class="tool-cost">₽${cost}</span>
     </div>
     <div class="shop-tooltip-tags">
       <span class="tag">HP ${spec.maxHp}</span>
@@ -435,10 +440,20 @@ export function renderShopTooltipContent(
 }
 
 function renderBuildPalette(snap: GameSnapshot): string {
+  const activeCounts = new Map<string, number>();
+  for (const s of snap.structures) {
+    if (!s.ruined) {
+      activeCounts.set(s.kind, (activeCounts.get(s.kind) ?? 0) + 1);
+    }
+  }
   const structButtons = Object.values(STRUCTURE_SPECS)
     .map((spec) => {
+      const cost = getStructureBuildCost(
+        spec.kind,
+        activeCounts.get(spec.kind) ?? 0,
+      );
       const active = snap.selectedTool === spec.kind ? 'active' : '';
-      const unaffordable = snap.gold < spec.cost ? 'unaffordable' : '';
+      const unaffordable = snap.gold < cost ? 'unaffordable' : '';
       return `
         <button
           type="button"
@@ -451,7 +466,7 @@ function renderBuildPalette(snap: GameSnapshot): string {
           <span class="tool-icon">${TOOL_ICONS[spec.kind]}</span>
           <span class="tool-meta">
             <span class="tool-name">${escapeHtml(TOOL_SHORT_NAME[spec.kind])}</span>
-            <span class="tool-cost">₽${spec.cost}</span>
+            <span class="tool-cost">₽${cost}</span>
           </span>
         </button>
       `;
@@ -636,14 +651,16 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
     })
     .join('');
 
+  const healCost = getHealCost(snap.wave);
+  const reviveCost = getReviveCost(snap.wave);
   let actionPill = '';
   if (canCastUlt) {
     actionPill = `<button type="button" class="bp-action-pill ult" data-action="cast-ult" data-id="${unit.uid}">${isAiming ? 'AIM' : 'ULT'}</button>`;
   } else if (snap.phase === 'PREP' && unit.fainted) {
-    const canRevive = snap.gold >= REVIVE_COST;
-    actionPill = `<button type="button" class="bp-action-pill revive" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>₽${REVIVE_COST}</button>`;
+    const canRevive = snap.gold >= reviveCost;
+    actionPill = `<button type="button" class="bp-action-pill revive" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>₽${reviveCost}</button>`;
   } else if (snap.phase === 'PREP' && unit.hp < unit.maxHp) {
-    const canHeal = snap.gold >= HEAL_COST;
+    const canHeal = snap.gold >= healCost;
     actionPill = `<button type="button" class="bp-action-pill heal" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>+HP</button>`;
   }
 
@@ -912,20 +929,25 @@ export function renderUnitPopoverHtml(
     ultLabel = `${Math.floor(ultPctNum)}%`;
   }
 
+  const healCost = getHealCost(snap.wave);
+  const reviveCost = getReviveCost(snap.wave);
   const canHeal =
     snap.phase === 'PREP' &&
     !unit.fainted &&
     unit.hp < unit.maxHp &&
-    snap.gold >= HEAL_COST;
+    snap.gold >= healCost;
   const canRevive =
-    snap.phase === 'PREP' && unit.fainted && snap.gold >= REVIVE_COST;
+    snap.phase === 'PREP' && unit.fainted && snap.gold >= reviveCost;
 
   let prepBtn = '';
   if (snap.phase === 'PREP') {
     if (unit.fainted) {
-      prepBtn = `<button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${REVIVE_COST}</button>`;
+      prepBtn = `<button type="button" class="btn btn-primary btn-xs" data-action="revive-unit" data-id="${unit.uid}" ${canRevive ? '' : 'disabled'}>Revive ₽${reviveCost}</button>`;
     } else if (unit.hp < unit.maxHp) {
-      prepBtn = `<button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${HEAL_COST}</button>`;
+      prepBtn = `<button type="button" class="btn btn-accent btn-xs" data-action="heal-unit" data-id="${unit.uid}" ${canHeal ? '' : 'disabled'}>Heal ₽${healCost}</button>`;
+    }
+    if (!unit.branchId) {
+      prepBtn += `<button type="button" class="btn btn-accent btn-xs" data-action="inspect-unit" data-id="${unit.uid}">Specialize</button>`;
     }
   }
 

@@ -129,10 +129,9 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'venusaur_bastion',
         name: 'Thick Fat Bastion',
-        desc: '+35% Max HP, +12 DEF, +1 Move Range.',
+        desc: '+35% Max HP, +12 DEF.',
         hpMult: 1.35,
         defBonus: 12,
-        moveRangeBonus: 1,
       },
       {
         id: 'venusaur_solarbeam',
@@ -479,9 +478,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'caterpie_swarmer',
         name: 'Nimble Larva',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'caterpie_molt',
@@ -575,9 +573,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'butterfree_quiver',
         name: 'Quiver Dance',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'butterfree_pollen',
@@ -628,9 +625,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'weedle_scurry',
         name: 'Forest Scurry',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -718,9 +714,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'beedrill_swarm',
         name: 'Swarm Rush',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'beedrill_fell',
@@ -765,9 +760,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'pidgey_tailwind',
         name: 'Tailwind',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'pidgey_quick',
@@ -910,9 +904,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'rattata_hustle',
         name: 'Hustle Frenzy',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'rattata_fang',
@@ -963,9 +956,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'raticate_blitz',
         name: 'Sewer Blitz',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1010,8 +1002,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'spearow_dive',
         name: 'Swoop Dive',
-        desc: '+1 Move Range and +30% Ult damage.',
-        moveRangeBonus: 1,
+        desc: '+30% Ult damage.',
         ultMult: 1.3,
       },
     ],
@@ -1059,9 +1050,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'fearow_tailwind',
         name: 'Jetstream',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1203,9 +1193,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'pikachu_spark',
         name: 'Quick Spark',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1237,9 +1226,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'raichu_surge',
         name: 'Surge Surfer',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'raichu_overload',
@@ -1299,8 +1287,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'sandshrew_veil',
         name: 'Sand Veil',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
     ],
@@ -1396,9 +1383,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'nidoran_f_pack',
         name: 'Pack Instinct',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1494,8 +1480,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'nidoqueen_stride',
         name: 'Armored Charge',
-        desc: '+1 Move Range and +20% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+20% Attack Speed.',
         attackIntervalMult: 0.83,
       },
     ],
@@ -1535,9 +1520,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'nidoran_m_rush',
         name: 'Horn Rush',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'nidoran_m_hide',
@@ -1638,10 +1622,9 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'nidoking_colossus',
         name: 'Iron Monarch',
-        desc: '+30% Max HP, +8 DEF, and +1 Move Range.',
+        desc: '+30% Max HP, +8 DEF.',
         hpMult: 1.3,
         defBonus: 8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1686,9 +1669,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'clefairy_orbit',
         name: 'Starlight Dance',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1736,9 +1718,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'clefable_celestial',
         name: 'Celestial Tempo',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1783,9 +1764,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'vulpix_dash',
         name: 'Swift Tails',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1877,9 +1857,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'jigglypuff_bounce',
         name: 'Balloon Bounce',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -1974,9 +1953,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'zubat_swarm',
         name: 'Night Swoop',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2022,9 +2000,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'golbat_gale',
         name: 'Shadow Wing',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2355,9 +2332,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'venomoth_buzz',
         name: 'Resonant Buzz',
-        desc: '+35% Ult power and +1 Move Range.',
+        desc: '+35% Ult power.',
         ultMult: 1.35,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2376,7 +2352,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
     moveRange: 3,
     ultMax: 80,
     ultAutoDefault: true,
-    passiveDesc: 'Burrowing agility grants high movement range.',
+    passiveDesc: 'Burrowing agility grants high movement speed.',
     basicDesc: 'Pops up to strike adjacent foes with mud and claws.',
     ultName: 'Dig Ambush',
     ultDesc: 'Burrows beneath the target and erupts for burst damage.',
@@ -2395,8 +2371,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'diglett_tunnel',
         name: 'Deep Tunnel',
-        desc: '+1 Move Range and +25% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
       },
       {
@@ -2450,9 +2425,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'dugtrio_rush',
         name: 'Tectonic Rush',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2491,9 +2465,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'meowth_agile',
         name: 'Alley Dash',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'meowth_jackpot',
@@ -2538,9 +2511,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'persian_limber',
         name: 'Limber Stride',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'persian_gem',
@@ -2679,9 +2651,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'mankey_flurry',
         name: 'Fury Swipes',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'mankey_grit',
@@ -2733,9 +2704,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'primeape_blitz',
         name: 'Close Combat',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2781,9 +2751,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'growlithe_dash',
         name: 'Agile Hound',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2823,9 +2792,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'arcanine_extreme',
         name: 'Extreme Speed',
-        desc: '+25% Attack Speed, +1 Move Range, and +20% crit chance.',
+        desc: '+25% Attack Speed, and +20% crit chance.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
         special: 'crit_boost',
       },
       {
@@ -2879,9 +2847,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'poliwag_swift',
         name: 'Tadpole Dash',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -2928,9 +2895,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'poliwhirl_swift_swim',
         name: 'Swift Swim',
-        desc: '+22% Attack Speed and +1 Move Range.',
+        desc: '+22% Attack Speed.',
         attackIntervalMult: 0.82,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -3024,9 +2990,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'abra_blink_cast',
         name: 'Blink Cast',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -3168,8 +3133,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'machop_low_sweep',
         name: 'Low Sweep',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
     ],
@@ -3264,8 +3228,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'machamp_no_guard',
         name: 'No Guard',
-        desc: '+20% crit chance and +1 Move Range.',
-        moveRangeBonus: 1,
+        desc: '+20% crit chance.',
         special: 'crit_boost',
       },
     ],
@@ -3311,9 +3274,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'bellsprout_chlorophyll',
         name: 'Chlorophyll',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -3549,8 +3511,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'geodude_quake',
         name: 'Seismic Slam',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
     ],
@@ -3590,8 +3551,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'graveler_rollout',
         name: 'Rollout',
-        desc: '+1 Move Range and +25% ATK.',
-        moveRangeBonus: 1,
+        desc: '+25% ATK.',
         atkMult: 1.25,
       },
       {
@@ -3645,8 +3605,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'golem_tremor_step',
         name: 'Tremor Step',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
     ],
@@ -3685,8 +3644,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'ponyta_gallop_charge',
         name: 'Gallop Charge',
-        desc: '+1 Move Range and +25% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
       },
       {
@@ -3732,9 +3690,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'rapidash_sonic_hooves',
         name: 'Sonic Hooves',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'rapidash_solar_horn',
@@ -3786,9 +3743,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'slowpoke_amnesia_ward',
         name: 'Amnesia Ward',
-        desc: '+25% Ult healing power and +1 Move Range.',
+        desc: '+25% Ult healing power.',
         ultMult: 1.25,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -3835,8 +3791,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'slowbro_trick_room',
         name: 'Trick Room',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
     ],
@@ -3881,9 +3836,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'magnemite_overclock',
         name: 'Overclock',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -3968,9 +3922,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'farfetchd_gale_blade',
         name: 'Gale Blade',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'farfetchd_false_swipe',
@@ -4016,9 +3969,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'doduo_fleet_foot',
         name: 'Fleet Foot',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'doduo_keen_eyes',
@@ -4070,9 +4022,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'dodrio_sprint_pack',
         name: 'Sprint Pack',
-        desc: '+25% Max HP and +1 Move Range.',
+        desc: '+25% Max HP.',
         hpMult: 1.25,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -4117,9 +4068,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'seel_aqua_jet',
         name: 'Aqua Jet',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -4167,9 +4117,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'dewgong_arctic_grace',
         name: 'Arctic Grace',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -4208,8 +4157,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'grimer_sticky_mire',
         name: 'Sticky Mire',
-        desc: '+1 Move Range and attacks slow enemies.',
-        moveRangeBonus: 1,
+        desc: 'Attacks slow enemies.',
         special: 'slow_hit',
       },
       {
@@ -4551,8 +4499,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'onix_tunnel',
         name: 'Tunnel Rush',
-        desc: '+1 Move Range and +25% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
       },
     ],
@@ -4692,9 +4639,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'krabby_scuttle',
         name: 'Quick Scuttle',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -4787,9 +4733,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'voltorb_roll',
         name: 'Sonic Roll',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -4820,9 +4765,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'electrode_overdrive',
         name: 'Overdrive',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'electrode_chain',
@@ -4976,9 +4920,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'cubone_rush',
         name: 'Bone Rush',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -5067,9 +5010,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'hitmonlee_unburden',
         name: 'Unburden',
-        desc: '+30% Attack Speed and +1 Move Range.',
+        desc: '+30% Attack Speed.',
         attackIntervalMult: 0.77,
-        moveRangeBonus: 1,
       },
       {
         id: 'hitmonlee_focus',
@@ -5307,9 +5249,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'rhyhorn_charge',
         name: 'Reckless Charge',
-        desc: '+25% ATK and +1 Move Range.',
+        desc: '+25% ATK.',
         atkMult: 1.25,
-        moveRangeBonus: 1,
       },
       {
         id: 'rhyhorn_drill',
@@ -5506,10 +5447,9 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'kangaskhan_matriarch',
         name: 'Matriarch Guard',
-        desc: '+30% Max HP, +8 DEF, and +1 Move Range.',
+        desc: '+30% Max HP, +8 DEF.',
         hpMult: 1.3,
         defBonus: 8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -5547,9 +5487,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'horsea_stream',
         name: 'Rapid Stream',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'horsea_ink',
@@ -5642,9 +5581,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'goldeen_swim',
         name: 'Swift Fin',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'goldeen_ripple',
@@ -5690,9 +5628,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'seaking_waterfall',
         name: 'Waterfall',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'seaking_scale',
@@ -5880,8 +5817,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'scyther_wing_stride',
         name: 'Wing Stride',
-        desc: '+1 Move Range and +25% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
       },
       {
@@ -6078,8 +6014,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'pinsir_moxie',
         name: 'Moxie Rush',
-        desc: '+1 Move Range and +20% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+20% Attack Speed.',
         attackIntervalMult: 0.83,
       },
     ],
@@ -6125,8 +6060,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'tauros_reckless',
         name: 'Reckless Charge',
-        desc: '+1 Move Range and +20% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+20% Attack Speed.',
         attackIntervalMult: 0.83,
       },
     ],
@@ -6302,9 +6236,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'ditto_limber',
         name: 'Limber Shift',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'ditto_echo',
@@ -6432,7 +6365,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
     moveRange: 3,
     ultMax: 90,
     ultAutoDefault: true,
-    passiveDesc: 'Quick Feet: +20% Attack Speed and +1 Move Range.',
+    passiveDesc: 'Quick Feet: +20% Attack Speed.',
     basicDesc: 'Fires razor-sharp pin-missile lightning bolts.',
     ultName: 'Volt Discharge',
     ultDesc: 'Strikes target tile with a high-voltage lightning bolt.',
@@ -6506,8 +6439,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'flareon_crimson_rush',
         name: 'Crimson Rush',
-        desc: '+1 Move Range and +25% Ult damage.',
-        moveRangeBonus: 1,
+        desc: '+25% Ult damage.',
         ultMult: 1.25,
       },
     ],
@@ -6695,9 +6627,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'kabuto_scurry',
         name: 'Tidal Scurry',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -6742,9 +6673,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'kabutops_predator',
         name: 'Apex Predator',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },
@@ -6783,9 +6713,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'aerodactyl_tailwind',
         name: 'Tailwind Dive',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
       {
         id: 'aerodactyl_unnerve',
@@ -6839,8 +6768,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'snorlax_nomad',
         name: 'Rollout',
-        desc: '+1 Move Range and +20% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+20% Attack Speed.',
         attackIntervalMult: 0.83,
       },
     ],
@@ -7122,8 +7050,7 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'dragonite_extremespeed',
         name: 'Extreme Speed',
-        desc: '+1 Move Range and +25% Attack Speed.',
-        moveRangeBonus: 1,
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
       },
     ],
@@ -7220,9 +7147,8 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
       {
         id: 'mew_mirage',
         name: 'Mirage Tempo',
-        desc: '+25% Attack Speed and +1 Move Range.',
+        desc: '+25% Attack Speed.',
         attackIntervalMult: 0.8,
-        moveRangeBonus: 1,
       },
     ],
   },

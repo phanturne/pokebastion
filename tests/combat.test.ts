@@ -69,10 +69,10 @@ describe('combat damage & effect math', () => {
       targetMaxHp: 100,
       targetHasStatus: true,
     });
-    // 100 * 1.35 = 135; 135 * 1.35 = 182.25 -> 182
-    expect(res.damage).toBe(182);
-    expect(res.lifestealHeal).toBe(46);
-    expect(res.chainDamage).toBe(73);
+    // 100 * 1.35 = 135; 135 * 1.25 = 168.75 -> 169; lifesteal 25% = 42; chain 25% = 42
+    expect(res.damage).toBe(169);
+    expect(res.lifestealHeal).toBe(42);
+    expect(res.chainDamage).toBe(42);
   });
 
   it('applies DEF scaling, Snorlax stationary reduction, guardian_charm, and thorns', () => {
@@ -85,8 +85,8 @@ describe('combat damage & effect math', () => {
       unitAdjacentToStructure: true,
       unitBranchSpecial: 'thorns',
     });
-    // 40 * (40 / 80) = 20 -> *0.75 = 15 -> *0.75 = 11.25 -> 11; thorns 25% = 3
-    expect(res.damage).toBe(11);
+    // 40 * (40 / 80) = 20 -> *0.75 = 15 -> *0.82 = 12.3 -> 12; thorns 25% = 3
+    expect(res.damage).toBe(12);
     expect(res.reflectedThorns).toBe(3);
   });
 
@@ -126,7 +126,7 @@ describe('combat damage & effect math', () => {
     // ★3 adds +15% kill gold
     expect(computeKillBounty(20, false, 2)).toBe(20);
     expect(computeKillBounty(20, false, 3)).toBe(23);
-    expect(computeKillBounty(20, true, 3)).toBe(Math.round(20 * 1.25 * 1.15));
+    expect(computeKillBounty(20, true, 3)).toBe(Math.round(20 * 1.35 * 1.15));
 
     // ★4 starts combat with 40% ult
     expect(computeStartingUlt(100, 3)).toBe(0);
