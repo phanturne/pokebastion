@@ -5,8 +5,10 @@ import {
   DRAFT_BUDGET,
   MAX_ACTIVE_UNITS,
   MAX_RESERVE_UNITS,
+  RARE_CANDY_COST,
   TEMPORAL_GEAR_KILL_THRESHOLD,
   canDraftSpecies,
+  canUnitEnterWater,
   chebyshevDist,
   computeProjectileLaunch,
   generateRewardChoices,
@@ -20,12 +22,19 @@ import {
   getEffectiveMoveRange,
   getEffectiveRange,
   getEffectiveStructureMaxHp,
+  getEnemyThreatSummary,
   getMovementCost,
+  getPokemonReleaseRefund,
   getRepairCost,
+  getRewardRerollCost,
   getSellRefund,
+  isFlyingSpecies,
   isInCircularRange,
   isShopAfterWave,
+  isSpecialEnemy,
+  isWaterSpecies,
 } from '../src/engine/rules';
+import type { EnemySpecies } from '../src/types';
 
 describe('Game Rules, AP Movement & Economy', () => {
   it('computes 1 AP map-wide movement during COMBAT and 0 AP during PREP', () => {
@@ -73,6 +82,10 @@ describe('Game Rules, AP Movement & Economy', () => {
       TEMPORAL_GEAR_KILL_THRESHOLD,
     );
     expect(getBountyGold(20, ['commanders_insignia'])).toBe(25);
+    expect(getRewardRerollCost(0)).toBe(20);
+    expect(getRewardRerollCost(1)).toBe(30);
+    expect(getRewardRerollCost(3)).toBe(50);
+    expect(getRewardRerollCost(-2)).toBe(20);
   });
 
   it('generates 3 unique reward choices without duplicating owned upgrades/artifacts', () => {
@@ -148,10 +161,19 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(getRepairCost('stone_wall', 320, 300)).toBe(0);
     expect(getRepairCost('stone_wall', 100, 0)).toBe(25);
 
-    // Non-wall structures ignore fortification_core; stone_wall gets 1.4x
+    // Non-wall structures ignore fortification_core; ground-blocking walls get 1.4x
     expect(
       getEffectiveStructureMaxHp('stone_wall', ['fortification_core']),
     ).toBe(420);
+    expect(
+      getEffectiveStructureMaxHp('thorn_wall', ['fortification_core']),
+    ).toBe(Math.round(180 * 1.4));
+    expect(
+      getEffectiveStructureMaxHp('flame_brazier', ['fortification_core']),
+    ).toBe(Math.round(140 * 1.4));
+    expect(
+      getEffectiveStructureMaxHp('honey_trap', ['fortification_core']),
+    ).toBe(80);
     expect(
       getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
     ).toBe(150);
@@ -267,6 +289,11 @@ describe('Game Rules, AP Movement & Economy', () => {
     // getRepairCost negative HP clamping
     expect(getRepairCost('stone_wall', -50, 300)).toBe(25);
 
+    // getPokemonReleaseRefund scales with draftCost and specialization branch
+    expect(getPokemonReleaseRefund('0007')).toBe(30);
+    expect(getPokemonReleaseRefund('0007', 'squirtle_hydro')).toBe(45);
+    expect(getPokemonReleaseRefund('0448')).toBe(40);
+
     // generateRewardChoices minor upgrade deduplication across multiple same-class species
     const allSpecies = new Set(Object.keys(POKEMON_SPECIES));
     const allBaseUpgrades = REWARD_POOL.filter((r) => r.kind === 'upgrade').map(
@@ -306,5 +333,212 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(isShopAfterWave(5, 10)).toBe(true);
     expect(isShopAfterWave(6, 10)).toBe(false);
     expect(isShopAfterWave(10, 10)).toBe(false);
+  });
+
+  it('identifies water-capable species via Gen 1 IDs and canEnterWater override', () => {
+    expect(isWaterSpecies('0007')).toBe(true); // Squirtle
+    expect(isWaterSpecies('0131')).toBe(true); // Lapras
+    expect(isWaterSpecies('0134')).toBe(true); // Vaporeon
+    expect(isWaterSpecies('0025')).toBe(false); // Pikachu
+    expect(isWaterSpecies('0004')).toBe(false); // Charmander
+
+    expect(isWaterSpecies('0025', { canEnterWater: true })).toBe(true);
+    expect(isWaterSpecies('0007', { canEnterWater: false })).toBe(false);
+    expect(isWaterSpecies('0007', { canEnterWater: undefined })).toBe(true);
+  });
+
+  it('identifies flying species via Gen 1 IDs and canFly override', () => {
+    for (const id of [
+      '0006',
+      '0012',
+      '0016',
+      '0017',
+      '0018',
+      '0021',
+      '0022',
+      '0041',
+      '0042',
+      '0083',
+      '0084',
+      '0085',
+      '0123',
+      '0130',
+      '0142',
+      '0144',
+      '0145',
+      '0146',
+      '0149',
+    ]) {
+      expect(isFlyingSpecies(id)).toBe(true);
+    }
+    expect(isFlyingSpecies('0025')).toBe(false); // Pikachu
+    expect(isFlyingSpecies('0007')).toBe(false); // Squirtle
+
+    expect(isFlyingSpecies('0025', { canFly: true })).toBe(true);
+    expect(isFlyingSpecies('0006', { canFly: false })).toBe(false);
+
+    expect(canUnitEnterWater('0007')).toBe(true); // Squirtle (Water)
+    expect(canUnitEnterWater('0016')).toBe(true); // Pidgey (Flying)
+    expect(canUnitEnterWater('0006')).toBe(true); // Charizard (Flying)
+    expect(canUnitEnterWater('0025')).toBe(false); // Pikachu (neither)
+    expect(canUnitEnterWater('0025', { canFly: true })).toBe(true);
+    expect(isFlyingSpecies('0006', { canFly: undefined })).toBe(true);
+  });
+
+  it('replaces all previous reward options on reroll when alternatives exist', () => {
+    const owned = new Set(['0007', '0004', '0001']);
+    const unbranched = [
+      { uid: 'u1', speciesId: '0007' },
+      { uid: 'u2', speciesId: '0004' },
+    ];
+    const initial = generateRewardChoices(
+      owned,
+      [],
+      [],
+      () => 0,
+      unbranched,
+      false,
+      true,
+    );
+    expect(initial).toHaveLength(3);
+    expect(initial.map((c) => c.kind)).toEqual([
+      'branch',
+      'recruit',
+      'upgrade',
+    ]);
+
+    const excludeIds = new Set(initial.map((c) => c.id));
+    const rerolled = generateRewardChoices(
+      owned,
+      [],
+      [],
+      () => 0,
+      unbranched,
+      false,
+      true,
+      [],
+      excludeIds,
+    );
+    expect(rerolled).toHaveLength(3);
+    expect(rerolled.every((c) => !excludeIds.has(c.id))).toBe(true);
+    expect(rerolled.some((c) => c.kind === 'branch')).toBe(true);
+    expect(rerolled.some((c) => c.kind === 'recruit')).toBe(true);
+
+    // If only 1 unbranched unit exists, reroll avoids repeating that branch when 3 other choices exist
+    const singleBranchReroll = generateRewardChoices(
+      owned,
+      [],
+      [],
+      () => 0,
+      [{ uid: 'u1', speciesId: '0007' }],
+      false,
+      true,
+      [],
+      excludeIds,
+    );
+    expect(singleBranchReroll).toHaveLength(3);
+    expect(singleBranchReroll.every((c) => !excludeIds.has(c.id))).toBe(true);
+    expect(singleBranchReroll.some((c) => c.kind === 'branch')).toBe(false);
+  });
+
+  it('offers an evolve reward when evolvableUnits are provided and respects Rare Candy cost', () => {
+    expect(RARE_CANDY_COST).toBe(65);
+    const owned = new Set(['0001', '0004', '0007']);
+    const evolvable = [
+      { uid: 'u1', speciesId: '0001', targetSpeciesId: '0002' },
+    ];
+    const choices = generateRewardChoices(
+      owned,
+      [],
+      [],
+      () => 0,
+      [],
+      false,
+      true,
+      evolvable,
+    );
+    expect(choices).toHaveLength(3);
+    const evolveChoice = choices.find((c) => c.kind === 'evolve');
+    expect(evolveChoice).toBeDefined();
+    expect(evolveChoice?.id).toBe('evolve_u1_0002');
+    expect(evolveChoice?.targetSpeciesId).toBe('0002');
+    expect(evolveChoice?.unitUid).toBe('u1');
+
+    const rerolled = generateRewardChoices(
+      owned,
+      [],
+      [],
+      () => 0,
+      [],
+      false,
+      true,
+      evolvable,
+      new Set(['evolve_u1_0002']),
+    );
+    expect(rerolled).toHaveLength(3);
+    expect(rerolled.some((c) => c.id === 'evolve_u1_0002')).toBe(false);
+  });
+});
+
+describe('Special Enemy Threat Helpers', () => {
+  const baseEnemy: EnemySpecies = {
+    id: '0019',
+    name: 'Rattata',
+    color: '#A33EA1',
+    maxHp: 90,
+    atk: 12,
+    speed: 1.85,
+    movementType: 'ground',
+    wallDmgMult: 1,
+    bounty: 12,
+    roleLabel: 'Basic Runner',
+    hitVfx: 'melee/dagger-slash',
+  };
+
+  it('identifies special enemies from tactical traits', () => {
+    expect(isSpecialEnemy(baseEnemy)).toBe(false);
+    expect(isSpecialEnemy({ ...baseEnemy, range: 1 })).toBe(false);
+    expect(isSpecialEnemy({ ...baseEnemy, ignoresUnits: true })).toBe(true);
+    expect(isSpecialEnemy({ ...baseEnemy, range: 3 })).toBe(true);
+    expect(isSpecialEnemy({ ...baseEnemy, movementType: 'fly' })).toBe(true);
+    expect(isSpecialEnemy({ ...baseEnemy, movementType: 'burrow' })).toBe(true);
+    expect(isSpecialEnemy({ ...baseEnemy, wallDmgMult: 2 })).toBe(true);
+  });
+
+  it('formats concise 1-line threat summaries in priority order', () => {
+    expect(
+      getEnemyThreatSummary({
+        ...baseEnemy,
+        ignoresUnits: true,
+        range: 3,
+      }),
+    ).toBe('Ignores Pokémon — rushes Core');
+    expect(
+      getEnemyThreatSummary({
+        ...baseEnemy,
+        range: 4,
+        movementType: 'fly',
+      }),
+    ).toBe('Ranged attacker (4 tiles)');
+    expect(
+      getEnemyThreatSummary({
+        ...baseEnemy,
+        movementType: 'fly',
+        wallDmgMult: 2,
+      }),
+    ).toBe('Flying — bypasses walls & ground traps');
+    expect(
+      getEnemyThreatSummary({
+        ...baseEnemy,
+        movementType: 'burrow',
+      }),
+    ).toBe('Burrower — tunnels under walls');
+    expect(
+      getEnemyThreatSummary({
+        ...baseEnemy,
+        wallDmgMult: 3,
+      }),
+    ).toBe('Structure Breaker (3× wall dmg)');
+    expect(getEnemyThreatSummary(baseEnemy)).toBe('Basic Runner');
   });
 });

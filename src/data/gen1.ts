@@ -1,4 +1,5 @@
 import { EnemySpecies, PokemonRarity, PokemonSpecies } from '../types';
+import { getBaseFamilyId } from './evolutions';
 
 export type Gen1PokemonSpecies = PokemonSpecies & { rarity: PokemonRarity };
 
@@ -7206,6 +7207,13 @@ export const GEN1_POKEMON: Record<string, Gen1PokemonSpecies> = {
     ],
   },
 };
+
+for (const [id, spec] of Object.entries(GEN1_POKEMON)) {
+  const baseId = getBaseFamilyId(id);
+  if (baseId !== id && GEN1_POKEMON[baseId]) {
+    spec.branches = GEN1_POKEMON[baseId].branches;
+  }
+}
 
 export const GEN1_ENEMIES: Record<string, EnemySpecies> = {
   '0001': {

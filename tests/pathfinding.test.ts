@@ -383,4 +383,94 @@ describe('A* Pathfinding & Grid Rules', () => {
     expect(w5.slice(0, 2)).toEqual(w4.slice(1));
     expect(w5[2].id).not.toBe(w4[0].id);
   });
+
+  it('allows water placement and pathfinding when allowWater is true, and supports structure pass-through', () => {
+    const grid = createBaseGrid();
+    grid[8][6] = 'water';
+    grid[7][6] = 'water';
+    grid[9][6] = 'water';
+    grid[5][8] = 'tree';
+    const portals = [{ id: 'p1', side: 'west' as const, cells: SPAWN_WEST }];
+
+    // Water tile blocked by default, allowed with allowWater = true
+    expect(isNoBuildTile(6, 8, grid, portals)).toBe(true);
+    expect(isNoBuildTile(6, 8, grid, portals, true)).toBe(false);
+    // Core, tree, border, and portal buffer remain blocked even when allowWater = true
+    expect(
+      isNoBuildTile(CORE_CELLS[0].gx, CORE_CELLS[0].gy, grid, portals, true),
+    ).toBe(true);
+    expect(isNoBuildTile(8, 5, grid, portals, true)).toBe(true); // tree
+    expect(isNoBuildTile(1, 8, grid, portals, true)).toBe(true); // border
+    expect(isNoBuildTile(1, 7, grid, portals, true)).toBe(true); // portal buffer
+
+    // Non-water unit cannot stop on water tile
+    expect(
+      findUnitPath({ gx: 5, gy: 8 }, { gx: 6, gy: 8 }, grid, new Set(), false),
+    ).toBeNull();
+
+    // Water unit can stop on and walk through water tiles
+    const waterDestPath = findUnitPath(
+      { gx: 5, gy: 8 },
+      { gx: 6, gy: 8 },
+      grid,
+      new Set(),
+      true,
+    );
+    expect(waterDestPath).toEqual([
+      { gx: 5, gy: 8 },
+      { gx: 6, gy: 8 },
+    ]);
+
+    const acrossWater = findUnitPath(
+      { gx: 5, gy: 8 },
+      { gx: 7, gy: 8 },
+      grid,
+      new Set(),
+      true,
+    );
+    expect(acrossWater).toEqual([
+      { gx: 5, gy: 8 },
+      { gx: 6, gy: 8 },
+      { gx: 7, gy: 8 },
+    ]);
+
+    // Structure pass-through: passing empty blockedStructures lets allied units walk through structure tiles
+    const passThroughPath = findUnitPath(
+      { gx: 5, gy: 10 },
+      { gx: 7, gy: 10 },
+      grid,
+      new Set(),
+    );
+    expect(passThroughPath).toEqual([
+      { gx: 5, gy: 10 },
+      { gx: 6, gy: 10 },
+      { gx: 7, gy: 10 },
+    ]);
+  });
+
+  it('blocks flying enemy paths on tiles occupied by allied flying units', () => {
+    const grid = createBaseGrid();
+    const flyBlocked = new Set(['11,8', '11,7', '11,9']);
+    const path = findPath(
+      { gx: 10, gy: 8 },
+      grid,
+      new Set(),
+      'fly',
+      flyBlocked,
+    );
+    expect(path).not.toBeNull();
+    const pathKeys = new Set(path!.map((p) => `${p.gx},${p.gy}`));
+    expect(pathKeys.has('11,8')).toBe(false);
+    expect(pathKeys.has('11,7')).toBe(false);
+    expect(pathKeys.has('11,9')).toBe(false);
+
+    // Without flyBlocked, a ground wall doesn't block flyers
+    const unblocked = findPath(
+      { gx: 10, gy: 8 },
+      grid,
+      new Set(['11,8']),
+      'fly',
+    );
+    expect(unblocked).not.toBeNull();
+  });
 });

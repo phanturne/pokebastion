@@ -6,6 +6,7 @@ import {
   STRUCTURE_SPECS,
 } from '../data/pokemon';
 import {
+  EnemySpecies,
   GamePhase,
   MinorUpgradeSpec,
   PokemonBranch,
@@ -16,6 +17,7 @@ import {
 
 export const HEAL_COST = 15;
 export const REVIVE_COST = 35;
+export const RARE_CANDY_COST = 65;
 export const SELL_REFUND_RATE = 0.7;
 export const REPAIR_COST_RATE = 0.5;
 export const BASE_AP_KILL_THRESHOLD = 6;
@@ -25,6 +27,87 @@ export const DRAFT_BUDGET = 10;
 export const MAX_ACTIVE_UNITS = 6;
 export const MAX_RESERVE_UNITS = 3;
 export const MAX_HELD_ITEMS = 3;
+
+const WATER_SPECIES_IDS = new Set([
+  '0007',
+  '0008',
+  '0009',
+  '0054',
+  '0055',
+  '0060',
+  '0061',
+  '0062',
+  '0072',
+  '0073',
+  '0079',
+  '0080',
+  '0086',
+  '0087',
+  '0090',
+  '0091',
+  '0098',
+  '0099',
+  '0116',
+  '0117',
+  '0118',
+  '0119',
+  '0120',
+  '0121',
+  '0129',
+  '0130',
+  '0131',
+  '0134',
+  '0138',
+  '0139',
+  '0140',
+  '0141',
+]);
+
+/** Returns true if a Pokémon species can be placed on and move through water tiles. */
+export function isWaterSpecies(
+  speciesId: string,
+  spec?: Pick<PokemonSpecies, 'canEnterWater'>,
+): boolean {
+  return spec?.canEnterWater ?? WATER_SPECIES_IDS.has(speciesId);
+}
+
+const FLYING_SPECIES_IDS = new Set([
+  '0006',
+  '0012',
+  '0016',
+  '0017',
+  '0018',
+  '0021',
+  '0022',
+  '0041',
+  '0042',
+  '0083',
+  '0084',
+  '0085',
+  '0123',
+  '0130',
+  '0142',
+  '0144',
+  '0145',
+  '0146',
+  '0149',
+]);
+
+/** Returns true if a Pokémon species is a flying unit that blocks enemy flyers. */
+export function isFlyingSpecies(
+  speciesId: string,
+  spec?: Pick<PokemonSpecies, 'canFly'>,
+): boolean {
+  return spec?.canFly ?? FLYING_SPECIES_IDS.has(speciesId);
+}
+
+/** Returns true if a Pokémon species can be placed on and move over water tiles (Water or Flying). */
+export function canUnitEnterWater(
+  speciesId: string,
+  spec?: Pick<PokemonSpecies, 'canEnterWater' | 'canFly'>,
+): boolean {
+  return isWaterSpecies(speciesId, spec) || isFlyingSpecies(speciesId, spec);
+}
 
 /** Returns true if a Merchant Shop event triggers after completing `wave`. */
 export function isShopAfterWave(wave: number, maxWaves: number): boolean {
@@ -286,8 +369,10 @@ export function getEffectiveStructureMaxHp(
   artifacts: string[],
 ): number {
   const base = STRUCTURE_SPECS[kind].maxHp;
-  const isWall = kind === 'wood_wall' || kind === 'stone_wall';
-  if (isWall && artifacts.includes('fortification_core')) {
+  if (
+    STRUCTURE_SPECS[kind].blocksGround &&
+    artifacts.includes('fortification_core')
+  ) {
     return Math.round(base * 1.4);
   }
   return base;
@@ -295,6 +380,14 @@ export function getEffectiveStructureMaxHp(
 
 export function getSellRefund(kind: StructureKind): number {
   return Math.round(STRUCTURE_SPECS[kind].cost * SELL_REFUND_RATE);
+}
+
+export function getPokemonReleaseRefund(
+  speciesId: string,
+  branchId: string | null = null,
+): number {
+  const draftCost = POKEMON_SPECIES[speciesId]?.draftCost ?? 3;
+  return draftCost * 10 + (branchId ? 15 : 0);
 }
 
 export function getRepairCost(
@@ -323,6 +416,10 @@ export function getBountyGold(baseBounty: number, artifacts: string[]): number {
     : baseBounty;
 }
 
+export function getRewardRerollCost(rerollsUsed: number): number {
+  return 20 + Math.max(0, rerollsUsed) * 10;
+}
+
 /**
  * Generates up to 3 distinct roguelike reward choices between waves,
  * prioritizing unowned upgrades/artifacts and offering 1 unrecruited Pokémon when available.
@@ -335,6 +432,12 @@ export function generateRewardChoices(
   unbranchedUnits: Array<{ uid: string; speciesId: string }> = [],
   includeClassMinorUpgrades = false,
   canRecruit = true,
+  evolvableUnits: Array<{
+    uid: string;
+    speciesId: string;
+    targetSpeciesId: string;
+  }> = [],
+  excludeRewardIds?: Set<string>,
 ): RewardOption[] {
   const ownedUpgradeSet = new Set(ownedUpgrades);
   const ownedArtifactSet = new Set(ownedArtifacts);
@@ -381,38 +484,120 @@ export function generateRewardChoices(
     (sp) => !ownedSpeciesIds.has(sp.id),
   );
 
-  const choices: RewardOption[] = [];
-  const shuffledPool = shuffle(availableRewards);
+  const isExcluded = (id: string): boolean =>
+    Boolean(excludeRewardIds?.has(id));
 
-  if (unbranchedUnits.length > 0) {
-    const pickedUnit = pickRandom(unbranchedUnits);
-    const sp = POKEMON_SPECIES[pickedUnit.speciesId];
-    if (sp) {
-      choices.push({
-        id: `branch_${pickedUnit.uid}`,
-        kind: 'branch',
-        title: `Specialize ${sp.name}`,
-        desc: `Choose 1 of 3 evolution/specialization branches for ${sp.name}.`,
-        speciesId: pickedUnit.speciesId,
-        unitUid: pickedUnit.uid,
-      });
-    }
-  }
+  const preferredUnbranched = unbranchedUnits.filter(
+    (u) => !isExcluded(`branch_${u.uid}`),
+  );
+  const excludedUnbranched = unbranchedUnits.filter((u) =>
+    isExcluded(`branch_${u.uid}`),
+  );
+  const preferredEvolvable = evolvableUnits.filter(
+    (u) => !isExcluded(`evolve_${u.uid}_${u.targetSpeciesId}`),
+  );
+  const excludedEvolvable = evolvableUnits.filter((u) =>
+    isExcluded(`evolve_${u.uid}_${u.targetSpeciesId}`),
+  );
+  const preferredSpecies = unownedSpecies.filter(
+    (sp) => !isExcluded(`recruit_${sp.id}`),
+  );
+  const excludedSpecies = unownedSpecies.filter((sp) =>
+    isExcluded(`recruit_${sp.id}`),
+  );
+  const preferredRewards = availableRewards.filter((r) => !isExcluded(r.id));
+  const excludedRewards = availableRewards.filter((r) => isExcluded(r.id));
 
-  if (canRecruit && unownedSpecies.length > 0 && choices.length < 3) {
-    const pick = pickRandom(unownedSpecies);
+  const pushBranchChoice = (unit: { uid: string; speciesId: string }): void => {
+    const sp = POKEMON_SPECIES[unit.speciesId];
+    if (!sp) return;
     choices.push({
-      id: `recruit_${pick.id}`,
-      kind: 'recruit',
-      title: `Recruit ${pick.name}`,
-      desc: `${pick.pokeClass} — ${pick.ultName}: ${pick.ultDesc}`,
-      speciesId: pick.id,
+      id: `branch_${unit.uid}`,
+      kind: 'branch',
+      title: `Specialize ${sp.name}`,
+      desc: `Choose 1 of 3 evolution/specialization branches for ${sp.name}.`,
+      speciesId: unit.speciesId,
+      unitUid: unit.uid,
     });
+  };
+
+  const pushEvolveChoice = (unit: {
+    uid: string;
+    speciesId: string;
+    targetSpeciesId: string;
+  }): void => {
+    const fromSp = POKEMON_SPECIES[unit.speciesId];
+    const toSp = POKEMON_SPECIES[unit.targetSpeciesId];
+    if (!fromSp || !toSp) return;
+    choices.push({
+      id: `evolve_${unit.uid}_${unit.targetSpeciesId}`,
+      kind: 'evolve',
+      title: `Evolve ${fromSp.name} → ${toSp.name}`,
+      desc: `Evolve ${fromSp.name} into ${toSp.name} (HP ${toSp.maxHp}, ATK ${toSp.atk}).`,
+      speciesId: unit.speciesId,
+      targetSpeciesId: unit.targetSpeciesId,
+      unitUid: unit.uid,
+    });
+  };
+
+  const pushRecruitChoice = (sp: (typeof unownedSpecies)[number]): void => {
+    choices.push({
+      id: `recruit_${sp.id}`,
+      kind: 'recruit',
+      title: `Recruit ${sp.name}`,
+      desc: `${sp.pokeClass} — ${sp.ultName}: ${sp.ultDesc}`,
+      speciesId: sp.id,
+    });
+  };
+
+  const choices: RewardOption[] = [];
+
+  if (preferredUnbranched.length > 0) {
+    pushBranchChoice(pickRandom(preferredUnbranched));
   }
 
-  for (const item of shuffledPool) {
+  if (preferredEvolvable.length > 0 && choices.length < 3) {
+    pushEvolveChoice(pickRandom(preferredEvolvable));
+  }
+
+  if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
+    pushRecruitChoice(pickRandom(preferredSpecies));
+  }
+
+  for (const item of shuffle(preferredRewards)) {
     if (choices.length >= 3) break;
     choices.push(item);
+  }
+
+  // Fall back to excluded options only if needed to reach 3 choices
+  if (
+    canRecruit &&
+    choices.length < 3 &&
+    !choices.some((c) => c.kind === 'recruit') &&
+    excludedSpecies.length > 0
+  ) {
+    pushRecruitChoice(pickRandom(excludedSpecies));
+  }
+
+  for (const item of shuffle(excludedRewards)) {
+    if (choices.length >= 3) break;
+    choices.push(item);
+  }
+
+  if (
+    choices.length < 3 &&
+    !choices.some((c) => c.kind === 'branch') &&
+    excludedUnbranched.length > 0
+  ) {
+    pushBranchChoice(pickRandom(excludedUnbranched));
+  }
+
+  if (
+    choices.length < 3 &&
+    !choices.some((c) => c.kind === 'evolve') &&
+    excludedEvolvable.length > 0
+  ) {
+    pushEvolveChoice(pickRandom(excludedEvolvable));
   }
 
   return choices;
@@ -466,4 +651,44 @@ export function computeProjectileLaunch(
     startY: sy + Math.sin(rotation) * offset,
     rotation,
   };
+}
+
+/**
+ * Returns true when an enemy species has special tactical traits
+ * (bypasses defenders, ranged attack, non-ground movement, or heavy wall damage).
+ */
+export function isSpecialEnemy(
+  spec: Pick<
+    EnemySpecies,
+    'ignoresUnits' | 'range' | 'movementType' | 'wallDmgMult'
+  >,
+): boolean {
+  return (
+    Boolean(spec.ignoresUnits) ||
+    (spec.range ?? 1) > 1 ||
+    spec.movementType !== 'ground' ||
+    spec.wallDmgMult >= 2
+  );
+}
+
+/**
+ * Returns a concise 1-line tactical threat callout for an enemy species.
+ */
+export function getEnemyThreatSummary(spec: EnemySpecies): string {
+  if (spec.ignoresUnits) {
+    return 'Ignores Pokémon — rushes Core';
+  }
+  if ((spec.range ?? 1) > 1) {
+    return `Ranged attacker (${spec.range} tiles)`;
+  }
+  if (spec.movementType === 'fly') {
+    return 'Flying — bypasses walls & ground traps';
+  }
+  if (spec.movementType === 'burrow') {
+    return 'Burrower — tunnels under walls';
+  }
+  if (spec.wallDmgMult >= 2) {
+    return `Structure Breaker (${spec.wallDmgMult}× wall dmg)`;
+  }
+  return spec.roleLabel;
 }

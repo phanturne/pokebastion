@@ -1,6 +1,10 @@
 import Phaser from 'phaser';
 import { BGM_ASSETS, SFX_ASSETS } from '../audio/sfx';
-import { ENEMY_SPECIES, STARTER_UNLOCKED_IDS } from '../data/pokemon';
+import {
+  ENEMY_SPECIES,
+  STARTER_UNLOCKED_IDS,
+  STRUCTURE_SPECS,
+} from '../data/pokemon';
 import { loadPlayerSave } from '../engine/save';
 
 interface VfxManifestEntry {
@@ -152,10 +156,9 @@ export class BootScene extends Phaser.Scene {
       frameHeight: 16,
     });
     this.load.image('tex:core', 'assets/structures/core-pkcenter-mpw.png');
-    this.load.image('tex:wood_wall', 'assets/structures/wood_wall.png');
-    this.load.image('tex:stone_wall', 'assets/structures/stone_wall.png');
-    this.load.image('tex:berry_bush', 'assets/structures/berry_bush.png');
-    this.load.image('tex:barrel', 'assets/structures/barrel.png');
+    for (const kind of Object.keys(STRUCTURE_SPECS)) {
+      this.load.image(`tex:${kind}`, `assets/structures/${kind}.png`);
+    }
     this.load.image('tex:tree_oak', 'assets/structures/tree_oak.png');
     this.load.image('tex:tree_pine', 'assets/structures/tree_pine.png');
     this.load.image('deco:sprout1', 'assets/structures/deco_sprout_1.png');

@@ -312,7 +312,9 @@ function isPassable(
   movementType: MovementType,
 ): boolean {
   if (!inBounds(gx, gy)) return false;
-  if (movementType === 'fly') return true;
+  if (movementType === 'fly') {
+    return blockedMask.length === 0 || blockedMask[gy * GRID_COLS + gx] === 0;
+  }
   if (tiles[gy][gx] === 'water' || tiles[gy][gx] === 'tree') return false;
   if (movementType === 'ground' && blockedMask[gy * GRID_COLS + gx] !== 0) {
     return false;
@@ -325,10 +327,13 @@ function isUnitPassable(
   gy: number,
   tiles: TileKind[][],
   blockedMask: Uint8Array,
+  allowWater = false,
 ): boolean {
   if (!inBounds(gx, gy) || isBorderTile(gx, gy)) return false;
   const tile = tiles[gy][gx];
-  if (tile === 'water' || tile === 'tree' || tile === 'core') return false;
+  if ((tile === 'water' && !allowWater) || tile === 'tree' || tile === 'core') {
+    return false;
+  }
   if (blockedMask[gy * GRID_COLS + gx] !== 0) return false;
   return true;
 }
@@ -451,6 +456,7 @@ export function findPath(
   tiles: TileKind[][],
   blockedWalls: Set<string>,
   movementType: MovementType,
+  flyBlocked?: Set<string>,
 ): GridPoint[] | null {
   let refCore = CORE_CELLS[0];
   let refDist = Infinity;
@@ -463,7 +469,11 @@ export function findPath(
   }
 
   const blockedMask =
-    movementType === 'ground' ? toBlockedMask(blockedWalls) : new Uint8Array(0);
+    movementType === 'ground'
+      ? toBlockedMask(blockedWalls)
+      : movementType === 'fly' && flyBlocked && flyBlocked.size > 0
+        ? toBlockedMask(flyBlocked)
+        : new Uint8Array(0);
 
   return runAStar(
     start,
@@ -475,22 +485,53 @@ export function findPath(
 }
 
 /**
+ * 8-directional A* from `start` to a specific `target` tile for an enemy aggroing a unit.
+ * Allows stepping onto `target` even if occupied by a flying unit.
+ */
+export function findEnemyPathToTarget(
+  start: GridPoint,
+  target: GridPoint,
+  tiles: TileKind[][],
+  blockedWalls: Set<string>,
+  movementType: MovementType,
+  flyBlocked?: Set<string>,
+): GridPoint[] | null {
+  const blockedMask =
+    movementType === 'ground'
+      ? toBlockedMask(blockedWalls)
+      : movementType === 'fly' && flyBlocked && flyBlocked.size > 0
+        ? toBlockedMask(flyBlocked)
+        : new Uint8Array(0);
+
+  return runAStar(
+    start,
+    (gx, gy) =>
+      (gx === target.gx && gy === target.gy) ||
+      isPassable(gx, gy, tiles, blockedMask, movementType),
+    (gx, gy) => gx === target.gx && gy === target.gy,
+    (gx, gy) => Math.hypot(gx - target.gx, gy - target.gy),
+    target,
+  );
+}
+
+/**
  * 8-directional A* for a player Pokémon walking from `start` to `target`.
- * Avoids water, trees, core tiles, and active structures; allies can be walked through.
+ * Avoids trees, core tiles, active structures, and (unless `allowWater`) water; allies can be walked through.
  */
 export function findUnitPath(
   start: GridPoint,
   target: GridPoint,
   tiles: TileKind[][],
   blockedStructures: Set<string>,
+  allowWater = false,
 ): GridPoint[] | null {
   const blockedMask = toBlockedMask(blockedStructures);
-  if (!isUnitPassable(target.gx, target.gy, tiles, blockedMask)) {
+  if (!isUnitPassable(target.gx, target.gy, tiles, blockedMask, allowWater)) {
     return null;
   }
   return runAStar(
     start,
-    (gx, gy) => isUnitPassable(gx, gy, tiles, blockedMask),
+    (gx, gy) => isUnitPassable(gx, gy, tiles, blockedMask, allowWater),
     (gx, gy) => gx === target.gx && gy === target.gy,
     (gx, gy) => Math.hypot(gx - target.gx, gy - target.gy),
     target,
@@ -771,16 +812,18 @@ export function isNoBuildTile(
   gy: number,
   tiles: TileKind[][],
   portals?: readonly SpawnPortal[],
+  allowWater = false,
 ): boolean {
   if (!inBounds(gx, gy) || isBorderTile(gx, gy)) return true;
   const tile = tiles[gy][gx];
   if (
     tile === 'core' ||
     tile === 'spawn' ||
-    tile === 'water' ||
+    (tile === 'water' && !allowWater) ||
     tile === 'tree'
-  )
+  ) {
     return true;
+  }
   if (portals) {
     return isPortalBufferTile(gx, gy, portals);
   }

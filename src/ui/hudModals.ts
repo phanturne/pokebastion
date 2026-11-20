@@ -1,3 +1,4 @@
+import { getEvolutionTargets } from '../data/evolutions';
 import { MAP_CATALOG, createGridForMap } from '../data/maps';
 import { HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
 import {
@@ -16,15 +17,22 @@ import {
   HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
+  RARE_CANDY_COST,
   REVIVE_COST,
   getBranchSpec,
   getDraftCost,
   getEffectiveAtk,
   getEffectiveAttackIntervalMs,
   getEffectiveDef,
-  getEffectiveMoveRange,
   getEffectiveRange,
+  getPokemonReleaseRefund,
+  getRewardRerollCost,
 } from '../engine/rules';
+import {
+  POKEMON_ELEMENT_TYPES,
+  TYPE_CHART,
+  TYPE_COLORS,
+} from '../engine/typeChart';
 import {
   EggHatchResult,
   EggTier,
@@ -47,6 +55,9 @@ import {
   renderBranchTree,
   renderDraftSnowflake,
   renderPokeIcon,
+  renderSpeciesTypeBadges,
+  renderTargetPriorityControl,
+  renderTypeBadge,
 } from './hudShared';
 
 export interface ModalState {
@@ -54,6 +65,7 @@ export interface ModalState {
   showPokedex: boolean;
   showEggs: boolean;
   showHatchRates: boolean;
+  typeChartOpen: boolean;
   hatchResult: EggHatchResult | null;
   hatchSeq: number;
   pokedexFilter: 'all' | 'unlocked' | 'locked';
@@ -90,10 +102,10 @@ function getMapPreviewSvg(mapId: string): string {
   return svg;
 }
 
-function renderCreditsModal(): string {
-  return `
-    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
-      <div class="modal-card compact" role="dialog" aria-modal="true" aria-labelledby="modal-title-credits" tabindex="-1">
+function renderCreditsModal(snap: GameSnapshot | null): string {
+  const isHome = !snap || snap.phase === 'HOME';
+  const cardHtml = `
+      <div class="modal-card compact" role="dialog" aria-modal="${isHome ? 'true' : 'false'}" aria-labelledby="modal-title-credits" tabindex="-1">
         <div class="modal-header">
           <div class="modal-title" id="modal-title-credits">Asset Credits</div>
           <button type="button" class="btn" data-action="close-credits">Close</button>
@@ -130,8 +142,10 @@ function renderCreditsModal(): string {
           </div>
         </div>
       </div>
-    </div>
   `;
+  return isHome
+    ? `<div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />${cardHtml}</div>`
+    : cardHtml;
 }
 
 function renderPokedexProgressionHtml(
@@ -262,10 +276,10 @@ function renderPotentialTiersHtml(
   }).join('');
 
   return `
-    <div class="potential-tiers-box">
-      <div class="potential-tiers-title">Potential Tiers (★1–★5)</div>
+    <details class="potential-tiers-box">
+      <summary class="potential-tiers-title">Potential Tiers (★${potential}/${MAX_POTENTIAL})</summary>
       <div class="potential-tiers-list">${rows}</div>
-    </div>
+    </details>
   `;
 }
 
@@ -444,9 +458,9 @@ function renderPokedexModal(
                 class="${classes}"
                 data-action="inspect-pokedex"
                 data-id="${sp.id}"
+                title="${escapeHtml(`${sp.name} (${rarity})`)}"
               >
                 <div class="pokedex-card-top">
-                  <span class="pokedex-rarity-tag rarity-${rarity.toLowerCase()}">${escapeHtml(rarity)}</span>
                   <span class="pokedex-card-meta ${isUnlocked ? 'is-potential' : 'is-shards'}" aria-label="${isUnlocked ? `Potential ${potential} of ${MAX_POTENTIAL}` : `${shards} of ${unlockCost} shards`}">${cardMeta}</span>
                 </div>
                 ${renderPokeIcon(sp.id)}
@@ -474,6 +488,7 @@ function renderPokedexModal(
                 <span class="tag cost-tag">${inspectedSp.draftCost} pt${inspectedSp.draftCost === 1 ? '' : 's'}</span>
                 ${inspectedUnlocked ? `<span class="tag potential-tag">★${inspectedPotential}/${MAX_POTENTIAL}</span>` : '<span class="tag locked-tag">Locked</span>'}
               </div>
+              <div class="type-badge-row">${renderSpeciesTypeBadges(inspectedSp.id)}</div>
             </div>
           </div>
         </div>
@@ -487,10 +502,10 @@ function renderPokedexModal(
           <div class="draft-branches">
             <strong>Branches:</strong>
             ${inspectedSp.branches
-              .map(
-                (b, idx) =>
-                  `<div class="branch-line">• <em>Path ${idx + 1}: ${escapeHtml(b.name)}</em> ${formatBranchChips(b)} — ${escapeHtml(b.desc)}</div>`,
-              )
+              .map((b, idx) => {
+                const chips = formatBranchChips(b);
+                return `<div class="branch-line">• <em>Path ${idx + 1}: ${escapeHtml(b.name)}</em> ${chips || `— ${escapeHtml(b.desc)}`}</div>`;
+              })
               .join('')}
           </div>
         </div>
@@ -711,9 +726,9 @@ function renderEggHatchRevealModal(
       ? `<div class="hatch-shards-summary">${rewardSummaryParts.join(' · ')}</div>`
       : '';
 
-  return `
-    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
-      <div class="modal-card compact hatch-reveal-modal ${rarityClass}" data-hatch-seq="${hatchSeq}" role="dialog" aria-modal="true" aria-labelledby="modal-title-hatch-reveal" tabindex="-1">
+  const isHome = !snap || snap.phase === 'HOME';
+  const cardHtml = `
+      <div class="modal-card compact hatch-reveal-modal ${rarityClass}" data-hatch-seq="${hatchSeq}" role="dialog" aria-modal="${isHome ? 'true' : 'false'}" aria-labelledby="modal-title-hatch-reveal" tabindex="-1">
         <div class="hatch-reveal-head">
           <span class="tag">${escapeHtml(EGG_TIER_META[result.eggTier].label)}</span>
         </div>
@@ -745,8 +760,10 @@ function renderEggHatchRevealModal(
           <button type="button" class="btn" data-action="close-hatch-result">Close</button>
         </div>
       </div>
-    </div>
   `;
+  return isHome
+    ? `<div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />${cardHtml}</div>`
+    : cardHtml;
 }
 
 function renderHomeModal(snap: GameSnapshot): string {
@@ -757,26 +774,46 @@ function renderHomeModal(snap: GameSnapshot): string {
     (snap.eggs?.rare ?? 0) +
     (snap.eggs?.master ?? 0);
   return `
-    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
+    <div class="menu-backdrop home-backdrop"><img class="menu-backdrop-img home-bg-drift" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
       <div class="modal-card compact home-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-home" tabindex="-1">
-        <a
-          class="btn btn-icon home-github-btn"
-          href="https://github.com/phanturne/pokebastion"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="GitHub Repository"
-          title="View on GitHub"
-        >${SVG_GITHUB}</a>
-        <div class="home-title" id="modal-title-home">PokéBastion TD</div>
-        <p class="home-subtitle">
-          Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center across 10 waves.
-        </p>
+        <div class="home-bg-hit" aria-hidden="true"></div>
+        <div class="home-top-controls">
+          <button
+            type="button"
+            class="btn btn-icon"
+            data-action="toggle-mute"
+            aria-pressed="${snap.muted}"
+            aria-label="${snap.muted ? 'Sound: Off' : 'Sound: On'}"
+            title="${snap.muted ? 'Sound: Off' : 'Sound: On'}"
+          >${snap.muted ? SVG_SOUND_OFF : SVG_SOUND_ON}</button>
+          <button
+            type="button"
+            class="btn btn-icon"
+            data-action="toggle-shake"
+            aria-pressed="${!snap.screenShakeEnabled}"
+            aria-label="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}"
+            title="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}"
+          >${snap.screenShakeEnabled ? SVG_SHAKE_ON : SVG_SHAKE_OFF}</button>
+          <a
+            class="btn btn-icon home-github-btn"
+            href="https://github.com/phanturne/pokebastion"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub Repository"
+            title="View on GitHub"
+          >${SVG_GITHUB}</a>
+        </div>
+        <div class="home-hero">
+          <div class="home-title" id="modal-title-home">PokéBastion TD</div>
+          <p class="home-subtitle">
+            Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center.
+          </p>
+        </div>
+        <div class="home-press-play" aria-hidden="true">Click anywhere to play</div>
         <div class="home-actions">
           <button type="button" class="btn btn-primary home-btn" data-action="home-play">Play</button>
           <button type="button" class="btn home-btn" data-action="open-pokedex">Pokédex (${unlockedCount}/${totalCount})</button>
-          <button type="button" class="btn home-btn" data-action="open-eggs">Eggs (${totalEggs})</button>
-          <button type="button" class="btn home-btn home-toggle-btn" data-action="toggle-mute" aria-pressed="${snap.muted}" title="${snap.muted ? 'Sound: Off' : 'Sound: On'}">${snap.muted ? SVG_SOUND_OFF : SVG_SOUND_ON}<span>Sound</span></button>
-          <button type="button" class="btn home-btn home-toggle-btn" data-action="toggle-shake" aria-pressed="${!snap.screenShakeEnabled}" title="${snap.screenShakeEnabled ? 'Screen shake: On' : 'Screen shake: Off'}">${snap.screenShakeEnabled ? SVG_SHAKE_ON : SVG_SHAKE_OFF}<span>Shake</span></button>
+          <button type="button" class="btn home-btn ${totalEggs > 0 ? 'has-eggs' : ''}" data-action="open-eggs">Eggs (${totalEggs})${totalEggs > 0 ? '<span class="egg-notify-dot" aria-hidden="true"></span>' : ''}</button>
           <button type="button" class="btn home-btn" data-action="toggle-credits">Credits</button>
         </div>
       </div>
@@ -812,18 +849,18 @@ function renderMapSelectModal(
       return `
         <button
           type="button"
-          class="map-card ${isCurrent ? 'is-selected' : ''} ${m.comingSoon ? 'is-coming-soon' : ''}"
+          class="map-card btd6-map-card ${isCurrent ? 'is-selected' : ''} ${m.comingSoon ? 'is-coming-soon' : ''}"
           data-action="select-map"
           data-id="${escapeHtml(m.id)}"
+          title="${escapeHtml(m.desc)}"
           ${m.comingSoon ? 'disabled' : ''}
         >
-          <div class="map-preview-wrap">
-            ${previewHtml}
+          <div class="map-card-banner">
+            <span class="map-card-title">${escapeHtml(m.name.toUpperCase())}</span>
             <span class="tag map-diff-badge ${diffClass}">${escapeHtml(m.difficulty)}</span>
           </div>
-          <div class="map-card-body">
-            <div class="map-card-title">${escapeHtml(m.name)}</div>
-            <div class="map-card-desc">${escapeHtml(m.desc)}</div>
+          <div class="map-preview-wrap">
+            ${previewHtml}
           </div>
         </button>
       `;
@@ -833,21 +870,22 @@ function renderMapSelectModal(
   const filterTabsHtml = difficulties
     .map(
       (d) =>
-        `<button type="button" class="btn ${mapDifficultyFilter === d ? 'btn-primary' : ''}" data-action="map-filter" data-id="${d}" aria-pressed="${mapDifficultyFilter === d}">${d}</button>`,
+        `<button type="button" class="btn map-diff-tab ${mapDifficultyFilter === d ? 'btn-primary is-active' : ''}" data-action="map-filter" data-id="${d}" aria-pressed="${mapDifficultyFilter === d}">${d}</button>`,
     )
     .join('');
 
   return `
     <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
-      <div class="modal-card draft-modal map-select-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-map-select" tabindex="-1">
-        <div class="modal-header">
-          <div class="modal-title" id="modal-title-map-select">Select Battlefield</div>
-          <div class="btn-row" style="margin:0">
-            ${filterTabsHtml}
-            <button type="button" class="btn" data-action="back-home">Home</button>
-          </div>
+      <div class="modal-card draft-modal map-select-modal btd6-map-select" role="dialog" aria-modal="true" aria-labelledby="modal-title-map-select" tabindex="-1">
+        <div class="btd6-map-topbar">
+          <button type="button" class="btn btd6-back-btn" data-action="back-home" aria-label="Back to Home" title="Back to Home">← Back</button>
+          <div class="modal-title btd6-map-heading" id="modal-title-map-select">Select Battlefield</div>
+          <div class="btd6-topbar-spacer"></div>
         </div>
-        <div class="map-grid">${mapCardsHtml}</div>
+        <div class="map-grid btd6-map-grid">${mapCardsHtml}</div>
+        <div class="btd6-difficulty-bar" role="tablist" aria-label="Map Difficulty">
+          ${filterTabsHtml}
+        </div>
       </div>
     </div>
   `;
@@ -971,6 +1009,7 @@ function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
                 ${inspectedSp.unlockedStarter ? '<span class="tag starter-tag">Starter</span>' : ''}
                 <span class="tag ${statusPillClass}">${statusPillLabel}</span>
               </div>
+              <div class="type-badge-row">${renderSpeciesTypeBadges(inspectedSp.id)}</div>
             </div>
           </div>
         </div>
@@ -993,8 +1032,12 @@ function renderDraftModal(snap: GameSnapshot, state: ModalState): string {
           <div class="card-hint">Remaining: ${remaining} pts · Team: ${snap.draftIds.length} / ${MAX_ACTIVE_UNITS}</div>
         </div>
         <div class="btn-row" style="margin:0">
-          <button type="button" class="btn btn-icon" data-action="back-map-select" title="Change Map" aria-label="Maps">🗺</button>
-          <button type="button" class="btn btn-icon" data-action="back-home" title="Home" aria-label="Home">⌂</button>
+          <button type="button" class="btn btn-icon" data-action="back-map-select" title="Back to Map Select" aria-label="Back to Map Select">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+          </button>
+          <button type="button" class="btn btn-icon" data-action="back-home" title="Home" aria-label="Home">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
+          </button>
           <button type="button" class="btn btn-sm" data-action="open-pokedex" title="Open Pokédex">📖 Pokédex</button>
           <button type="button" class="btn btn-sm" data-action="clear-draft" title="Clear team" ${snap.draftIds.length === 0 ? 'disabled' : ''}>↺ Clear</button>
           <button type="button" class="btn btn-sm btn-primary" data-action="confirm-draft" ${snap.draftIds.length === 0 ? 'disabled' : ''}>▶ Start Game</button>
@@ -1029,9 +1072,9 @@ function renderBranchRewardModal(snap: GameSnapshot): string {
     .join('');
 
   return `
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title-branch" tabindex="-1">
+    <div class="modal-card" role="dialog" aria-modal="false" aria-labelledby="modal-title-branch" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title" id="modal-title-branch">Specialize ${escapeHtml(sp.name)} — Choose 1 of 3</div>
+        <div class="modal-title" id="modal-title-branch">${renderPokeIcon(sp.id)} Specialize ${escapeHtml(sp.name)} — Choose 1 of 3</div>
       </div>
       <div class="reward-grid">${branchCards}</div>
     </div>
@@ -1039,22 +1082,42 @@ function renderBranchRewardModal(snap: GameSnapshot): string {
 }
 
 function renderRewardModal(snap: GameSnapshot): string {
+  const rerollCost = getRewardRerollCost(snap.rewardRerollsUsed);
+  const canReroll = snap.gold >= rerollCost;
   const cards = snap.rewardChoices
-    .map(
-      (choice) => `
+    .map((choice) => {
+      const badge = choice.kind === 'evolve' ? 'EVOLVE' : choice.kind;
+      const iconSpeciesId =
+        choice.kind === 'evolve' && choice.targetSpeciesId
+          ? choice.targetSpeciesId
+          : (choice.kind === 'recruit' || choice.kind === 'branch') &&
+              choice.speciesId
+            ? choice.speciesId
+            : null;
+      const iconHtml = iconSpeciesId ? renderPokeIcon(iconSpeciesId) : '';
+      return `
         <button type="button" class="reward-card" data-action="pick-reward" data-id="${escapeHtml(choice.id)}">
-          <span class="tag">${escapeHtml(choice.kind)}</span>
+          <span class="tag">${escapeHtml(badge)}</span>
+          ${iconHtml}
           <div class="reward-title">${escapeHtml(choice.title)}</div>
           <div class="reward-desc">${escapeHtml(choice.desc)}</div>
         </button>
-      `,
-    )
+      `;
+    })
     .join('');
 
   return `
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title-reward" tabindex="-1">
+    <div class="modal-card" role="dialog" aria-modal="false" aria-labelledby="modal-title-reward" tabindex="-1">
       <div class="modal-header">
         <div class="modal-title" id="modal-title-reward">Wave Cleared — Choose a Reward</div>
+        <button
+          type="button"
+          class="btn btn-accent"
+          data-action="reroll-rewards"
+          ${canReroll ? '' : 'disabled'}
+        >
+          Reroll (₽${rerollCost})
+        </button>
       </div>
       <div class="reward-grid">${cards}</div>
     </div>
@@ -1114,12 +1177,6 @@ function renderExpandedUnitModal(
     snap.upgrades,
   );
   const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const mov = getEffectiveMoveRange(
-    sp.moveRange,
-    snap.upgrades,
-    branch,
-    unit.speciesId,
-  );
   const intervalMs = getEffectiveAttackIntervalMs(
     unit.speciesId,
     snap.artifacts,
@@ -1148,7 +1205,7 @@ function renderExpandedUnitModal(
     .join('');
 
   return `
-    <div class="modal-card draft-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-unit" tabindex="-1">
+    <div class="modal-card draft-modal" role="dialog" aria-modal="false" aria-labelledby="modal-title-unit" tabindex="-1">
       <div class="modal-header">
         <div class="unit-name-wrap">
           ${renderPokeIcon(sp.id)}
@@ -1156,15 +1213,24 @@ function renderExpandedUnitModal(
           <span class="tag">${escapeHtml(sp.pokeClass)}</span>
           ${branch ? `<span class="tag branch-tag">${escapeHtml(branch.name)}</span>` : ''}
         </div>
-        <button type="button" class="btn" data-action="close-expanded-unit">Close</button>
+        <div class="btn-row">
+          ${
+            snap.phase === 'PREP'
+              ? `<button type="button" class="btn btn-danger" data-action="release-unit" data-id="${unit.uid}" ${snap.activeUnits.length > 1 ? '' : 'disabled'}>Release (+₽${getPokemonReleaseRefund(unit.speciesId, unit.branchId)})</button>`
+              : ''
+          }
+          <button type="button" class="btn" data-action="close-expanded-unit">Close</button>
+        </div>
       </div>
 
-      <div class="unit-stats-grid unit-stats-grid-6">
+      <div class="type-badge-row">${renderSpeciesTypeBadges(sp.id)}</div>
+      ${renderTargetPriorityControl(unit)}
+
+      <div class="unit-stats-grid unit-stats-grid-5">
         <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.ceil(unit.hp)}/${unit.maxHp}</span></div>
         <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
         <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
         <div class="unit-stat"><span class="unit-stat-lbl">RANGE</span><span class="unit-stat-val">${range}</span></div>
-        <div class="unit-stat"><span class="unit-stat-lbl">MOVE</span><span class="unit-stat-val">${mov}</span></div>
         <div class="unit-stat"><span class="unit-stat-lbl">ATK/S</span><span class="unit-stat-val">${atkSpd}</span></div>
       </div>
 
@@ -1246,84 +1312,192 @@ function renderShopModal(snap: GameSnapshot): string {
     })
     .join('');
 
-  return `
-    <div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />
-      <div class="modal-card compact" role="dialog" aria-modal="true" aria-labelledby="modal-title-shop" tabindex="-1">
-        <div class="modal-header">
-          <div>
-            <div class="modal-title" id="modal-title-shop">Wave ${snap.wave} Merchant Shop</div>
-            <div class="modal-sub">Stock up on Held Items and heal your team before Wave ${snap.wave + 1}.</div>
+  const rareCandyRows = snap.activeUnits
+    .flatMap((u) => {
+      const targets = getEvolutionTargets(u.speciesId);
+      const fromName = POKEMON_SPECIES[u.speciesId]?.name ?? u.speciesId;
+      return targets.map((targetId) => {
+        const toName = POKEMON_SPECIES[targetId]?.name ?? targetId;
+        return `
+          <div class="shop-care-chip">
+            ${renderPokeIcon(u.speciesId)}
+            <span>${escapeHtml(fromName)} → ${escapeHtml(toName)}</span>
+            <button
+              type="button"
+              class="btn btn-primary btn-xs"
+              data-action="buy-rare-candy"
+              data-unit="${u.uid}"
+              data-id="${targetId}"
+              ${snap.gold >= RARE_CANDY_COST ? '' : 'disabled'}
+            >
+              Rare Candy ₽${RARE_CANDY_COST}
+            </button>
           </div>
-          <span class="stat-pill"><span class="stat-label">Gold</span><span class="stat-val gold">₽${snap.gold}</span></span>
+        `;
+      });
+    })
+    .join('');
+
+  return `
+    <div class="modal-card compact" role="dialog" aria-modal="false" aria-labelledby="modal-title-shop" tabindex="-1">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="modal-title-shop">Wave ${snap.wave} Merchant Shop</div>
+          <div class="modal-sub">Stock up on Held Items and heal your team before Wave ${snap.wave + 1}.</div>
         </div>
-        <div class="shop-modal-grid">${itemRows}</div>
-        ${
-          careRows
-            ? `<div class="shop-care-section">
-                <div class="section-header"><span>Team Care</span><span>${careUnits.length} injured</span></div>
-                <div class="shop-care-list">${careRows}</div>
-              </div>`
-            : ''
-        }
-        <div class="modal-footer-row">
-          <span class="card-hint">Bag: ${snap.heldItemInventory.length} held item(s) ready to equip in Prep.</span>
-          <button type="button" class="btn btn-primary" data-action="close-shop">
-            Continue to Wave ${snap.wave + 1}
-          </button>
-        </div>
+        <span class="stat-pill"><span class="stat-label">Gold</span><span class="stat-val gold">₽${snap.gold}</span></span>
+      </div>
+      <div class="shop-modal-grid">${itemRows}</div>
+      ${
+        rareCandyRows
+          ? `<div class="shop-care-section">
+              <div class="section-header"><span>Rare Candy (Evolution)</span><span>₽${RARE_CANDY_COST}</span></div>
+              <div class="shop-care-list">${rareCandyRows}</div>
+            </div>`
+          : ''
+      }
+      ${
+        careRows
+          ? `<div class="shop-care-section">
+              <div class="section-header"><span>Team Care</span><span>${careUnits.length} injured</span></div>
+              <div class="shop-care-list">${careRows}</div>
+            </div>`
+          : ''
+      }
+      <div class="modal-footer-row">
+        <span class="card-hint">Bag: ${snap.heldItemInventory.length} held item(s) ready to equip in Prep.</span>
+        <button type="button" class="btn btn-primary" data-action="close-shop">
+          Continue to Wave ${snap.wave + 1}
+        </button>
       </div>
     </div>
   `;
 }
 
+function renderTypeChartModal(snap: GameSnapshot | null): string {
+  const isHome = !snap || snap.phase === 'HOME';
+  const headerCells = POKEMON_ELEMENT_TYPES.map((defType) => {
+    const abbr = defType.slice(0, 3).toUpperCase();
+    const color = TYPE_COLORS[defType];
+    return `<th scope="col" title="${escapeHtml(defType)}"><span class="type-abbr" style="--type-color:${color}">${abbr}</span></th>`;
+  }).join('');
+
+  const rows = POKEMON_ELEMENT_TYPES.map((atkType) => {
+    const cells = POKEMON_ELEMENT_TYPES.map((defType) => {
+      const raw = TYPE_CHART[atkType]?.[defType] ?? 1;
+      if (raw === 2) {
+        return `<td class="eff-cell eff-super" title="${escapeHtml(atkType)} → ${escapeHtml(defType)}: 1.5× (2.0× if 4×)">1.5×</td>`;
+      }
+      if (raw === 0.5) {
+        return `<td class="eff-cell eff-resist" title="${escapeHtml(atkType)} → ${escapeHtml(defType)}: 0.5×">0.5×</td>`;
+      }
+      if (raw === 0) {
+        return `<td class="eff-cell eff-immune" title="${escapeHtml(atkType)} → ${escapeHtml(defType)}: 0.35× (Immunity)">0.35×</td>`;
+      }
+      return `<td class="eff-cell eff-neutral" title="${escapeHtml(atkType)} → ${escapeHtml(defType)}: 1.0×">·</td>`;
+    }).join('');
+    return `<tr><th scope="row">${renderTypeBadge(atkType)}</th>${cells}</tr>`;
+  }).join('');
+
+  const cardHtml = `
+      <div class="modal-card type-chart-modal" role="dialog" aria-modal="${isHome ? 'true' : 'false'}" aria-labelledby="modal-title-type-chart" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="modal-title-type-chart">Elemental Type Chart</div>
+            <div class="card-hint">Applies to both unit attacks and enemy attacks. Dual-type defenders combine multipliers.</div>
+          </div>
+          <button type="button" class="btn btn-icon" data-action="close-type-chart" aria-label="Close Type Chart" title="Close">✕</button>
+        </div>
+        <div class="type-chart-legend">
+          <span class="legend-item eff-extremely"><strong>2.0×</strong> Double Super (4×)</span>
+          <span class="legend-item eff-super"><strong>1.5×</strong> Super Effective (2×)</span>
+          <span class="legend-item eff-neutral"><strong>1.0×</strong> Neutral</span>
+          <span class="legend-item eff-resist"><strong>0.5×</strong> Not Very Effective</span>
+          <span class="legend-item eff-immune"><strong>0.35×</strong> Double Resist / Immunity</span>
+        </div>
+        <div class="type-chart-scroll">
+          <table class="type-chart-table">
+            <thead>
+              <tr>
+                <th scope="col" class="type-chart-corner">ATK \\ DEF</th>
+                ${headerCells}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+  `;
+  return isHome
+    ? `<div class="menu-backdrop"><img class="menu-backdrop-img" src="assets/ui/menu-bg.jpg" alt="" aria-hidden="true" />${cardHtml}</div>`
+    : cardHtml;
+}
+
+export type ModalLayoutMode = 'fullscreen' | 'docked';
+
 export function renderModalHtml(
   snap: GameSnapshot | null,
   state: ModalState,
-): { html: string; invalidExpandedUnit?: boolean } {
+): {
+  html: string;
+  invalidExpandedUnit?: boolean;
+  layoutMode?: ModalLayoutMode;
+} {
+  const inGameMode: ModalLayoutMode =
+    snap !== null && snap.phase !== 'HOME' ? 'docked' : 'fullscreen';
   if (state.hatchResult) {
     return {
       html: renderEggHatchRevealModal(snap, state.hatchResult, state.hatchSeq),
+      layoutMode: inGameMode,
     };
   }
+  if (state.typeChartOpen) {
+    return { html: renderTypeChartModal(snap), layoutMode: inGameMode };
+  }
   if (state.showCredits) {
-    return { html: renderCreditsModal() };
+    return { html: renderCreditsModal(snap), layoutMode: inGameMode };
   }
   if (state.showPokedex) {
-    return { html: renderPokedexModal(snap, state) };
+    return { html: renderPokedexModal(snap, state), layoutMode: 'fullscreen' };
   }
   if (state.showEggs) {
-    return { html: renderEggsModal(snap, state) };
+    return { html: renderEggsModal(snap, state), layoutMode: 'fullscreen' };
   }
   if (!snap) {
     return { html: '' };
   }
   if (snap.phase === 'HOME') {
-    return { html: renderHomeModal(snap) };
+    return { html: renderHomeModal(snap), layoutMode: 'fullscreen' };
   }
   if (snap.phase === 'MAP_SELECT') {
-    return { html: renderMapSelectModal(snap, state.mapDifficultyFilter) };
+    return {
+      html: renderMapSelectModal(snap, state.mapDifficultyFilter),
+      layoutMode: 'fullscreen',
+    };
   }
   if (snap.phase === 'DRAFT') {
-    return { html: renderDraftModal(snap, state) };
+    return { html: renderDraftModal(snap, state), layoutMode: 'fullscreen' };
   }
   if (snap.phase === 'REWARD' && snap.pendingBranchUnitUid) {
-    return { html: renderBranchRewardModal(snap) };
+    return { html: renderBranchRewardModal(snap), layoutMode: 'docked' };
   }
   if (snap.phase === 'REWARD') {
-    return { html: renderRewardModal(snap) };
+    return { html: renderRewardModal(snap), layoutMode: 'docked' };
   }
   if (snap.phase === 'SHOP') {
-    return { html: renderShopModal(snap) };
+    return { html: renderShopModal(snap), layoutMode: 'docked' };
   }
   if (snap.phase === 'VICTORY' || snap.phase === 'DEFEAT') {
-    return { html: renderEndgameModal(snap) };
+    return { html: renderEndgameModal(snap), layoutMode: 'fullscreen' };
   }
   if (state.expandedUnitUid) {
     const html = renderExpandedUnitModal(snap, state.expandedUnitUid);
     if (!html) {
       return { html: '', invalidExpandedUnit: true };
     }
-    return { html };
+    return { html, layoutMode: 'docked' };
   }
   return { html: '' };
 }

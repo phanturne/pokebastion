@@ -177,6 +177,9 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await expect(
       page.locator('[data-action="select-tool"][data-id="move_struct"]'),
     ).toHaveCount(0);
+    await expect(
+      page.locator('[data-action="select-tool"][data-id="sell_struct"]'),
+    ).toHaveCount(0);
     await page
       .locator('[data-action="select-tool"][data-id="wood_wall"]')
       .click();
@@ -215,6 +218,9 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await expect(
       page.locator('#bottom-bar .bp-slot:not(.reserve)'),
     ).toHaveCount(6);
+    await expect(
+      page.locator('#bottom-bar .bp-slot:not(.reserve) .bp-portrait-btn'),
+    ).toHaveCount(3);
     await expect(page.locator('#bottom-bar .bp-slot.reserve')).toHaveCount(3);
     await page
       .locator('#bottom-bar [data-action="expand-unit"]')
@@ -223,7 +229,19 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await expect(
       page.locator('[data-action="close-expanded-unit"]'),
     ).toBeVisible();
-    await page.locator('[data-action="close-expanded-unit"]').click();
+    const targetValue = page.locator('.modal-card .target-priority-value');
+    await expect(targetValue).toHaveText('First');
+    await page.locator('.modal-card [data-action="target-next"]').click();
+    await expect(targetValue).toHaveText('Last');
+    await page.locator('.modal-card [data-action="target-prev"]').click();
+    await expect(targetValue).toHaveText('First');
+    await expect(page.locator('[data-action="release-unit"]')).toBeEnabled();
+    const goldBeforeRelease = await readGold(page);
+    await page.locator('[data-action="release-unit"]').click();
+    await expect(
+      page.locator('#bottom-bar .bp-slot:not(.reserve) .bp-portrait-btn'),
+    ).toHaveCount(2);
+    expect(await readGold(page)).toBeGreaterThan(goldBeforeRelease);
 
     // Verify compact 1024x768 layout has no top-bar/side-panel overlap or horizontal overflow
     await page.setViewportSize({ width: 1024, height: 768 });
@@ -306,6 +324,23 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     await expect(rewardOrBranch.first().or(wave2Prep)).toBeVisible({
       timeout: 20_000,
     });
+
+    const rerollBtn = page.locator('[data-action="reroll-rewards"]');
+    if (await rerollBtn.isVisible()) {
+      const beforeIds = await page
+        .locator('[data-action="pick-reward"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-id')));
+      const goldBeforeReroll = await readGold(page);
+      await rerollBtn.click();
+      await expect
+        .poll(async () =>
+          page
+            .locator('[data-action="pick-reward"]')
+            .evaluateAll((els) => els.map((e) => e.getAttribute('data-id'))),
+        )
+        .not.toEqual(beforeIds);
+      expect(await readGold(page)).toBe(goldBeforeReroll - 20);
+    }
 
     for (let i = 0; i < 4; i++) {
       if (await wave2Prep.isVisible()) break;
