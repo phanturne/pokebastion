@@ -14,7 +14,10 @@ export default defineConfig({
           if (normalized.includes('node_modules/phaser/')) {
             return 'vendor-phaser';
           }
-          if (normalized.includes('/src/data/')) {
+          if (
+            normalized.includes('/src/data/') ||
+            normalized.includes('/src/engine/kits')
+          ) {
             return 'game-data';
           }
           return undefined;

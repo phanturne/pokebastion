@@ -1,6 +1,12 @@
 import { HELD_ITEMS, POKEMON_SPECIES, STRUCTURE_SPECS } from '../data/pokemon';
 import { getWavesForRun } from '../data/waves';
 import {
+  computeUnitAtk,
+  computeUnitAttackIntervalMs,
+  computeUnitDef,
+  computeUnitRange,
+} from '../engine/combat';
+import {
   HEAL_COST,
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
@@ -8,7 +14,6 @@ import {
   REVIVE_COST,
   getBranchSpec,
   getEffectiveAtk,
-  getEffectiveAttackIntervalMs,
   getEffectiveDef,
   getEffectiveMaxHp,
   getEffectiveRange,
@@ -556,27 +561,59 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
   const canCastUlt = snap.phase === 'COMBAT' && ultReady;
   const branch = getBranchSpec(unit.speciesId, unit.branchId);
 
-  const atk = getEffectiveAtk(
+  const baseAtk = getEffectiveAtk(
     unit.speciesId,
     snap.upgrades,
     false,
     unit.branchId,
     unit.heldItems,
   );
-  const def = getEffectiveDef(
-    unit.speciesId,
-    unit.branchId,
-    unit.heldItems,
-    snap.upgrades,
-  );
-  const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
+  const atk = unit.effectiveAtk ?? baseAtk;
+  const def =
+    unit.effectiveDef ??
+    getEffectiveDef(
+      unit.speciesId,
+      unit.branchId,
+      unit.heldItems,
+      snap.upgrades,
+    );
+  const range =
+    unit.effectiveRange ??
+    getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
+
+  const badges = unit.statusBadges ?? [];
+  const badgeTip =
+    badges.length > 0
+      ? `\nActive: ${badges.map((b) => b.desc).join(' · ')}`
+      : '';
 
   const tipLines = [
     `${species.name}${branch ? ` (${branch.name})` : ''} · ${species.pokeClass}`,
     `HP ${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp} | ATK ${atk} | DEF ${def} | RNG ${range}`,
     `Ult: ${species.ultName} (${Math.floor(unit.ult)}/${unit.ultMax})`,
-    'Click to select · Double-click for Details',
+    `Click to select · Double-click for Details${badgeTip}`,
   ].join('\n');
+
+  const visibleBadges = badges.slice(0, 3);
+  const hiddenBadges = badges.slice(3);
+  const overflowKind = hiddenBadges.some((b) => b.kind === 'debuff')
+    ? 'debuff'
+    : 'buff';
+  const statusColHtml =
+    visibleBadges.length > 0
+      ? `<div class="bp-status-col">${visibleBadges
+          .map(
+            (b) =>
+              `<span class="bp-status-badge ${b.kind}" title="${escapeHtml(b.desc)}">${escapeHtml(b.icon)}</span>`,
+          )
+          .join('')}${
+          hiddenBadges.length > 0
+            ? `<span class="bp-status-badge ${overflowKind}" title="${escapeHtml(
+                hiddenBadges.map((b) => b.desc).join(' · '),
+              )}">+${hiddenBadges.length}</span>`
+            : ''
+        }</div>`
+      : '';
 
   const heldRow = Array.from({ length: MAX_HELD_ITEMS })
     .map((_, idx) => {
@@ -614,6 +651,7 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
     <div class="bp-slot ${isSelected ? 'selected' : ''} ${unit.fainted ? 'fainted' : ''} ${ultReady ? 'ult-ready' : ''}">
       <div class="bp-items-row">${heldRow}</div>
       <div class="bp-portrait-wrap">
+        ${statusColHtml}
         <button
           type="button"
           class="bp-portrait-btn"
@@ -824,28 +862,42 @@ export function renderUnitPopoverHtml(
   if (!species) return '';
 
   const branch = getBranchSpec(unit.speciesId, unit.branchId);
-  const atk = getEffectiveAtk(
+  const potential = snap.pokemonProgress[unit.speciesId]?.potential ?? 0;
+  const baseAtk = computeUnitAtk(
     unit.speciesId,
     snap.upgrades,
     false,
     unit.branchId,
     unit.heldItems,
+    potential,
   );
-  const def = getEffectiveDef(
+  const baseDef = computeUnitDef(
     unit.speciesId,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
-  const range = getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
-  const intervalMs = getEffectiveAttackIntervalMs(
+  const baseRange = computeUnitRange(
+    unit.speciesId,
+    unit.branchId,
+    snap.upgrades,
+    potential,
+  );
+  const baseIntervalMs = computeUnitAttackIntervalMs(
     unit.speciesId,
     snap.artifacts,
     unit.branchId,
     unit.heldItems,
     snap.upgrades,
+    potential,
   );
+  const atk = unit.effectiveAtk ?? baseAtk;
+  const def = unit.effectiveDef ?? baseDef;
+  const range = unit.effectiveRange ?? baseRange;
+  const intervalMs = unit.effectiveAttackIntervalMs ?? baseIntervalMs;
   const atkSpd = (1000 / Math.max(1, intervalMs)).toFixed(2);
+  const badges = unit.statusBadges ?? [];
 
   const ultPctNum = pct(unit.ult, unit.ultMax);
   const ultReady = !unit.fainted && unit.ult >= unit.ultMax;
@@ -890,7 +942,7 @@ export function renderUnitPopoverHtml(
                 <div class="held-slot-icon filled" title="${escapeHtml(`${item.name}: ${item.desc}`)}">
                   ${icon}
                   ${
-                    snap.phase === 'PREP'
+                    snap.phase === 'PREP' || snap.phase === 'SHOP'
                       ? `<button type="button" class="held-slot-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" aria-label="Unequip ${escapeHtml(item.name)}" title="Unequip ${escapeHtml(item.name)}">×</button>`
                       : ''
                   }
@@ -916,11 +968,21 @@ export function renderUnitPopoverHtml(
     ${renderTargetPriorityControl(unit)}
     <div class="popover-stats-grid">
       <div class="unit-stat"><span class="unit-stat-lbl">HP</span><span class="unit-stat-val">${Math.max(0, Math.ceil(unit.hp))}/${unit.maxHp}</span></div>
-      <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val">${atk}</span></div>
-      <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val">${def}</span></div>
-      <div class="unit-stat"><span class="unit-stat-lbl">RNG</span><span class="unit-stat-val">${range}</span></div>
-      <div class="unit-stat"><span class="unit-stat-lbl">SPD</span><span class="unit-stat-val">${atkSpd}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">ATK</span><span class="unit-stat-val ${atk > baseAtk ? 'stat-boosted' : ''}" title="Base ${baseAtk} → Live ${atk}">${atk}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">DEF</span><span class="unit-stat-val ${def > baseDef ? 'stat-boosted' : ''}" title="Base ${baseDef} → Live ${def}">${def}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">RNG</span><span class="unit-stat-val ${range > baseRange ? 'stat-boosted' : ''}">${range}</span></div>
+      <div class="unit-stat"><span class="unit-stat-lbl">SPD</span><span class="unit-stat-val ${intervalMs < baseIntervalMs ? 'stat-boosted' : ''}">${atkSpd}</span></div>
     </div>
+    ${
+      badges.length > 0
+        ? `<div class="popover-buffs-row">${badges
+            .map(
+              (b) =>
+                `<span class="popover-buff-pill ${b.kind}" title="${escapeHtml(b.desc)}">${escapeHtml(b.icon)} ${escapeHtml(b.label)}</span>`,
+            )
+            .join('')}</div>`
+        : ''
+    }
     <div class="popover-kit">
       <div class="popover-kit-line"><strong>Passive:</strong> ${escapeHtml(species.passiveDesc)}</div>
       <div class="popover-kit-line"><strong>Basic:</strong> ${escapeHtml(species.basicDesc)}</div>

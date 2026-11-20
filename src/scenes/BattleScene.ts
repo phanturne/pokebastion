@@ -48,6 +48,11 @@ import {
   UnitTargetCandidate,
 } from '../engine/combat';
 import {
+  computeHazardDamage,
+  getSpeciesKit,
+  HAZARD_SPECS,
+} from '../engine/kits';
+import {
   EffectivenessTier,
   computeTypeEffectiveness,
   getSpeciesAttackType,
@@ -113,11 +118,13 @@ import {
   GamePhase,
   GameSnapshot,
   GridStructure,
+  HazardKind,
   RewardOption,
   RunDifficulty,
   StructureKind,
   TILE_SIZE,
   TileKind,
+  UnitStatusBadge,
 } from '../types';
 
 const CANVAS_WIDTH = GRID_COLS * TILE_SIZE;
@@ -178,6 +185,9 @@ interface EnemyEntity {
   burnTimerMs: number;
   burnDps: number;
   burnTickMs: number;
+  poisonTimerMs: number;
+  poisonDps: number;
+  poisonTickMs: number;
   slowTimerMs: number;
   stunTimerMs: number;
   hitFlashTimerMs: number;
@@ -197,8 +207,21 @@ interface SpawnEntry {
   isBoss: boolean;
 }
 
+interface HazardEntity {
+  uid: string;
+  kind: HazardKind;
+  gx: number;
+  gy: number;
+  ownerUid: string;
+  casterAtk: number;
+  charges: number;
+  ttlMs: number;
+  triggeredEnemyUids: Set<string>;
+  graphic: Phaser.GameObjects.Graphics;
+}
+
 function isHealUltSpecies(speciesId: string): boolean {
-  return speciesId === '0001' || speciesId === '0012';
+  return getSpeciesKit(speciesId).ultMode === 'heal_aoe';
 }
 
 function tileCenterX(gx: number): number {
@@ -310,6 +333,9 @@ export class BattleScene extends Phaser.Scene {
   private heldItemInventory: string[] = [];
   private structures: StructureEntity[] = [];
   private enemies: EnemyEntity[] = [];
+  private hazards: HazardEntity[] = [];
+  private passiveHazardTimerMs = 0;
+  private auraRegenTimerMs = 0;
   private spawnQueue: SpawnEntry[] = [];
   private spawnQueueIndex = 0;
   private isUpdatingEnemies = false;
@@ -632,6 +658,7 @@ export class BattleScene extends Phaser.Scene {
     this.inCombatFrame = true;
     try {
       this.processSpawnQueue();
+      this.stepHazardsAndAuras(simDtMs);
       this.updateSupportStructures(simDtMs);
       this.updateLightningRods(simDtMs);
       this.updateEnemies(simDtMs);
@@ -702,10 +729,18 @@ export class BattleScene extends Phaser.Scene {
       selectedStructureUid: this.selectedStructureUid,
       movingStructureUid: this.movingStructureUid,
       aimingUltUnitUid: this.aimingUltUnitUid,
-      activeUnits: this.units.map((u) => ({
-        ...u.data,
-        heldItems: [...u.data.heldItems],
-      })),
+      activeUnits: this.units.map((u) => {
+        const live = this.computeUnitLiveStats(u);
+        return {
+          ...u.data,
+          heldItems: [...u.data.heldItems],
+          effectiveAtk: live.atk,
+          effectiveDef: live.def,
+          effectiveRange: live.range,
+          effectiveAttackIntervalMs: live.attackIntervalMs,
+          statusBadges: live.statusBadges,
+        };
+      }),
       reserveIds: [...this.reserveIds],
       draftIds: [...this.draftIds],
       unlockedIds: getUnlockedIds(this.playerSave),
@@ -1336,6 +1371,7 @@ export class BattleScene extends Phaser.Scene {
     unit.data.speciesId = targetSpeciesId;
     unit.data.ultMax = targetSpec.ultMax;
     unit.data.ult = Math.min(unit.data.ult, targetSpec.ultMax);
+    unit.data.autoUlt = targetSpec.ultAutoDefault;
     unit.data.maxHp = this.computeUnitMaxHp(
       targetSpeciesId,
       unit.data.branchId,
@@ -1817,6 +1853,7 @@ export class BattleScene extends Phaser.Scene {
       e.hpBarFill.destroy();
     }
     this.enemies = [];
+    this.clearAllHazards();
 
     for (const v of this.transientVfx) {
       this.tweens.killTweensOf(v);
@@ -2303,6 +2340,37 @@ export class BattleScene extends Phaser.Scene {
           isDifferentTile &&
           this.isValidUnitTile(gx, gy, unit.data.speciesId)
         ) {
+          const kit = getSpeciesKit(unit.data.speciesId);
+          if (kit.canTeleport) {
+            if (this.ap < apCost) {
+              this.setStatus(`Need ${apCost} AP to teleport there.`);
+              return;
+            }
+            this.ap -= apCost;
+            this.spawnOneShotVfx(
+              'shadow/void-implosion',
+              unit.sprite.x,
+              unit.sprite.y,
+              0.7,
+            );
+            this.moveUnitToTile(unit, gx, gy, false);
+            this.spawnOneShotVfx(
+              'shadow/void-implosion',
+              tileCenterX(gx),
+              tileCenterY(gy),
+              0.8,
+            );
+            this.sfx.play(getSpeciesAttackSfx(unit.data.speciesId), 80);
+            this.selectedUnitUid = null;
+            this.slowMo = false;
+            this.refreshHighlights();
+            this.setStatus(
+              `${POKEMON_SPECIES[unit.data.speciesId].name} teleported (-${apCost} AP)!`,
+            );
+            this.emitSnapshot();
+            return;
+          }
+
           const allowWater = canUnitEnterWater(
             unit.data.speciesId,
             POKEMON_SPECIES[unit.data.speciesId],
@@ -3108,19 +3176,23 @@ export class BattleScene extends Phaser.Scene {
 
     // Ultimate aiming circle preview + target reticles
     if (this.aimingUltUnitUid && this.hoverTile) {
-      const cx = tileCenterX(this.hoverTile.gx);
-      const cy = tileCenterY(this.hoverTile.gy);
-      const radiusPx = ULT_RADIUS * TILE_SIZE;
-      this.highlightGraphics.fillStyle(0xfbbf24, 0.22);
-      this.highlightGraphics.fillCircle(cx, cy, radiusPx);
-      this.highlightGraphics.lineStyle(2, 0xfbbf24, 0.9);
-      this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
-
       const caster = this.units.find(
         (u) => u.data.uid === this.aimingUltUnitUid,
       );
+      const casterKit = caster ? getSpeciesKit(caster.data.speciesId) : null;
+      const isSniper = casterKit?.ultMode === 'sniper';
       const isHealUlt =
         caster !== undefined && isHealUltSpecies(caster.data.speciesId);
+      const ultRadius = casterKit?.ultRadius ?? ULT_RADIUS;
+
+      const cx = tileCenterX(this.hoverTile.gx);
+      const cy = tileCenterY(this.hoverTile.gy);
+      const radiusPx = ultRadius * TILE_SIZE;
+      const ringColor = isSniper ? 0xf43f5e : isHealUlt ? 0x4ade80 : 0xfbbf24;
+      this.highlightGraphics.fillStyle(ringColor, 0.2);
+      this.highlightGraphics.fillCircle(cx, cy, radiusPx);
+      this.highlightGraphics.lineStyle(2, ringColor, 0.9);
+      this.highlightGraphics.strokeCircle(cx, cy, radiusPx);
 
       if (isHealUlt) {
         for (const ally of this.units) {
@@ -3129,10 +3201,19 @@ export class BattleScene extends Phaser.Scene {
             Math.hypot(
               ally.data.gx - this.hoverTile.gx,
               ally.data.gy - this.hoverTile.gy,
-            ) <= ULT_RADIUS
+            ) <= ultRadius
           ) {
             this.drawTargetReticle(ally.sprite.x, ally.sprite.y, 0x4ade80);
           }
+        }
+      } else if (isSniper) {
+        const bestTarget = this.findSniperTargetAt(
+          this.hoverTile.gx,
+          this.hoverTile.gy,
+          ultRadius,
+        );
+        if (bestTarget) {
+          this.drawTargetReticle(bestTarget.x, bestTarget.y, 0xf43f5e);
         }
       } else {
         for (const enemy of this.enemies) {
@@ -3141,7 +3222,7 @@ export class BattleScene extends Phaser.Scene {
             Math.hypot(
               enemy.gx - this.hoverTile.gx,
               enemy.gy - this.hoverTile.gy,
-            ) <= ULT_RADIUS
+            ) <= ultRadius
           ) {
             this.drawTargetReticle(enemy.x, enemy.y, 0xfde047);
           }
@@ -3402,6 +3483,7 @@ export class BattleScene extends Phaser.Scene {
 
     const tx = tileCenterX(gx);
     const ty = tileCenterY(gy);
+    unit.sprite.setDepth(4 + gy * 0.1 + 0.04);
 
     if (animateDash) {
       this.playUnitAnim(unit, 'Walk');
@@ -3530,6 +3612,7 @@ export class BattleScene extends Phaser.Scene {
     const potential = this.getSpeciesPotential(unit.data.speciesId);
     unit.data.hitCount += 1;
 
+    const kit = getSpeciesKit(unit.data.speciesId);
     const attackType = getSpeciesAttackType(unit.data.speciesId);
     const {
       damage: dmg,
@@ -3547,7 +3630,11 @@ export class BattleScene extends Phaser.Scene {
       heldItems: unit.data.heldItems,
       targetHp: target.hp,
       targetMaxHp: target.maxHp,
-      targetHasStatus: target.burnTimerMs > 0 || target.slowTimerMs > 0,
+      targetHasStatus:
+        target.burnTimerMs > 0 ||
+        target.poisonTimerMs > 0 ||
+        target.slowTimerMs > 0 ||
+        target.stunTimerMs > 0,
       potential,
       subclass: spec.subclass,
       targetMovementType: ENEMY_SPECIES[target.speciesId]?.movementType,
@@ -3560,27 +3647,37 @@ export class BattleScene extends Phaser.Scene {
 
     const applyHit = () => {
       if (target.hp > 0) {
-        if (
-          unit.data.speciesId === '0004' ||
-          branch?.special === 'burn_spread'
-        ) {
-          target.burnTimerMs = 3000;
-          target.burnDps = 6;
+        if (kit.onHitBurn || branch?.special === 'burn_spread') {
+          const burnDuration = kit.onHitBurn?.durationMs ?? 3000;
+          const burnDps = kit.onHitBurn?.dps ?? 6;
+          target.burnTimerMs = Math.max(target.burnTimerMs, burnDuration);
+          target.burnDps = Math.max(target.burnDps, burnDps);
           if (branch?.special === 'burn_spread') {
             for (const other of this.enemies) {
               if (
                 other.uid !== target.uid &&
                 chebyshevDist(other.gx, other.gy, target.gx, target.gy) <= 1
               ) {
-                other.burnTimerMs = 2500;
-                other.burnDps = 5;
+                other.burnTimerMs = Math.max(other.burnTimerMs, 2500);
+                other.burnDps = Math.max(other.burnDps, 5);
               }
             }
           }
         }
-        if (unit.data.speciesId === '0012' || branch?.special === 'slow_hit') {
+        if (kit.onHitPoison) {
+          target.poisonTimerMs = Math.max(
+            target.poisonTimerMs,
+            kit.onHitPoison.durationMs,
+          );
+          target.poisonDps = Math.max(target.poisonDps, kit.onHitPoison.dps);
+        }
+        if (kit.onHitSlowMs || branch?.special === 'slow_hit') {
+          const baseSlow = Math.max(
+            kit.onHitSlowMs ?? 0,
+            branch?.special === 'slow_hit' ? 2000 : 0,
+          );
           const slowDuration = computeSlowDurationMs(
-            unit.data.speciesId === '0012' ? 3000 : 2000,
+            baseSlow,
             potential,
             spec.subclass,
           );
@@ -3589,7 +3686,34 @@ export class BattleScene extends Phaser.Scene {
             target.isBoss ? Math.round(slowDuration * 0.5) : slowDuration,
           );
         }
+        if (
+          kit.onHitStunEveryN &&
+          unit.data.hitCount % kit.onHitStunEveryN.everyN === 0 &&
+          !target.isBoss
+        ) {
+          target.stunTimerMs = Math.max(
+            target.stunTimerMs,
+            kit.onHitStunEveryN.durationMs,
+          );
+        }
         this.damageEnemy(target, dmg, unit, isCrit, effectivenessTier);
+
+        if (kit.onHitSplash && dmg > 0) {
+          const splashDmg = Math.max(
+            1,
+            Math.round(dmg * kit.onHitSplash.dmgRatio),
+          );
+          for (const other of [...this.enemies]) {
+            if (
+              other.uid !== target.uid &&
+              other.hp > 0 &&
+              Math.hypot(other.gx - target.gx, other.gy - target.gy) <=
+                kit.onHitSplash.radius
+            ) {
+              this.damageEnemy(other, splashDmg, unit, false);
+            }
+          }
+        }
 
         if (lifestealHeal > 0 && !unit.data.fainted) {
           const prevHp = unit.data.hp;
@@ -3636,10 +3760,31 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private findAutoUltTarget(unit: UnitEntity): GridPoint | null {
-    const isHealUlt = isHealUltSpecies(unit.data.speciesId);
+  private findSniperTargetAt(
+    gx: number,
+    gy: number,
+    radius: number,
+  ): EnemyEntity | null {
+    let best: EnemyEntity | null = null;
+    let bestScore = -Infinity;
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0) continue;
+      const dist = Math.hypot(enemy.gx - gx, enemy.gy - gy);
+      if (dist > radius) continue;
+      const score = (enemy.isBoss ? 1000 : 0) + enemy.hp * 0.01 - dist * 10;
+      if (score > bestScore) {
+        bestScore = score;
+        best = enemy;
+      }
+    }
+    return best;
+  }
 
-    const unitRange = this.getUnitRange(unit);
+  private findAutoUltTarget(unit: UnitEntity): GridPoint | null {
+    const kit = getSpeciesKit(unit.data.speciesId);
+    const isHealUlt = isHealUltSpecies(unit.data.speciesId);
+    const searchRange = kit.ultRange ?? this.getUnitRange(unit) + 2;
+
     if (isHealUlt) {
       let bestAlly: UnitEntity | null = null;
       let lowestRatio = 0.85;
@@ -3651,7 +3796,7 @@ export class BattleScene extends Phaser.Scene {
             unit.data.gy,
             ally.data.gx,
             ally.data.gy,
-            unitRange + 2,
+            searchRange,
           )
         ) {
           continue;
@@ -3663,21 +3808,69 @@ export class BattleScene extends Phaser.Scene {
         }
       }
       if (bestAlly) return { gx: bestAlly.data.gx, gy: bestAlly.data.gy };
-      if (unit.data.speciesId === '0001') return null;
+      if (!kit.ultSlowMs && !kit.ultStunMs) return null;
     }
 
-    const target = this.findUnitTargetInRange(unit, unitRange + 2);
+    if (kit.ultMode === 'sniper') {
+      let bestPriority: EnemyEntity | null = null;
+      let bestScore = -Infinity;
+      for (const enemy of this.enemies) {
+        if (enemy.hp <= 0) continue;
+        if (
+          !isInCircularRange(
+            unit.data.gx,
+            unit.data.gy,
+            enemy.gx,
+            enemy.gy,
+            searchRange,
+          )
+        ) {
+          continue;
+        }
+        const score = (enemy.isBoss ? 100000 : 0) + enemy.hp;
+        if (score > bestScore) {
+          bestScore = score;
+          bestPriority = enemy;
+        }
+      }
+      return bestPriority ? { gx: bestPriority.gx, gy: bestPriority.gy } : null;
+    }
+
+    const target = this.findUnitTargetInRange(unit, searchRange);
     return target ? { gx: target.gx, gy: target.gy } : null;
   }
 
   private executeAimedUlt(gx: number, gy: number): void {
     const unit = this.units.find((u) => u.data.uid === this.aimingUltUnitUid);
-    this.aimingUltUnitUid = null;
-    this.paused = false;
-    this.slowMo = false;
-
     if (unit && !unit.data.fainted && unit.data.ult >= unit.data.ultMax) {
+      const kit = getSpeciesKit(unit.data.speciesId);
+      const maxUltRange = kit.ultRange;
+      if (
+        maxUltRange !== undefined &&
+        !isInCircularRange(unit.data.gx, unit.data.gy, gx, gy, maxUltRange)
+      ) {
+        this.setStatus(
+          `Out of Ult range (max ${maxUltRange} tiles). Click closer or right-click to cancel.`,
+        );
+        return;
+      }
+      if (kit.ultMode === 'sniper') {
+        const ultRadius = kit.ultRadius ?? ULT_RADIUS;
+        if (!this.findSniperTargetAt(gx, gy, ultRadius)) {
+          this.setStatus(
+            'No enemy in sniper reticle. Click an enemy or right-click to cancel.',
+          );
+          return;
+        }
+      }
+      this.aimingUltUnitUid = null;
+      this.paused = false;
+      this.slowMo = false;
       this.castUltimate(unit, gx, gy);
+    } else {
+      this.aimingUltUnitUid = null;
+      this.paused = false;
+      this.slowMo = false;
     }
 
     this.refreshHighlights();
@@ -3686,6 +3879,7 @@ export class BattleScene extends Phaser.Scene {
 
   private castUltimate(unit: UnitEntity, gx: number, gy: number): void {
     const spec = POKEMON_SPECIES[unit.data.speciesId];
+    const kit = getSpeciesKit(unit.data.speciesId);
     unit.data.ult = 0;
     unit.data.facingDir = vectorToPmdDir(
       gx - unit.data.gx,
@@ -3696,6 +3890,7 @@ export class BattleScene extends Phaser.Scene {
 
     const tx = tileCenterX(gx);
     const ty = tileCenterY(gy);
+    unit.sprite.setDepth(4 + gy * 0.1 + 0.04);
     this.spawnOneShotVfx(spec.ultVfx, tx, ty, 1.15);
     this.sfx.play(getSpeciesUltSfx(unit.data.speciesId), 100);
 
@@ -3703,6 +3898,26 @@ export class BattleScene extends Phaser.Scene {
     const branch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
     const ultMult = branch?.ultMult ?? 1;
     const potential = this.getSpeciesPotential(unit.data.speciesId);
+    const ultRadius = kit.ultRadius ?? ULT_RADIUS;
+
+    if (kit.ultHealSelfRatio && !unit.data.fainted) {
+      const selfHeal = Math.max(
+        1,
+        Math.round(unit.data.maxHp * kit.ultHealSelfRatio),
+      );
+      const prevHp = unit.data.hp;
+      unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp + selfHeal);
+      const actualSelfHeal = Math.round(unit.data.hp - prevHp);
+      if (actualSelfHeal > 0) {
+        unit.data.healingDone = (unit.data.healingDone ?? 0) + actualSelfHeal;
+        this.spawnFloatingText(
+          unit.sprite.x,
+          unit.sprite.y - 24,
+          `+${actualSelfHeal}`,
+          '#4ade80',
+        );
+      }
+    }
 
     if (isHealUltSpecies(unit.data.speciesId)) {
       const healAmount = computeUltPower(
@@ -3711,10 +3926,11 @@ export class BattleScene extends Phaser.Scene {
         true,
         potential,
         spec.subclass,
+        kit.ultPowerMult ?? 1,
       );
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
-        if (Math.hypot(ally.data.gx - gx, ally.data.gy - gy) <= ULT_RADIUS) {
+        if (Math.hypot(ally.data.gx - gx, ally.data.gy - gy) <= ultRadius) {
           const prevHp = ally.data.hp;
           ally.data.hp = Math.min(ally.data.maxHp, ally.data.hp + healAmount);
           const actualHeal = Math.round(ally.data.hp - prevHp);
@@ -3730,42 +3946,161 @@ export class BattleScene extends Phaser.Scene {
           this.updateUnitBars(ally);
         }
       }
-      if (unit.data.speciesId === '0012') {
-        const slowDuration = computeSlowDurationMs(
-          3500,
-          potential,
-          spec.subclass,
-        );
+      if (kit.ultSlowMs || kit.ultStunMs) {
+        const slowDuration = kit.ultSlowMs
+          ? computeSlowDurationMs(kit.ultSlowMs, potential, spec.subclass)
+          : 0;
         for (const enemy of [...this.enemies]) {
-          if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
-            if (!enemy.isBoss) {
-              enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
+          if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ultRadius) {
+            if (kit.ultStunMs && !enemy.isBoss) {
+              enemy.stunTimerMs = Math.max(enemy.stunTimerMs, kit.ultStunMs);
             }
-            enemy.slowTimerMs = Math.max(
-              enemy.slowTimerMs,
-              enemy.isBoss ? Math.round(slowDuration * 0.5) : slowDuration,
-            );
+            if (slowDuration > 0) {
+              enemy.slowTimerMs = Math.max(
+                enemy.slowTimerMs,
+                enemy.isBoss ? Math.round(slowDuration * 0.5) : slowDuration,
+              );
+            }
           }
         }
       }
-    } else {
+    } else if (kit.ultMode === 'sniper') {
       const ultDmg = computeUltPower(
         atk,
         ultMult,
         false,
         potential,
         spec.subclass,
+        kit.ultPowerMult ?? 2.3,
+      );
+      const target = this.findSniperTargetAt(gx, gy, ultRadius);
+      if (target) {
+        this.spawnOneShotVfx(spec.impactVfx, target.x, target.y, 1.35);
+        const attackType = getSpeciesAttackType(unit.data.speciesId);
+        const eff = computeTypeEffectiveness(
+          attackType,
+          getSpeciesTypes(target.speciesId),
+        );
+        let dmg = Math.max(1, Math.round(ultDmg * eff.multiplier));
+        if (kit.ultExecuteBonusPct && target.hp < target.maxHp * 0.5) {
+          dmg = Math.round(dmg * (1 + kit.ultExecuteBonusPct));
+        }
+        if (
+          kit.antiAirBonusPct &&
+          ENEMY_SPECIES[target.speciesId]?.movementType === 'fly'
+        ) {
+          dmg = Math.round(dmg * (1 + kit.antiAirBonusPct));
+        }
+        this.damageEnemy(target, dmg, unit, true, eff.tier);
+        if (target.hp <= 0 && kit.ultKillRefundRatio) {
+          unit.data.ult = Math.min(
+            unit.data.ultMax,
+            unit.data.ult +
+              Math.round(unit.data.ultMax * kit.ultKillRefundRatio),
+          );
+          this.spawnFloatingText(
+            unit.sprite.x,
+            unit.sprite.y - 26,
+            'SNIPE REFUND!',
+            '#fbbf24',
+          );
+        }
+      }
+    } else if (kit.ultMode === 'chain_storm') {
+      const ultDmg = computeUltPower(
+        atk,
+        ultMult,
+        false,
+        potential,
+        spec.subclass,
+        kit.ultPowerMult ?? 1.15,
+      );
+      const attackType = getSpeciesAttackType(unit.data.speciesId);
+      const primary = this.findSniperTargetAt(gx, gy, ultRadius + 1);
+      if (primary) {
+        const eff = computeTypeEffectiveness(
+          attackType,
+          getSpeciesTypes(primary.speciesId),
+        );
+        const primaryDmg = Math.max(1, Math.round(ultDmg * eff.multiplier));
+        this.damageEnemy(primary, primaryDmg, unit, true, eff.tier);
+        if (!primary.isBoss) {
+          primary.stunTimerMs = Math.max(primary.stunTimerMs, 900);
+        }
+        const chainTargets = this.enemies
+          .filter(
+            (e) =>
+              e.uid !== primary.uid &&
+              e.hp > 0 &&
+              Math.hypot(e.gx - primary.gx, e.gy - primary.gy) <= 3.5,
+          )
+          .slice(0, 4);
+        const chainDmg = Math.max(1, Math.round(ultDmg * 0.65));
+        for (const ct of chainTargets) {
+          this.spawnOneShotVfx(spec.impactVfx, ct.x, ct.y, 0.9);
+          this.damageEnemy(ct, chainDmg, unit, false);
+        }
+      }
+    } else {
+      if (kit.ultMode === 'hazard' && kit.ultHazardKind) {
+        const offsets = [
+          { dx: 0, dy: 0 },
+          { dx: 1, dy: 0 },
+          { dx: -1, dy: 0 },
+          { dx: 0, dy: 1 },
+          { dx: 0, dy: -1 },
+        ];
+        for (const off of offsets) {
+          this.placeHazard(
+            kit.ultHazardKind,
+            gx + off.dx,
+            gy + off.dy,
+            unit.data.uid,
+            atk,
+          );
+        }
+      }
+
+      const ultDmg = computeUltPower(
+        atk,
+        ultMult,
+        false,
+        potential,
+        spec.subclass,
+        (kit.ultPowerMult ?? 1) * (kit.ultMode === 'hazard' ? 0.65 : 1),
       );
       const attackType = getSpeciesAttackType(unit.data.speciesId);
       for (const enemy of [...this.enemies]) {
-        if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ULT_RADIUS) {
-          if (unit.data.speciesId === '0143' && !enemy.isBoss) {
-            enemy.stunTimerMs = Math.max(enemy.stunTimerMs, 1500);
+        if (Math.hypot(enemy.gx - gx, enemy.gy - gy) <= ultRadius) {
+          if (kit.ultStunMs && !enemy.isBoss) {
+            enemy.stunTimerMs = Math.max(enemy.stunTimerMs, kit.ultStunMs);
           }
-          if (
-            unit.data.speciesId === '0007' ||
-            unit.data.speciesId === '0143'
-          ) {
+          if (kit.ultSlowMs) {
+            const slowDur = computeSlowDurationMs(
+              kit.ultSlowMs,
+              potential,
+              spec.subclass,
+            );
+            enemy.slowTimerMs = Math.max(
+              enemy.slowTimerMs,
+              enemy.isBoss ? Math.round(slowDur * 0.5) : slowDur,
+            );
+          }
+          if (kit.ultBurn) {
+            enemy.burnTimerMs = Math.max(
+              enemy.burnTimerMs,
+              kit.ultBurn.durationMs,
+            );
+            enemy.burnDps = Math.max(enemy.burnDps, kit.ultBurn.dps);
+          }
+          if (kit.ultPoison) {
+            enemy.poisonTimerMs = Math.max(
+              enemy.poisonTimerMs,
+              kit.ultPoison.durationMs,
+            );
+            enemy.poisonDps = Math.max(enemy.poisonDps, kit.ultPoison.dps);
+          }
+          if (kit.ultKnockback) {
             this.knockbackEnemy(enemy, tx, ty);
           }
           const eff = computeTypeEffectiveness(
@@ -3893,6 +4228,9 @@ export class BattleScene extends Phaser.Scene {
       burnTimerMs: 0,
       burnDps: 0,
       burnTickMs: 0,
+      poisonTimerMs: 0,
+      poisonDps: 0,
+      poisonTickMs: 0,
       slowTimerMs: 0,
       stunTimerMs: 0,
       hitFlashTimerMs: 0,
@@ -3961,9 +4299,11 @@ export class BattleScene extends Phaser.Scene {
               ? 0xfef08a
               : enemy.burnTimerMs > 0
                 ? 0xfb923c
-                : enemy.slowTimerMs > 0
-                  ? 0x38bdf8
-                  : baseTint;
+                : enemy.poisonTimerMs > 0
+                  ? 0xc084fc
+                  : enemy.slowTimerMs > 0
+                    ? 0x38bdf8
+                    : baseTint;
         if (nextTint === 0xffffff) {
           if (enemy.sprite.isTinted) enemy.sprite.clearTint();
         } else if (
@@ -3989,7 +4329,27 @@ export class BattleScene extends Phaser.Scene {
           }
         }
 
+        // Poison DoT
+        if (enemy.poisonTimerMs > 0) {
+          enemy.poisonTimerMs = Math.max(0, enemy.poisonTimerMs - simDtMs);
+          enemy.poisonTickMs += simDtMs;
+          if (enemy.poisonTickMs >= 500) {
+            enemy.poisonTickMs -= 500;
+            this.damageEnemy(
+              enemy,
+              Math.max(1, Math.round(enemy.poisonDps * 0.5)),
+              null,
+              false,
+            );
+            if (enemy.hp <= 0) continue;
+          }
+        }
+
         if (enemy.stunTimerMs > 0) continue;
+
+        // Entry Hazard triggers
+        this.triggerHazardsAt(enemy);
+        if (enemy.hp <= 0) continue;
 
         // Barrel & Honey Trap triggers for non-flying enemies
         if (spec.movementType !== 'fly') {
@@ -4333,6 +4693,10 @@ export class BattleScene extends Phaser.Scene {
       if (taken > 0) {
         unit.data.damageTaken =
           (unit.data.damageTaken ?? 0) + Math.round(taken);
+        const defKit = getSpeciesKit(unit.data.speciesId);
+        if (unit.data.hp > 0 && defKit.ultChargeOnHitTaken) {
+          this.addUnitUlt(unit, defKit.ultChargeOnHitTaken);
+        }
         this.emitSnapshot();
       }
       if (reflectedThorns > 0 && enemy.hp > 0) {
@@ -4797,6 +5161,7 @@ export class BattleScene extends Phaser.Scene {
 
   private handleWaveComplete(): void {
     this.resetCombatControlState();
+    this.clearAllHazards();
     this.ap = Math.min(this.maxAp, this.ap + 3);
 
     if (this.wave >= this.maxWaves) {
@@ -5077,66 +5442,505 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  private getUnitAtk(unit: UnitEntity): number {
-    // Bulbasaur aura: nearby living allies gain +10% ATK
-    const hasBulbasaurAura = this.units.some(
-      (other) =>
-        !other.data.fainted &&
-        other.data.speciesId === '0001' &&
-        other.data.uid !== unit.data.uid &&
-        chebyshevDist(
-          other.data.gx,
-          other.data.gy,
-          unit.data.gx,
-          unit.data.gy,
-        ) <= 2,
-    );
-    return computeUnitAtk(
+  private computeUnitLiveStats(unit: UnitEntity): {
+    atk: number;
+    def: number;
+    range: number;
+    attackIntervalMs: number;
+    statusBadges: UnitStatusBadge[];
+  } {
+    const kit = getSpeciesKit(unit.data.speciesId);
+    const potential = this.getSpeciesPotential(unit.data.speciesId);
+    const badges: UnitStatusBadge[] = [];
+
+    let atk = computeUnitAtk(
       unit.data.speciesId,
       this.upgrades,
-      hasBulbasaurAura,
+      false,
       unit.data.branchId,
       unit.data.heldItems,
-      this.getSpeciesPotential(unit.data.speciesId),
+      potential,
     );
-  }
-
-  private getUnitDef(unit: UnitEntity): number {
     let def = computeUnitDef(
       unit.data.speciesId,
       unit.data.branchId,
       unit.data.heldItems,
       this.upgrades,
-      this.getSpeciesPotential(unit.data.speciesId),
+      potential,
     );
-    if (
-      unit.data.speciesId === '0007' &&
-      this.isNearWaterOrWall(unit.data.gx, unit.data.gy)
-    ) {
-      def = Math.round(def * 1.25);
-    }
-    if (
-      unit.data.speciesId === '0074' &&
-      this.isAdjacentToWall(unit.data.gx, unit.data.gy)
-    ) {
-      def = Math.round(def * 1.3);
-    }
-    return def;
-  }
-
-  private getUnitAttackIntervalMs(unit: UnitEntity): number {
+    const range = computeUnitRange(
+      unit.data.speciesId,
+      unit.data.branchId,
+      this.upgrades,
+      potential,
+    );
     let interval = computeUnitAttackIntervalMs(
       unit.data.speciesId,
       this.artifacts,
       unit.data.branchId,
       unit.data.heldItems,
       this.upgrades,
-      this.getSpeciesPotential(unit.data.speciesId),
+      potential,
     );
-    if (unit.data.speciesId === '0133') {
-      interval = Math.round(interval / 1.2);
+
+    if (unit.data.fainted) {
+      badges.push({
+        id: 'fainted',
+        label: 'Fainted',
+        desc: 'Unit is fainted. Revive during PREP.',
+        kind: 'debuff',
+        icon: '💀',
+      });
+      return {
+        atk,
+        def,
+        range,
+        attackIntervalMs: interval,
+        statusBadges: badges,
+      };
     }
-    return interval;
+
+    // Nearby ally auras (take strongest of each aura type)
+    let bestAuraAtk = 0;
+    let bestAuraAtkSource = '';
+    let bestAuraDef = 0;
+    let bestAuraDefSource = '';
+    let bestAuraSpd = 0;
+    let bestAuraSpdSource = '';
+    let hasRegenAura = Boolean(kit.auraRegenPerSec);
+    let regenSource = hasRegenAura
+      ? (POKEMON_SPECIES[unit.data.speciesId]?.name ?? 'Self')
+      : '';
+    let nearbyAlliesCount = 0;
+
+    for (const other of this.units) {
+      if (other.data.fainted || other.data.uid === unit.data.uid) continue;
+      const dist = chebyshevDist(
+        other.data.gx,
+        other.data.gy,
+        unit.data.gx,
+        unit.data.gy,
+      );
+      if (dist <= 2) nearbyAlliesCount += 1;
+      const otherKit = getSpeciesKit(other.data.speciesId);
+      const radius = otherKit.auraRadius ?? 2;
+      if (dist > radius) continue;
+      const otherName = POKEMON_SPECIES[other.data.speciesId]?.name ?? 'Ally';
+
+      if (otherKit.auraAtkPct && otherKit.auraAtkPct > bestAuraAtk) {
+        bestAuraAtk = otherKit.auraAtkPct;
+        bestAuraAtkSource = otherName;
+      }
+      if (otherKit.auraDefPct && otherKit.auraDefPct > bestAuraDef) {
+        bestAuraDef = otherKit.auraDefPct;
+        bestAuraDefSource = otherName;
+      }
+      if (otherKit.auraSpdPct && otherKit.auraSpdPct > bestAuraSpd) {
+        bestAuraSpd = otherKit.auraSpdPct;
+        bestAuraSpdSource = otherName;
+      }
+      if (otherKit.auraRegenPerSec) {
+        hasRegenAura = true;
+        regenSource = otherName;
+      }
+    }
+
+    let atkMult = 1 + bestAuraAtk;
+    if (bestAuraAtk > 0) {
+      const pct = Math.round(bestAuraAtk * 100);
+      badges.push({
+        id: 'aura_atk',
+        label: `+${pct}% ATK`,
+        desc: `+${pct}% ATK from ${bestAuraAtkSource} Aura`,
+        kind: 'buff',
+        icon: '⚔',
+      });
+    }
+
+    if (kit.stationaryAtkPct && unit.stationaryMs >= 500) {
+      atkMult += kit.stationaryAtkPct;
+      const pct = Math.round(kit.stationaryAtkPct * 100);
+      badges.push({
+        id: 'stationary_atk',
+        label: `+${pct}% Focus`,
+        desc: `+${pct}% ATK while stationary`,
+        kind: 'buff',
+        icon: '🎯',
+      });
+    }
+    if (kit.soloAtkPct && nearbyAlliesCount === 0) {
+      atkMult += kit.soloAtkPct;
+      const pct = Math.round(kit.soloAtkPct * 100);
+      badges.push({
+        id: 'solo_atk',
+        label: `+${pct}% Solo`,
+        desc: `+${pct}% ATK with no nearby allies`,
+        kind: 'buff',
+        icon: '★',
+      });
+    }
+    if (kit.packAtkPerAllyPct && nearbyAlliesCount > 0) {
+      const bonus = Math.min(0.3, kit.packAtkPerAllyPct * nearbyAlliesCount);
+      atkMult += bonus;
+      const pct = Math.round(bonus * 100);
+      badges.push({
+        id: 'pack_atk',
+        label: `+${pct}% Pack`,
+        desc: `+${pct}% ATK from ${nearbyAlliesCount} nearby allies`,
+        kind: 'buff',
+        icon: '▲',
+      });
+    }
+    atk = Math.round(atk * atkMult);
+
+    let defMult = 1 + bestAuraDef;
+    if (bestAuraDef > 0) {
+      const pct = Math.round(bestAuraDef * 100);
+      badges.push({
+        id: 'aura_def',
+        label: `+${pct}% DEF`,
+        desc: `+${pct}% DEF from ${bestAuraDefSource} Aura`,
+        kind: 'buff',
+        icon: '🛡',
+      });
+    }
+    if (
+      kit.nearWallOrWaterDefPct &&
+      this.isNearWaterOrWall(unit.data.gx, unit.data.gy)
+    ) {
+      defMult += kit.nearWallOrWaterDefPct;
+      const pct = Math.round(kit.nearWallOrWaterDefPct * 100);
+      badges.push({
+        id: 'wall_water_def',
+        label: `+${pct}% Shell`,
+        desc: `+${pct}% DEF near wall or water`,
+        kind: 'buff',
+        icon: '🌊',
+      });
+    } else if (
+      kit.nearWallOnlyDefPct &&
+      this.isAdjacentToWall(unit.data.gx, unit.data.gy)
+    ) {
+      defMult += kit.nearWallOnlyDefPct;
+      const pct = Math.round(kit.nearWallOnlyDefPct * 100);
+      badges.push({
+        id: 'wall_def',
+        label: `+${pct}% Rock`,
+        desc: `+${pct}% DEF adjacent to wall`,
+        kind: 'buff',
+        icon: '🪨',
+      });
+    }
+    def = Math.round(def * defMult);
+
+    const spdBonus = (kit.atkSpdBonusPct ?? 0) + bestAuraSpd;
+    if (spdBonus > 0) {
+      interval = Math.round(interval / (1 + spdBonus));
+      if (bestAuraSpd > 0) {
+        const pct = Math.round(bestAuraSpd * 100);
+        badges.push({
+          id: 'aura_spd',
+          label: `+${pct}% SPD`,
+          desc: `+${pct}% Attack Speed from ${bestAuraSpdSource} Aura`,
+          kind: 'buff',
+          icon: '⚡',
+        });
+      }
+    }
+
+    if (hasRegenAura) {
+      badges.push({
+        id: 'aura_regen',
+        label: 'Regen',
+        desc: `Restoring HP from ${regenSource} Aura`,
+        kind: 'buff',
+        icon: '✚',
+      });
+    }
+    if (kit.stationaryDrPct && unit.stationaryMs >= 500) {
+      const pct = Math.round(kit.stationaryDrPct * 100);
+      badges.push({
+        id: 'stationary_dr',
+        label: `-${pct}% DMG`,
+        desc: `-${pct}% Damage Taken while stationary`,
+        kind: 'buff',
+        icon: '◈',
+      });
+    }
+    if (kit.canTeleport) {
+      badges.push({
+        id: 'teleport',
+        label: 'Teleport',
+        desc: 'Instantly teleports to target tile in combat',
+        kind: 'buff',
+        icon: '✦',
+      });
+    }
+
+    // Structure proximity buffs
+    for (const s of this.structures) {
+      if (s.data.ruined) continue;
+      if (chebyshevDist(s.data.gx, s.data.gy, unit.data.gx, unit.data.gy) > 1) {
+        continue;
+      }
+      if (s.data.kind === 'tempo_shrine') {
+        badges.push({
+          id: 'tempo_shrine',
+          label: '+Ult',
+          desc: 'Tempo Shrine: +Ult charge over time',
+          kind: 'buff',
+          icon: '♫',
+        });
+        break;
+      }
+      if (s.data.kind === 'berry_bush') {
+        badges.push({
+          id: 'berry_bush',
+          label: '+Heal',
+          desc: 'Berry Bush: +HP regen over time',
+          kind: 'buff',
+          icon: '🍒',
+        });
+        break;
+      }
+    }
+
+    // Low HP debuff indicator
+    if (unit.data.hp / Math.max(1, unit.data.maxHp) < 0.35) {
+      badges.push({
+        id: 'low_hp',
+        label: 'Low HP',
+        desc: 'Below 35% HP!',
+        kind: 'debuff',
+        icon: '!',
+      });
+    }
+
+    return {
+      atk,
+      def,
+      range,
+      attackIntervalMs: interval,
+      statusBadges: badges,
+    };
+  }
+
+  private getUnitAtk(unit: UnitEntity): number {
+    return this.computeUnitLiveStats(unit).atk;
+  }
+
+  private getUnitDef(unit: UnitEntity): number {
+    return this.computeUnitLiveStats(unit).def;
+  }
+
+  private getUnitAttackIntervalMs(unit: UnitEntity): number {
+    return this.computeUnitLiveStats(unit).attackIntervalMs;
+  }
+
+  private clearAllHazards(): void {
+    for (const h of this.hazards) {
+      h.graphic.destroy();
+    }
+    this.hazards = [];
+    this.passiveHazardTimerMs = 0;
+    this.auraRegenTimerMs = 0;
+  }
+
+  private placeHazard(
+    kind: HazardKind,
+    gx: number,
+    gy: number,
+    ownerUid: string,
+    casterAtk: number,
+  ): void {
+    if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return;
+    const tile = this.tiles[gy][gx];
+    if (tile === 'tree' || tile === 'water' || tile === 'core') return;
+
+    const existing = this.hazards.find((h) => h.gx === gx && h.gy === gy);
+    if (existing) {
+      if (existing.kind === kind && existing.charges >= 2) return;
+      existing.graphic.destroy();
+      this.hazards = this.hazards.filter((h) => h.uid !== existing.uid);
+    }
+
+    const spec = HAZARD_SPECS[kind];
+    const g = this.add.graphics().setDepth(2.2);
+    const cx = tileCenterX(gx);
+    const cy = tileCenterY(gy);
+    if (kind === 'stealth_rock') {
+      g.fillStyle(0xb45309, 0.85);
+      g.fillTriangle(cx - 9, cy + 7, cx - 4, cy - 8, cx + 1, cy + 7);
+      g.fillTriangle(cx + 1, cy + 8, cx + 6, cy - 6, cx + 11, cy + 8);
+      g.lineStyle(1, 0xfbbf24, 0.75);
+      g.strokeRect(
+        gx * TILE_SIZE + 3,
+        gy * TILE_SIZE + 3,
+        TILE_SIZE - 6,
+        TILE_SIZE - 6,
+      );
+    } else if (kind === 'spikes') {
+      g.fillStyle(0x94a3b8, 0.9);
+      g.fillTriangle(cx - 8, cy + 6, cx - 4, cy - 4, cx, cy + 6);
+      g.fillTriangle(cx + 1, cy + 6, cx + 5, cy - 4, cx + 9, cy + 6);
+      g.fillTriangle(cx - 3, cy - 2, cx, cy - 10, cx + 4, cy - 2);
+    } else if (kind === 'toxic_spikes') {
+      g.fillStyle(0xa855f7, 0.85);
+      g.fillTriangle(cx - 8, cy + 6, cx - 4, cy - 4, cx, cy + 6);
+      g.fillTriangle(cx + 1, cy + 6, cx + 5, cy - 4, cx + 9, cy + 6);
+      g.fillCircle(cx, cy - 4, 3);
+    } else {
+      g.lineStyle(1.5, 0xe2e8f0, 0.85);
+      g.strokeCircle(cx, cy, 10);
+      g.lineBetween(cx - 11, cy - 11, cx + 11, cy + 11);
+      g.lineBetween(cx + 11, cy - 11, cx - 11, cy + 11);
+    }
+
+    this.hazards.push({
+      uid: `hazard_${this.nextUidCounter++}`,
+      kind,
+      gx,
+      gy,
+      ownerUid,
+      casterAtk,
+      charges: spec.charges,
+      ttlMs: spec.ttlMs,
+      triggeredEnemyUids: new Set(),
+      graphic: g,
+    });
+  }
+
+  private triggerHazardsAt(enemy: EnemyEntity): void {
+    if (this.hazards.length === 0) return;
+    const enemySpec = ENEMY_SPECIES[enemy.speciesId];
+    if (!enemySpec) return;
+
+    for (let i = this.hazards.length - 1; i >= 0; i--) {
+      const h = this.hazards[i];
+      if (h.gx !== enemy.gx || h.gy !== enemy.gy) continue;
+      if (h.triggeredEnemyUids.has(enemy.uid)) continue;
+
+      const hSpec = HAZARD_SPECS[h.kind];
+      if (!hSpec.hitsFlying && enemySpec.movementType === 'fly') continue;
+
+      h.triggeredEnemyUids.add(enemy.uid);
+      h.charges -= 1;
+
+      const dmg = computeHazardDamage(
+        h.kind,
+        enemy.maxHp,
+        enemySpec.movementType,
+        h.casterAtk,
+      );
+      if (hSpec.slowMs > 0) {
+        enemy.slowTimerMs = Math.max(
+          enemy.slowTimerMs,
+          enemy.isBoss ? Math.round(hSpec.slowMs * 0.5) : hSpec.slowMs,
+        );
+      }
+      if (hSpec.poisonDps > 0) {
+        enemy.poisonTimerMs = Math.max(enemy.poisonTimerMs, hSpec.poisonMs);
+        enemy.poisonDps = Math.max(enemy.poisonDps, hSpec.poisonDps);
+      }
+      if (dmg > 0) {
+        const owner = this.units.find((u) => u.data.uid === h.ownerUid) ?? null;
+        this.damageEnemy(enemy, dmg, owner, false);
+      }
+
+      if (h.charges <= 0) {
+        h.graphic.destroy();
+        this.hazards.splice(i, 1);
+      }
+      if (enemy.hp <= 0) break;
+    }
+  }
+
+  private stepHazardsAndAuras(simDtMs: number): void {
+    // Tick hazard TTLs
+    for (let i = this.hazards.length - 1; i >= 0; i--) {
+      const h = this.hazards[i];
+      h.ttlMs -= simDtMs;
+      if (h.ttlMs <= 0) {
+        h.graphic.destroy();
+        this.hazards.splice(i, 1);
+      }
+    }
+
+    // Passive hazard setters drop a hazard on nearby dirt/path tile every 9s
+    this.passiveHazardTimerMs += simDtMs;
+    if (this.passiveHazardTimerMs >= 9000) {
+      this.passiveHazardTimerMs -= 9000;
+      for (const unit of this.units) {
+        if (unit.data.fainted) continue;
+        const kit = getSpeciesKit(unit.data.speciesId);
+        if (!kit.passiveHazardKind) continue;
+        const range = this.getUnitRange(unit) + 1;
+        let bestTile: GridPoint | null = null;
+        let bestDist = Infinity;
+        for (let gy = 0; gy < GRID_ROWS; gy++) {
+          for (let gx = 0; gx < GRID_COLS; gx++) {
+            const tile = this.tiles[gy][gx];
+            if (tile !== 'dirt' && tile !== 'grass') continue;
+            const d = chebyshevDist(unit.data.gx, unit.data.gy, gx, gy);
+            // Prefer dirt path tiles over grass tiles
+            const weightedDist = d + (tile === 'grass' ? 10 : 0);
+            if (d <= range && weightedDist < bestDist) {
+              const occupied = this.hazards.some(
+                (h) => h.gx === gx && h.gy === gy,
+              );
+              if (!occupied) {
+                bestDist = weightedDist;
+                bestTile = { gx, gy };
+              }
+            }
+          }
+        }
+        if (bestTile) {
+          this.placeHazard(
+            kit.passiveHazardKind,
+            bestTile.gx,
+            bestTile.gy,
+            unit.data.uid,
+            this.getUnitAtk(unit),
+          );
+        }
+      }
+    }
+
+    // Support Regen Auras tick every 1000ms
+    this.auraRegenTimerMs += simDtMs;
+    if (this.auraRegenTimerMs >= 1000) {
+      this.auraRegenTimerMs -= 1000;
+      for (const source of this.units) {
+        if (source.data.fainted) continue;
+        const kit = getSpeciesKit(source.data.speciesId);
+        if (!kit.auraRegenPerSec) continue;
+        const radius = kit.auraRadius ?? 2;
+        for (const ally of this.units) {
+          if (ally.data.fainted || ally.data.hp >= ally.data.maxHp) continue;
+          if (
+            chebyshevDist(
+              source.data.gx,
+              source.data.gy,
+              ally.data.gx,
+              ally.data.gy,
+            ) <= radius
+          ) {
+            const prevHp = ally.data.hp;
+            ally.data.hp = Math.min(
+              ally.data.maxHp,
+              ally.data.hp + kit.auraRegenPerSec,
+            );
+            const healed = Math.round(ally.data.hp - prevHp);
+            if (healed > 0) {
+              source.data.healingDone = (source.data.healingDone ?? 0) + healed;
+              this.updateUnitBars(ally);
+              this.snapshotDirty = true;
+            }
+          }
+        }
+      }
+    }
   }
 
   private isAdjacentToAnyStructure(gx: number, gy: number): boolean {
@@ -5219,6 +6023,7 @@ export class BattleScene extends Phaser.Scene {
       if (this.selectedUnitUid === unit.data.uid) {
         this.refreshHighlights();
       }
+      this.snapshotDirty = true;
     } else {
       this.playUnitAnim(unit, 'Walk');
     }

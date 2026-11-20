@@ -3169,6 +3169,72 @@ input[type='checkbox']:focus-visible {
   height: 44px;
 }
 
+.bp-status-col {
+  position: absolute;
+  top: -2px;
+  left: -9px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 3;
+}
+
+.bp-status-badge {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  cursor: help;
+}
+
+.bp-status-badge.buff {
+  background: rgba(22, 163, 74, 0.92);
+  color: #f0fdf4;
+}
+
+.bp-status-badge.debuff {
+  background: rgba(220, 38, 38, 0.92);
+  color: #fef2f2;
+}
+
+.unit-stat-val.stat-boosted {
+  color: var(--green);
+}
+
+.popover-buffs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.popover-buff-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.popover-buff-pill.buff {
+  background: rgba(22, 163, 74, 0.16);
+  border-color: rgba(74, 222, 128, 0.45);
+  color: #86efac;
+}
+
+.popover-buff-pill.debuff {
+  background: rgba(220, 38, 38, 0.16);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+}
+
 .bp-portrait-btn {
   width: 44px;
   height: 44px;

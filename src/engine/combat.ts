@@ -7,6 +7,7 @@ import {
   TargetPriority,
 } from '../types';
 import { getPotentialBonuses } from './progression';
+import { getSpeciesKit } from './kits';
 import {
   getEffectiveAtk,
   getEffectiveAttackIntervalMs,
@@ -141,14 +142,15 @@ export function computeUltPower(
   isHeal: boolean,
   potential = 0,
   subclass?: PokemonSubclass,
+  kitPowerMult = 1,
 ): number {
   const bonuses = getPotentialBonuses(potential, subclass);
   if (isHeal) {
     const healMult = bonuses.subclassPassive === 'Healer' ? 1.25 : 1;
-    return Math.round(baseAtk * 2.5 * ultMult * healMult);
+    return Math.round(baseAtk * 2.5 * ultMult * healMult * kitPowerMult);
   }
   const aoeMult = bonuses.subclassPassive === 'Elemental AoE' ? 1.15 : 1;
-  return Math.round(baseAtk * 2.2 * ultMult * aoeMult);
+  return Math.round(baseAtk * 2.2 * ultMult * aoeMult * kitPowerMult);
 }
 
 export function computeSlowDurationMs(
@@ -191,6 +193,7 @@ export interface BasicAttackDamageResult {
 export function computeBasicAttackDamage(
   input: BasicAttackDamageInput,
 ): BasicAttackDamageResult {
+  const kit = getSpeciesKit(input.speciesId);
   const bonuses = getPotentialBonuses(
     input.potential ?? 0,
     input.subclass ?? POKEMON_SPECIES[input.speciesId]?.subclass,
@@ -198,23 +201,31 @@ export function computeBasicAttackDamage(
   let damage = input.baseAtk;
   let isCrit = false;
 
-  if (input.speciesId === '0448' && input.hitCount % 4 === 0) {
-    damage = Math.round(damage * 1.75);
+  if (kit.critEveryN && input.hitCount % kit.critEveryN === 0) {
+    damage = Math.round(damage * (kit.critMult ?? 1.75));
     isCrit = true;
   } else if (input.branchSpecial === 'crit_boost' && input.hitCount % 5 === 0) {
     damage = Math.round(damage * 1.6);
     isCrit = true;
   }
 
-  if (input.speciesId === '0094' && input.targetHasStatus) {
-    damage = Math.round(damage * 1.35);
+  if (kit.statusBonusDmgPct && input.targetHasStatus) {
+    damage = Math.round(damage * (1 + kit.statusBonusDmgPct));
   }
 
-  if (
-    bonuses.subclassPassive === 'Sniper' &&
-    input.targetMovementType === 'fly'
-  ) {
-    damage = Math.round(damage * 1.2);
+  if (kit.executeBonusDmgPct && input.targetHp < input.targetMaxHp * 0.5) {
+    damage = Math.round(damage * (1 + kit.executeBonusDmgPct));
+  }
+
+  if (kit.armorPiercePct) {
+    damage = Math.round(damage * (1 + kit.armorPiercePct * 0.6));
+  }
+
+  const antiAirPct =
+    (kit.antiAirBonusPct ?? 0) +
+    (bonuses.subclassPassive === 'Sniper' ? 0.2 : 0);
+  if (antiAirPct > 0 && input.targetMovementType === 'fly') {
+    damage = Math.round(damage * (1 + antiAirPct));
   }
 
   if (
@@ -232,19 +243,36 @@ export function computeBasicAttackDamage(
     damage = Math.max(1, Math.round(damage * eff.multiplier));
   }
 
-  const ultCharge = 15 * (input.speciesId === '0025' ? 1.1 : 1);
+  const ultCharge = kit.ultChargeOnHitTaken
+    ? 0
+    : 15 * (1 + (kit.ultChargeBonusPct ?? 0));
+  const lifestealPct = Math.max(
+    input.branchSpecial === 'lifesteal' ? 0.25 : 0,
+    kit.onHitLifestealPct ?? 0,
+  );
   const lifestealHeal =
-    input.branchSpecial === 'lifesteal'
-      ? Math.max(1, Math.round(damage * 0.25))
-      : 0;
-  const hasChain =
+    lifestealPct > 0 ? Math.max(1, Math.round(damage * lifestealPct)) : 0;
+
+  const branchOrItemChain =
     input.branchSpecial === 'chain_hit' ||
     input.heldItems.includes('storm_conductor');
-  const chainDamage = hasChain ? Math.max(1, Math.round(damage * 0.4)) : 0;
+  const kitChain = kit.onHitChain;
+  const hasChain = branchOrItemChain || Boolean(kitChain);
+  const chainRatio = Math.max(
+    branchOrItemChain ? 0.4 : 0,
+    kitChain?.dmgRatio ?? 0,
+  );
+  const chainDamage = hasChain
+    ? Math.max(1, Math.round(damage * chainRatio))
+    : 0;
+  const baseTargets = Math.max(
+    branchOrItemChain ? 1 : 0,
+    kitChain?.targets ?? 0,
+  );
   const chainTargets = hasChain
     ? bonuses.subclassPassive === 'Chain'
-      ? 2
-      : 1
+      ? Math.max(2, baseTargets)
+      : baseTargets
     : 0;
 
   return {
@@ -281,13 +309,14 @@ export interface EnemyAttackDamageResult {
 export function computeEnemyAttackDamage(
   input: EnemyAttackDamageInput,
 ): EnemyAttackDamageResult {
+  const kit = getSpeciesKit(input.unitSpeciesId);
   let damage = Math.max(
     2,
     Math.round(input.enemyAtk * (40 / (40 + input.unitDef))),
   );
 
-  if (input.unitSpeciesId === '0143' && input.unitStationaryMs >= 500) {
-    damage = Math.max(2, Math.round(damage * 0.75));
+  if (kit.stationaryDrPct && input.unitStationaryMs >= 500) {
+    damage = Math.max(2, Math.round(damage * (1 - kit.stationaryDrPct)));
   }
 
   if (
@@ -305,10 +334,12 @@ export function computeEnemyAttackDamage(
     damage = Math.max(2, Math.round(damage * eff.multiplier));
   }
 
+  const thornsPct = Math.max(
+    input.unitBranchSpecial === 'thorns' ? 0.25 : 0,
+    kit.thornsPct ?? 0,
+  );
   const reflectedThorns =
-    input.unitBranchSpecial === 'thorns'
-      ? Math.max(2, Math.round(damage * 0.25))
-      : 0;
+    thornsPct > 0 ? Math.max(2, Math.round(damage * thornsPct)) : 0;
 
   return {
     damage,
