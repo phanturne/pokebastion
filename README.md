@@ -24,9 +24,17 @@ Instead of fixed enemy lanes, wild Pokémon dynamically pathfind across a `28×1
 
 ## Screenshots
 
-|     Prep Phase & Live Path Previews      |         Wave Combat & Threat Alerts          |
+|                Home Screen                |                Starter Draft                 |
+| :---------------------------------------: | :------------------------------------------: |
+| ![Home Screen](docs/screenshots/home.png) | ![Starter Draft](docs/screenshots/draft.png) |
+
+|     Prep Phase & Live Path Previews      |            Wave Combat & Live DPS            |
 | :--------------------------------------: | :------------------------------------------: |
 | ![Prep Phase](docs/screenshots/prep.png) | ![Combat Phase](docs/screenshots/combat.png) |
+
+|              Post-Wave Rewards               |       Pokédex & Potential Upgrades       |
+| :------------------------------------------: | :--------------------------------------: |
+| ![Reward Modal](docs/screenshots/reward.png) | ![Pokédex](docs/screenshots/pokedex.png) |
 
 ---
 
