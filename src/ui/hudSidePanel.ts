@@ -288,6 +288,10 @@ function renderPrepBagCard(snap: GameSnapshot): string {
       const item = HELD_ITEMS[itemId];
       if (!item) return '';
       const count = snap.heldItemInventory.filter((id) => id === itemId).length;
+      const alreadyEquipped = Boolean(
+        selectedUnit?.heldItems.includes(item.id),
+      );
+      const chipEnabled = canEquip && !alreadyEquipped;
       return `
         <button
           type="button"
@@ -295,8 +299,8 @@ function renderPrepBagCard(snap: GameSnapshot): string {
           data-action="equip-item"
           data-unit="${selectedUnit?.uid ?? ''}"
           data-id="${item.id}"
-          ${canEquip ? '' : 'disabled'}
-          title="${escapeHtml(`${item.name} (${count} in bag): ${item.desc}${canEquip ? ` — Click to equip on ${selectedName}` : ''}`)}"
+          ${chipEnabled ? '' : 'disabled'}
+          title="${escapeHtml(`${item.name} (${count} in bag): ${item.desc}${alreadyEquipped ? ` — Already equipped on ${selectedName}` : canEquip ? ` — Click to equip on ${selectedName}` : ''}`)}"
         >
           ${HELD_ITEM_ICONS[item.id] ?? ''}
           <span>${escapeHtml(item.name)}${count > 1 ? ` ×${count}` : ''}</span>
@@ -422,7 +426,7 @@ export function renderShopTooltipContent(
   const cost = getStructureBuildCost(tool, activeCount);
   const deficit = Math.max(0, cost - snap.gold);
   const pathTag = spec.blocksGround
-    ? 'Blocks Ground'
+    ? ''
     : spec.consumable
       ? 'One-Time Trap'
       : 'Passable';
@@ -434,7 +438,7 @@ export function renderShopTooltipContent(
     </div>
     <div class="shop-tooltip-tags">
       <span class="tag">HP ${getEffectiveStructureMaxHp(tool, snap.artifacts)}</span>
-      <span class="tag">${pathTag}</span>
+      ${pathTag ? `<span class="tag">${pathTag}</span>` : ''}
       ${deficit > 0 ? `<span class="shop-need">Need ₽${deficit} more</span>` : ''}
     </div>
     <div class="shop-tooltip-desc">${escapeHtml(spec.desc)}</div>
@@ -596,7 +600,12 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
     );
   const range =
     unit.effectiveRange ??
-    getEffectiveRange(unit.speciesId, unit.branchId, snap.upgrades);
+    getEffectiveRange(
+      unit.speciesId,
+      unit.branchId,
+      snap.upgrades,
+      unit.heldItems,
+    );
 
   const badges = unit.statusBadges ?? [];
   const badgeTip =
@@ -832,7 +841,7 @@ export function renderStructurePopoverHtml(
     struct.kind === 'barrel' && !struct.ruined && snap.phase === 'COMBAT';
   const showSell = snap.phase === 'PREP';
   const refund = getSellRefund(spec.kind);
-  const pathTag = spec.blocksGround ? 'Blocks Ground' : 'Passable';
+  const pathTag = spec.blocksGround ? '' : 'Passable';
 
   return `
     <div class="popover-head">
@@ -844,7 +853,7 @@ export function renderStructurePopoverHtml(
     </div>
     <div class="popover-meta-row">
       <span class="tag">HP ${Math.max(0, Math.ceil(struct.hp))} / ${struct.maxHp}</span>
-      <span class="tag">${pathTag}</span>
+      ${pathTag ? `<span class="tag">${pathTag}</span>` : ''}
     </div>
     <p class="popover-desc">${escapeHtml(spec.desc)}</p>
     ${
@@ -902,6 +911,8 @@ export function renderUnitPopoverHtml(
     unit.branchId,
     snap.upgrades,
     potential,
+    undefined,
+    unit.heldItems,
   );
   const baseIntervalMs = computeUnitAttackIntervalMs(
     unit.speciesId,

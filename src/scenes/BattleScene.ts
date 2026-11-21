@@ -112,6 +112,7 @@ import {
   MAX_ACTIVE_UNITS,
   MAX_HELD_ITEMS,
   MAX_RESERVE_UNITS,
+  pickShopItemIds,
 } from '../engine/rules';
 import {
   ActiveUnit,
@@ -164,6 +165,11 @@ interface UnitEntity {
   isAttackAnimPlaying: boolean;
   movePath: GridPoint[];
   moveTarget: GridPoint | null;
+  oranUsedThisWave: boolean;
+  focusSashUsedThisWave: boolean;
+  invulnTimerMs: number;
+  weaknessPolicyTimerMs: number;
+  leftoversTimerMs: number;
 }
 
 interface StructureEntity {
@@ -351,6 +357,8 @@ export class BattleScene extends Phaser.Scene {
   private upgrades: string[] = [];
   private rewardChoices: RewardOption[] = [];
   private rewardRerollsUsed = 0;
+  private shopOfferItemIds: string[] = [];
+  private shopPurchasedItemIds = new Set<string>();
   private statusMessage = 'Prepare your defenses and position Pokémon.';
 
   private waveElapsedMs = 0;
@@ -751,6 +759,8 @@ export class BattleScene extends Phaser.Scene {
       selectedDifficulty: this.selectedDifficulty,
       draftBudget: DRAFT_BUDGET,
       heldItemInventory: [...this.heldItemInventory],
+      shopOfferItemIds: [...this.shopOfferItemIds],
+      shopPurchasedItemIds: [...this.shopPurchasedItemIds],
       structures: this.structures.map((s) => ({ ...s.data })),
       artifacts: [...this.artifacts],
       upgrades: [...this.upgrades],
@@ -868,6 +878,14 @@ export class BattleScene extends Phaser.Scene {
       u.data.damageDealt = 0;
       u.data.damageTaken = 0;
       u.data.healingDone = 0;
+      u.oranUsedThisWave = false;
+      u.focusSashUsedThisWave = false;
+      u.invulnTimerMs = 0;
+      u.weaknessPolicyTimerMs = 0;
+      u.leftoversTimerMs = 0;
+      if (u.data.heldItems.includes('quick_claw')) {
+        u.data.attackCooldownMs = 0;
+      }
       const startUlt = computeStartingUlt(
         u.data.ultMax,
         this.getSpeciesPotential(u.data.speciesId),
@@ -1331,12 +1349,24 @@ export class BattleScene extends Phaser.Scene {
     }
     const item = HELD_ITEMS[itemId];
     if (!item) return;
+    if (
+      this.phase === 'SHOP' &&
+      this.shopOfferItemIds.length > 0 &&
+      !this.shopOfferItemIds.includes(item.id)
+    ) {
+      return;
+    }
+    if (this.shopPurchasedItemIds.has(item.id)) {
+      this.setStatus(`${item.name} is sold out in this shop.`);
+      return;
+    }
     if (this.gold < item.cost) {
       this.setStatus(`Need ₽${item.cost} to buy ${item.name}.`);
       return;
     }
     this.gold -= item.cost;
     this.heldItemInventory.push(item.id);
+    this.shopPurchasedItemIds.add(item.id);
     this.setStatus(`Purchased ${item.name} for ₽${item.cost}.`);
   }
 
@@ -1422,6 +1452,12 @@ export class BattleScene extends Phaser.Scene {
     }
     const unit = this.units.find((u) => u.data.uid === unitUid);
     if (!unit || unit.data.heldItems.length >= MAX_HELD_ITEMS) return;
+    if (unit.data.heldItems.includes(itemId)) {
+      this.setStatus(
+        `${POKEMON_SPECIES[unit.data.speciesId].name} already holds ${HELD_ITEMS[itemId]?.name ?? itemId}.`,
+      );
+      return;
+    }
     const invIdx = this.heldItemInventory.indexOf(itemId);
     if (invIdx === -1) return;
 
@@ -1623,6 +1659,8 @@ export class BattleScene extends Phaser.Scene {
       choice.targetSpeciesId
     ) {
       this.evolveUnit(choice.unitUid, choice.targetSpeciesId);
+    } else if (choice.kind === 'item' && choice.itemId) {
+      this.heldItemInventory.push(choice.itemId);
     }
 
     this.rewardChoices = [];
@@ -1699,6 +1737,13 @@ export class BattleScene extends Phaser.Scene {
   private advanceAfterReward(prefixMsg: string): void {
     if (isShopAfterWave(this.wave, this.maxWaves)) {
       this.phase = 'SHOP';
+      this.shopPurchasedItemIds.clear();
+      this.shopOfferItemIds = pickShopItemIds(
+        this.rng,
+        6,
+        this.wave,
+        this.maxWaves,
+      );
       this.refreshHighlights();
       this.setStatus(
         `${prefixMsg} Merchant Shop opened after Wave ${this.wave}!`,
@@ -1807,6 +1852,8 @@ export class BattleScene extends Phaser.Scene {
       : [];
     this.reserveIds = [];
     this.heldItemInventory = [];
+    this.shopOfferItemIds = [];
+    this.shopPurchasedItemIds.clear();
     this.spawnQueue = [];
     this.spawnQueueIndex = 0;
     this.waveElapsedMs = 0;
@@ -1817,6 +1864,14 @@ export class BattleScene extends Phaser.Scene {
       u.data.damageDealt = 0;
       u.data.damageTaken = 0;
       u.data.healingDone = 0;
+      u.oranUsedThisWave = false;
+      u.focusSashUsedThisWave = false;
+      u.invulnTimerMs = 0;
+      u.weaknessPolicyTimerMs = 0;
+      u.leftoversTimerMs = 0;
+      if (u.data.heldItems.includes('quick_claw')) {
+        u.data.attackCooldownMs = 0;
+      }
       const startUlt = computeStartingUlt(
         u.data.ultMax,
         this.getSpeciesPotential(u.data.speciesId),
@@ -2201,25 +2256,16 @@ export class BattleScene extends Phaser.Scene {
     if (clickedUnit) {
       if (this.selectedUnitUid === clickedUnit.data.uid) {
         this.selectUnit(null);
-      } else if (this.selectedUnitUid) {
-        const selected = this.units.find(
-          (u) => u.data.uid === this.selectedUnitUid,
-        );
-        if (selected) {
-          this.swapUnitPositions(selected, clickedUnit);
-          return;
-        }
-        this.selectUnit(clickedUnit.data.uid);
       } else {
         this.selectUnit(clickedUnit.data.uid);
         this.setStatus(
-          `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to move or another Pokémon to swap (0 AP in Prep).`,
+          `Selected ${POKEMON_SPECIES[clickedUnit.data.speciesId].name}. Click an empty tile to move (0 AP in Prep).`,
         );
       }
       return;
     }
 
-    if (this.selectedUnitUid && !clickedStructure) {
+    if (this.selectedUnitUid) {
       const unit = this.units.find((u) => u.data.uid === this.selectedUnitUid);
       if (unit && this.isValidUnitTile(gx, gy, unit.data.speciesId)) {
         this.moveUnitToTile(unit, gx, gy, false);
@@ -3383,11 +3429,11 @@ export class BattleScene extends Phaser.Scene {
           const trait = struct.data.ruined
             ? 'Ruined'
             : spec.blocksGround
-              ? 'Blocks Ground'
+              ? ''
               : spec.consumable
                 ? 'Trap'
                 : 'Support';
-          label = `${spec.name}  HP ${Math.ceil(struct.data.hp)}/${struct.data.maxHp}  [${trait}]`;
+          label = `${spec.name}  HP ${Math.ceil(struct.data.hp)}/${struct.data.maxHp}${trait ? `  [${trait}]` : ''}`;
         }
       }
     }
@@ -3471,6 +3517,11 @@ export class BattleScene extends Phaser.Scene {
       isAttackAnimPlaying: false,
       movePath: [],
       moveTarget: null,
+      oranUsedThisWave: false,
+      focusSashUsedThisWave: false,
+      invulnTimerMs: 0,
+      weaknessPolicyTimerMs: 0,
+      leftoversTimerMs: 0,
     };
     this.units.push(entity);
     ensureSpeciesSpritesLoaded(this, speciesId, () => {
@@ -3480,36 +3531,6 @@ export class BattleScene extends Phaser.Scene {
     });
     this.updateUnitBars(entity);
     return entity;
-  }
-
-  private swapUnitPositions(a: UnitEntity, b: UnitEntity): void {
-    const ax = a.data.gx;
-    const ay = a.data.gy;
-    const bx = b.data.gx;
-    const by = b.data.gy;
-    const aAllowWater = canUnitEnterWater(
-      a.data.speciesId,
-      POKEMON_SPECIES[a.data.speciesId],
-    );
-    const bAllowWater = canUnitEnterWater(
-      b.data.speciesId,
-      POKEMON_SPECIES[b.data.speciesId],
-    );
-    if (
-      (this.tiles[by][bx] === 'water' && !aAllowWater) ||
-      (this.tiles[ay][ax] === 'water' && !bAllowWater)
-    ) {
-      this.setStatus('Only Water or Flying Pokémon can swap onto water tiles.');
-      return;
-    }
-    this.moveUnitToTile(a, bx, by, false);
-    this.moveUnitToTile(b, ax, ay, false);
-    this.selectedUnitUid = null;
-    this.refreshHighlights();
-    this.emitSnapshot();
-    const nameA = POKEMON_SPECIES[a.data.speciesId]?.name ?? a.data.speciesId;
-    const nameB = POKEMON_SPECIES[b.data.speciesId]?.name ?? b.data.speciesId;
-    this.setStatus(`Swapped ${nameA} and ${nameB}.`);
   }
 
   private moveUnitToTile(
@@ -3608,6 +3629,32 @@ export class BattleScene extends Phaser.Scene {
     for (const unit of this.units) {
       if (unit.data.fainted) continue;
 
+      unit.invulnTimerMs = Math.max(0, unit.invulnTimerMs - simDtMs);
+      unit.weaknessPolicyTimerMs = Math.max(
+        0,
+        unit.weaknessPolicyTimerMs - simDtMs,
+      );
+
+      if (
+        unit.data.heldItems.includes('leftovers') &&
+        unit.data.hp > 0 &&
+        unit.data.hp < unit.data.maxHp
+      ) {
+        unit.leftoversTimerMs += simDtMs;
+        if (unit.leftoversTimerMs >= 4000) {
+          unit.leftoversTimerMs -= 4000;
+          const healAmt = Math.max(1, Math.round(unit.data.maxHp * 0.02));
+          const prevHp = unit.data.hp;
+          unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp + healAmt);
+          const actual = Math.round(unit.data.hp - prevHp);
+          if (actual > 0) {
+            unit.data.healingDone = (unit.data.healingDone ?? 0) + actual;
+            this.updateUnitBars(unit);
+            changed = true;
+          }
+        }
+      }
+
       unit.data.attackCooldownMs = Math.max(
         0,
         unit.data.attackCooldownMs - simDtMs,
@@ -3668,6 +3715,9 @@ export class BattleScene extends Phaser.Scene {
       lifestealHeal,
       chainDamage,
       chainTargets,
+      slowDurationMs: itemSlowDurationMs,
+      inflictBurn: itemInflictBurn,
+      recoilPct,
       effectivenessTier,
     } = computeBasicAttackDamage({
       baseAtk: this.getUnitAtk(unit),
@@ -3695,7 +3745,11 @@ export class BattleScene extends Phaser.Scene {
 
     const applyHit = () => {
       if (target.hp > 0) {
-        if (kit.onHitBurn || branch?.special === 'burn_spread') {
+        if (
+          kit.onHitBurn ||
+          branch?.special === 'burn_spread' ||
+          itemInflictBurn
+        ) {
           const burnDuration = kit.onHitBurn?.durationMs ?? 3000;
           const burnDps = kit.onHitBurn?.dps ?? 6;
           target.burnTimerMs = Math.max(target.burnTimerMs, burnDuration);
@@ -3719,10 +3773,15 @@ export class BattleScene extends Phaser.Scene {
           );
           target.poisonDps = Math.max(target.poisonDps, kit.onHitPoison.dps);
         }
-        if (kit.onHitSlowMs || branch?.special === 'slow_hit') {
+        if (
+          kit.onHitSlowMs ||
+          branch?.special === 'slow_hit' ||
+          itemSlowDurationMs
+        ) {
           const baseSlow = Math.max(
             kit.onHitSlowMs ?? 0,
             branch?.special === 'slow_hit' ? 2000 : 0,
+            itemSlowDurationMs ?? 0,
           );
           const slowDuration = computeSlowDurationMs(
             baseSlow,
@@ -3773,6 +3832,20 @@ export class BattleScene extends Phaser.Scene {
           if (actualHeal > 0) {
             unit.data.healingDone = (unit.data.healingDone ?? 0) + actualHeal;
           }
+          this.updateUnitBars(unit);
+        }
+
+        if (
+          recoilPct &&
+          recoilPct > 0 &&
+          !unit.data.fainted &&
+          unit.data.hp > 1
+        ) {
+          const recoilDmg = Math.max(
+            1,
+            Math.round(unit.data.maxHp * recoilPct),
+          );
+          unit.data.hp = Math.max(1, unit.data.hp - recoilDmg);
           this.updateUnitBars(unit);
         }
 
@@ -4744,6 +4817,7 @@ export class BattleScene extends Phaser.Scene {
     const ty = unit.sprite.y;
     const applyUnitHit = (): void => {
       if (unit.data.fainted || unit.data.hp <= 0) return;
+      if (unit.invulnTimerMs > 0) return;
       const unitBranch = getBranchSpec(unit.data.speciesId, unit.data.branchId);
       const {
         damage: dmg,
@@ -4774,14 +4848,59 @@ export class BattleScene extends Phaser.Scene {
         defenderTypes: getSpeciesTypes(unit.data.speciesId),
       });
 
-      const taken = Math.min(unit.data.hp, Math.max(0, dmg));
-      unit.data.hp = Math.max(0, unit.data.hp - dmg);
+      let taken: number;
+      if (
+        unit.data.hp - dmg <= 0 &&
+        !unit.focusSashUsedThisWave &&
+        unit.data.heldItems.includes('focus_sash')
+      ) {
+        unit.focusSashUsedThisWave = true;
+        unit.invulnTimerMs = 1500;
+        taken = Math.max(0, unit.data.hp - 1);
+        unit.data.hp = 1;
+        this.spawnFloatingText(
+          unit.sprite.x,
+          unit.sprite.y - 36,
+          'ENDURED!',
+          '#fde047',
+        );
+      } else {
+        taken = Math.min(unit.data.hp, Math.max(0, dmg));
+        unit.data.hp = Math.max(0, unit.data.hp - dmg);
+      }
       if (taken > 0) {
         unit.data.damageTaken =
           (unit.data.damageTaken ?? 0) + Math.round(taken);
         const defKit = getSpeciesKit(unit.data.speciesId);
         if (unit.data.hp > 0 && defKit.ultChargeOnHitTaken) {
           this.addUnitUlt(unit, defKit.ultChargeOnHitTaken);
+        }
+        if (
+          unit.data.hp > 0 &&
+          unit.data.heldItems.includes('weakness_policy')
+        ) {
+          unit.weaknessPolicyTimerMs = 4000;
+        }
+        if (
+          !unit.oranUsedThisWave &&
+          unit.data.hp > 0 &&
+          unit.data.hp < unit.data.maxHp * 0.35 &&
+          unit.data.heldItems.includes('oran_charm')
+        ) {
+          unit.oranUsedThisWave = true;
+          const heal = Math.max(1, Math.round(unit.data.maxHp * 0.2));
+          const prevHp = unit.data.hp;
+          unit.data.hp = Math.min(unit.data.maxHp, unit.data.hp + heal);
+          const actual = Math.round(unit.data.hp - prevHp);
+          if (actual > 0) {
+            unit.data.healingDone = (unit.data.healingDone ?? 0) + actual;
+            this.spawnFloatingText(
+              unit.sprite.x,
+              unit.sprite.y - 36,
+              `+${actual} HP`,
+              '#4ade80',
+            );
+          }
         }
         this.emitSnapshot();
       }
@@ -4852,7 +4971,15 @@ export class BattleScene extends Phaser.Scene {
     this.playEnemyAnim(enemy, 'Attack');
     this.spawnOneShotVfx(spec.hitVfx, struct.sprite.x, struct.sprite.y, 0.85);
 
-    const dmg = Math.max(
+    const shieldedByLustrous = this.units.some(
+      (u) =>
+        !u.data.fainted &&
+        u.data.hp > 0 &&
+        u.data.heldItems.includes('lustrous_aegis') &&
+        chebyshevDist(u.data.gx, u.data.gy, struct.data.gx, struct.data.gy) <=
+          1,
+    );
+    const baseStructDmg = Math.max(
       1,
       Math.round(
         spec.atk *
@@ -4861,6 +4988,9 @@ export class BattleScene extends Phaser.Scene {
           (enemy.isBoss ? 1.6 : 1),
       ),
     );
+    const dmg = shieldedByLustrous
+      ? Math.max(1, Math.round(baseStructDmg * 0.8))
+      : baseStructDmg;
     struct.data.hp = Math.max(0, struct.data.hp - dmg);
     this.spawnFloatingText(
       struct.sprite.x,
@@ -5266,6 +5396,26 @@ export class BattleScene extends Phaser.Scene {
   private handleWaveComplete(): void {
     this.resetCombatControlState();
     this.clearAllHazards();
+    for (const u of this.units) {
+      u.invulnTimerMs = 0;
+      u.weaknessPolicyTimerMs = 0;
+      u.leftoversTimerMs = 0;
+      if (
+        !u.data.fainted &&
+        u.data.hp > 0 &&
+        u.data.hp < u.data.maxHp &&
+        u.data.heldItems.includes('leftovers')
+      ) {
+        const healAmt = Math.max(1, Math.round(u.data.maxHp * 0.15));
+        const prevHp = u.data.hp;
+        u.data.hp = Math.min(u.data.maxHp, u.data.hp + healAmt);
+        const actual = Math.round(u.data.hp - prevHp);
+        if (actual > 0) {
+          u.data.healingDone = (u.data.healingDone ?? 0) + actual;
+          this.updateUnitBars(u);
+        }
+      }
+    }
     this.ap = Math.min(this.maxAp, this.ap + 3);
 
     if (this.wave >= this.maxWaves) {
@@ -5361,6 +5511,9 @@ export class BattleScene extends Phaser.Scene {
         this.reserveIds.length < MAX_RESERVE_UNITS,
       evolvableUnits,
       excludeRewardIds,
+      true,
+      this.wave,
+      this.maxWaves,
     );
   }
 
@@ -5543,6 +5696,8 @@ export class BattleScene extends Phaser.Scene {
       unit.data.branchId,
       this.upgrades,
       this.getSpeciesPotential(unit.data.speciesId),
+      undefined,
+      unit.data.heldItems,
     );
   }
 
@@ -5577,6 +5732,8 @@ export class BattleScene extends Phaser.Scene {
       unit.data.branchId,
       this.upgrades,
       potential,
+      undefined,
+      unit.data.heldItems,
     );
     let interval = computeUnitAttackIntervalMs(
       unit.data.speciesId,
@@ -5693,6 +5850,16 @@ export class BattleScene extends Phaser.Scene {
         desc: `+${pct}% ATK from ${nearbyAlliesCount} nearby allies`,
         kind: 'buff',
         icon: '▲',
+      });
+    }
+    if (unit.weaknessPolicyTimerMs > 0) {
+      atkMult += 0.2;
+      badges.push({
+        id: 'weakness_policy',
+        label: '+20% Policy',
+        desc: '+20% ATK from Weakness Policy',
+        kind: 'buff',
+        icon: '⚡',
       });
     }
     atk = Math.round(atk * atkMult);
@@ -6160,7 +6327,14 @@ export class BattleScene extends Phaser.Scene {
       return false;
     }
     const struct = this.getStructureAt(gx, gy);
-    if (struct && !struct.data.ruined) return false;
+    if (
+      struct &&
+      !struct.data.ruined &&
+      struct.data.kind !== 'honey_trap' &&
+      struct.data.kind !== 'barrel'
+    ) {
+      return false;
+    }
     return true;
   }
 

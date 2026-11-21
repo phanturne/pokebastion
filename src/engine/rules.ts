@@ -1,4 +1,5 @@
 import { CLASS_MINOR_UPGRADES, CLASS_MINOR_UPGRADE_MAP } from '../data/classes';
+import { getEvolutionTargets } from '../data/evolutions';
 import {
   HELD_ITEMS,
   POKEMON_SPECIES,
@@ -18,7 +19,7 @@ import {
 
 export const HEAL_COST = 15;
 export const REVIVE_COST = 35;
-export const RARE_CANDY_COST = 65;
+export const RARE_CANDY_COST = 120;
 export const SELL_REFUND_RATE = 0.7;
 export const REPAIR_COST_RATE = 0.5;
 export const BASE_AP_KILL_THRESHOLD = 6;
@@ -252,7 +253,14 @@ export function getEffectiveMaxHp(
   heldItems: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.maxHp ?? 100;
-  const initMult = upgrades.includes('thick_hide') ? 1.3 : 1;
+  let initMult = upgrades.includes('thick_hide') ? 1.3 : 1;
+  if (getEvolutionTargets(speciesId).length > 0) {
+    for (const itemId of heldItems) {
+      if (HELD_ITEMS[itemId]?.special === 'eviolite_unevolved') {
+        initMult *= 1.3 / 1.15;
+      }
+    }
+  }
   return Math.round(
     base *
       applyStatModifiers(
@@ -278,6 +286,13 @@ export function getEffectiveAtk(
   let initMult = 1;
   if (upgrades.includes('sharp_claws')) initMult += 0.25;
   if (hasBulbasaurAura) initMult += 0.1;
+  if (POKEMON_SPECIES[speciesId]?.isMelee) {
+    for (const itemId of heldItems) {
+      if (HELD_ITEMS[itemId]?.special === 'melee_atk_bonus') {
+        initMult *= 1.14 / 1.06;
+      }
+    }
+  }
   return Math.round(
     base *
       applyStatModifiers(
@@ -299,12 +314,20 @@ export function getEffectiveDef(
   upgrades: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.def ?? 0;
+  let extraDef = 0;
+  if (getEvolutionTargets(speciesId).length > 0) {
+    for (const itemId of heldItems) {
+      if (HELD_ITEMS[itemId]?.special === 'eviolite_unevolved') {
+        extraDef += 8;
+      }
+    }
+  }
   return applyStatModifiers(
     speciesId,
     branchId,
     heldItems,
     upgrades,
-    base,
+    base + extraDef,
     'add',
     (m) => m.defBonus,
   );
@@ -314,12 +337,13 @@ export function getEffectiveRange(
   speciesId: string,
   branchId: string | null = null,
   upgrades: string[] = [],
+  heldItems: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.range ?? 1;
   return applyStatModifiers(
     speciesId,
     branchId,
-    [],
+    heldItems,
     upgrades,
     base,
     'add',
@@ -464,18 +488,55 @@ const RARITY_TIERS: readonly PokemonRarity[] = [
   'Legendary',
 ];
 
-const RARITY_REWARD_WEIGHT: Record<PokemonRarity, number> = {
-  Common: 40,
-  Uncommon: 25,
-  Rare: 14,
-  Epic: 6,
-  Legendary: 2,
+const EARLY_RARITY_WEIGHT: Record<PokemonRarity, number> = {
+  Common: 52,
+  Uncommon: 28,
+  Rare: 12,
+  Epic: 3,
+  Legendary: 1,
 };
+
+const LATE_RARITY_WEIGHT: Record<PokemonRarity, number> = {
+  Common: 12,
+  Uncommon: 24,
+  Rare: 26,
+  Epic: 20,
+  Legendary: 10,
+};
+
+/**
+ * Computes rarity weights scaled by wave progression (`wave` / `maxWaves`),
+ * favoring Common/Uncommon early and increasing Rare/Epic/Legendary odds later.
+ */
+export function getRarityWeightsForWave(
+  wave = 1,
+  maxWaves = 30,
+): Record<PokemonRarity, number> {
+  const t = Math.max(0, Math.min(1, (wave - 1) / Math.max(1, maxWaves - 1)));
+  return {
+    Common:
+      EARLY_RARITY_WEIGHT.Common +
+      (LATE_RARITY_WEIGHT.Common - EARLY_RARITY_WEIGHT.Common) * t,
+    Uncommon:
+      EARLY_RARITY_WEIGHT.Uncommon +
+      (LATE_RARITY_WEIGHT.Uncommon - EARLY_RARITY_WEIGHT.Uncommon) * t,
+    Rare:
+      EARLY_RARITY_WEIGHT.Rare +
+      (LATE_RARITY_WEIGHT.Rare - EARLY_RARITY_WEIGHT.Rare) * t,
+    Epic:
+      EARLY_RARITY_WEIGHT.Epic +
+      (LATE_RARITY_WEIGHT.Epic - EARLY_RARITY_WEIGHT.Epic) * t,
+    Legendary:
+      EARLY_RARITY_WEIGHT.Legendary +
+      (LATE_RARITY_WEIGHT.Legendary - EARLY_RARITY_WEIGHT.Legendary) * t,
+  };
+}
 
 function pickByRarityTier<T>(
   items: readonly T[],
   getRarity: (item: T) => PokemonRarity | undefined,
   rng: () => number,
+  weights: Record<PokemonRarity, number> = EARLY_RARITY_WEIGHT,
 ): T {
   const buckets = new Map<PokemonRarity, T[]>();
   for (const item of items) {
@@ -487,7 +548,7 @@ function pickByRarityTier<T>(
 
   let totalWeight = 0;
   for (const tier of RARITY_TIERS) {
-    if (buckets.has(tier)) totalWeight += RARITY_REWARD_WEIGHT[tier];
+    if (buckets.has(tier)) totalWeight += weights[tier];
   }
 
   let chosenBucket: T[] = items as T[];
@@ -496,7 +557,7 @@ function pickByRarityTier<T>(
     for (const tier of RARITY_TIERS) {
       const bucket = buckets.get(tier);
       if (!bucket) continue;
-      roll -= RARITY_REWARD_WEIGHT[tier];
+      roll -= weights[tier];
       if (roll <= 0) {
         chosenBucket = bucket;
         break;
@@ -512,11 +573,12 @@ function shuffleByRarityTier<T>(
   items: readonly T[],
   getRarity: (item: T) => PokemonRarity | undefined,
   rng: () => number,
+  weights: Record<PokemonRarity, number> = EARLY_RARITY_WEIGHT,
 ): T[] {
   const pool = [...items];
   const result: T[] = [];
   while (pool.length > 0) {
-    const picked = pickByRarityTier(pool, getRarity, rng);
+    const picked = pickByRarityTier(pool, getRarity, rng, weights);
     result.push(picked);
     pool.splice(pool.indexOf(picked), 1);
   }
@@ -524,8 +586,28 @@ function shuffleByRarityTier<T>(
 }
 
 /**
+ * Picks `count` distinct held items for a Merchant Shop visit, weighted by wave-scaled rarity.
+ */
+export function pickShopItemIds(
+  rng: () => number = Math.random,
+  count = 6,
+  wave = 1,
+  maxWaves = 30,
+): string[] {
+  const weights = getRarityWeightsForWave(wave, maxWaves);
+  return shuffleByRarityTier(
+    Object.values(HELD_ITEMS),
+    (item) => item.rarity,
+    rng,
+    weights,
+  )
+    .slice(0, count)
+    .map((item) => item.id);
+}
+
+/**
  * Generates up to 3 distinct roguelike reward choices between waves,
- * weighting rarer species, upgrades, and artifacts lower than common ones.
+ * weighting rarer species, upgrades, artifacts, and held items lower than common ones.
  */
 export function generateRewardChoices(
   ownedSpeciesIds: Set<string>,
@@ -541,8 +623,12 @@ export function generateRewardChoices(
     targetSpeciesId: string;
   }> = [],
   excludeRewardIds?: Set<string>,
+  includeHeldItems = false,
+  wave = 1,
+  maxWaves = 30,
 ): RewardOption[] {
   void _unbranchedUnits;
+  const rarityWeights = getRarityWeightsForWave(wave, maxWaves);
   const ownedUpgradeSet = new Set(ownedUpgrades);
   const ownedArtifactSet = new Set(ownedArtifacts);
 
@@ -597,6 +683,19 @@ export function generateRewardChoices(
   const preferredRewards = availableRewards.filter((r) => !isExcluded(r.id));
   const excludedRewards = availableRewards.filter((r) => isExcluded(r.id));
 
+  const itemRewards: RewardOption[] = includeHeldItems
+    ? Object.values(HELD_ITEMS).map((item) => ({
+        id: `item_${item.id}`,
+        kind: 'item',
+        rarity: item.rarity,
+        title: item.name,
+        desc: item.desc,
+        itemId: item.id,
+      }))
+    : [];
+  const preferredItems = itemRewards.filter((r) => !isExcluded(r.id));
+  const excludedItems = itemRewards.filter((r) => isExcluded(r.id));
+
   const pushEvolveChoice = (unit: {
     uid: string;
     speciesId: string;
@@ -635,7 +734,13 @@ export function generateRewardChoices(
 
   if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
     pushRecruitChoice(
-      pickByRarityTier(preferredSpecies, (sp) => sp.rarity, rng),
+      pickByRarityTier(preferredSpecies, (sp) => sp.rarity, rng, rarityWeights),
+    );
+  }
+
+  if (preferredItems.length > 0 && choices.length < 3) {
+    choices.push(
+      pickByRarityTier(preferredItems, (i) => i.rarity, rng, rarityWeights),
     );
   }
 
@@ -643,6 +748,7 @@ export function generateRewardChoices(
     preferredRewards,
     (r) => r.rarity,
     rng,
+    rarityWeights,
   )) {
     if (choices.length >= 3) break;
     choices.push(item);
@@ -656,7 +762,7 @@ export function generateRewardChoices(
     excludedSpecies.length > 0
   ) {
     pushRecruitChoice(
-      pickByRarityTier(excludedSpecies, (sp) => sp.rarity, rng),
+      pickByRarityTier(excludedSpecies, (sp) => sp.rarity, rng, rarityWeights),
     );
   }
 
@@ -664,9 +770,20 @@ export function generateRewardChoices(
     excludedRewards,
     (r) => r.rarity,
     rng,
+    rarityWeights,
   )) {
     if (choices.length >= 3) break;
     choices.push(item);
+  }
+
+  if (
+    choices.length < 3 &&
+    !choices.some((c) => c.kind === 'item') &&
+    excludedItems.length > 0
+  ) {
+    choices.push(
+      pickByRarityTier(excludedItems, (i) => i.rarity, rng, rarityWeights),
+    );
   }
 
   if (

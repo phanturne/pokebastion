@@ -720,3 +720,180 @@ describe('selectUnitTarget (BTD6-style targeting priority)', () => {
     expect(juggernautRanged.reflectedThorns).toBe(0);
   });
 });
+
+describe('Expanded Held Items Combat Effects', () => {
+  it('applies Scope Lens 4th-hit crit, Shell Bell lifesteal, and Life Orb recoil', () => {
+    const scope3 = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 3,
+      heldItems: ['scope_lens'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(scope3.isCrit).toBe(false);
+    expect(scope3.damage).toBe(100);
+
+    const scope4 = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 4,
+      heldItems: ['scope_lens'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(scope4.isCrit).toBe(true);
+    expect(scope4.damage).toBe(165);
+
+    const scopeAndBranch20 = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 20,
+      branchSpecial: 'crit_boost',
+      heldItems: ['scope_lens'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(scopeAndBranch20.isCrit).toBe(true);
+    expect(scopeAndBranch20.damage).toBe(165);
+
+    const shellBell = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['shell_bell'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(shellBell.lifestealHeal).toBe(12);
+
+    const lifeOrb = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['life_orb'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(lifeOrb.recoilPct).toBe(0.04);
+  });
+
+  it('applies Wise Glasses ult charge, Kings Rock slow + ult charge, and Griseous Core 2-target chain + burn', () => {
+    const wise = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0001',
+      hitCount: 1,
+      heldItems: ['wise_glasses'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(wise.ultCharge).toBeCloseTo(15 * 1.15);
+
+    const kings3 = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0001',
+      hitCount: 3,
+      heldItems: ['kings_rock'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(kings3.ultCharge).toBeCloseTo(15 * 1.25);
+    expect(kings3.slowFactor).toBe(0.4);
+    expect(kings3.slowDurationMs).toBe(1500);
+
+    const griseous = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['griseous_core'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    expect(griseous.chainTargets).toBe(2);
+    expect(griseous.chainDamage).toBe(35);
+    expect(griseous.inflictBurn).toBe(true);
+  });
+
+  it('applies Expert Belt, Weakness Policy, and Adamant Orb (sacred_crown) conditional bonuses', () => {
+    const expertSe = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['expert_belt'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+      attackType: 'Electric',
+      defenderTypes: ['Water'],
+    });
+    expect(expertSe.damage).toBe(Math.round(150 * 1.2));
+
+    const expertBoss = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['expert_belt'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+      targetIsBoss: true,
+    });
+    expect(expertBoss.damage).toBe(120);
+
+    const weaknessSeSurge = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['weakness_policy'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+      weaknessPolicyActive: true,
+      attackType: 'Electric',
+      defenderTypes: ['Water'],
+    });
+    // 100 * 1.2 (active) = 120; * 1.5 (SE) = 180; * 1.25 (WP SE) = 225
+    expect(weaknessSeSurge.damage).toBe(225);
+
+    const adamantStatus = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      heldItems: ['sacred_crown'],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: true,
+    });
+    expect(adamantStatus.damage).toBe(125);
+  });
+
+  it('applies Rocky Helmet and Lustrous Orb 25% thorns reflection', () => {
+    const rocky = computeEnemyAttackDamage({
+      enemyAtk: 100,
+      unitDef: 0,
+      unitSpeciesId: '0025',
+      unitStationaryMs: 0,
+      unitHeldItems: ['rocky_helmet'],
+      unitAdjacentToStructure: false,
+    });
+    expect(rocky.reflectedThorns).toBe(25);
+
+    const lustrous = computeEnemyAttackDamage({
+      enemyAtk: 100,
+      unitDef: 0,
+      unitSpeciesId: '0025',
+      unitStationaryMs: 0,
+      unitHeldItems: ['lustrous_aegis'],
+      unitAdjacentToStructure: false,
+    });
+    expect(lustrous.reflectedThorns).toBe(25);
+  });
+});

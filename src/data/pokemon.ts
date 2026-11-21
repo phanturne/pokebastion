@@ -1,4 +1,5 @@
 import { GEN1_ENEMIES, GEN1_POKEMON } from './gen1';
+import { HELD_ITEM_CATALOG } from './items';
 import {
   EnemySpecies,
   HeldItemSpec,
@@ -275,33 +276,7 @@ export const ENEMY_SPECIES: Record<string, EnemySpecies> = {
   '0109': GEN1_ENEMIES['0109'],
 };
 
-export const HELD_ITEMS: Record<string, HeldItemSpec> = {
-  bloodthirsty_edge: {
-    id: 'bloodthirsty_edge',
-    name: 'Bloodthirsty Edge',
-    cost: 55,
-    desc: '+15% ATK; deals +25% bonus damage to enemies below 50% HP.',
-    atkMult: 1.15,
-    special: 'bloodthirsty',
-  },
-  storm_conductor: {
-    id: 'storm_conductor',
-    name: 'Storm Conductor',
-    cost: 70,
-    desc: '+10% Attack Speed; basic attacks chain 25% damage to 1 nearby foe.',
-    attackIntervalMult: 0.91,
-    special: 'storm_conductor',
-  },
-  guardian_charm: {
-    id: 'guardian_charm',
-    name: 'Guardian Charm',
-    cost: 50,
-    desc: '+18% Max HP, +6 DEF; -18% damage taken adjacent to structures.',
-    hpMult: 1.18,
-    defBonus: 6,
-    special: 'guardian_charm',
-  },
-};
+export const HELD_ITEMS: Record<string, HeldItemSpec> = HELD_ITEM_CATALOG;
 
 export const STRUCTURE_SPECS: Record<StructureKind, StructureSpec> = {
   wood_wall: {
