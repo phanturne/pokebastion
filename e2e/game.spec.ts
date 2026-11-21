@@ -526,25 +526,30 @@ test.describe('PokéBastion TD — Phaser E2E', () => {
     }, beforeSwap);
     await page.mouse.click(unitClients[0].screenX, unitClients[0].screenY);
     await page.mouse.click(unitClients[1].screenX, unitClients[1].screenY);
-    const afterSwap = await page.evaluate(() => {
+    const afterClick = await page.evaluate(() => {
       const s = (
         window as unknown as {
           __battleScene: {
             getSnapshot: () => {
+              selectedUnitUid: string | null;
               activeUnits: Array<{ uid: string; gx: number; gy: number }>;
             };
           };
         }
       ).__battleScene.getSnapshot();
-      return s.activeUnits.map((u) => ({ uid: u.uid, gx: u.gx, gy: u.gy }));
+      return {
+        selectedUnitUid: s.selectedUnitUid,
+        units: s.activeUnits.map((u) => ({ uid: u.uid, gx: u.gx, gy: u.gy })),
+      };
     });
-    expect(afterSwap[0]).toMatchObject({
-      gx: beforeSwap[1].gx,
-      gy: beforeSwap[1].gy,
-    });
-    expect(afterSwap[1]).toMatchObject({
+    expect(afterClick.selectedUnitUid).toBe(beforeSwap[1].uid);
+    expect(afterClick.units[0]).toMatchObject({
       gx: beforeSwap[0].gx,
       gy: beforeSwap[0].gy,
+    });
+    expect(afterClick.units[1]).toMatchObject({
+      gx: beforeSwap[1].gx,
+      gy: beforeSwap[1].gy,
     });
 
     // Auto-deploy newly recruited Pokémon when active party has room (< 6)
