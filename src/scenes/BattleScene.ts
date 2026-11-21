@@ -78,6 +78,7 @@ import {
   findNearestBlockingWall,
   findPath,
   findUnitPath,
+  findWallbreakerPath,
   GridPoint,
   isNoBuildTile,
   rollWavePortals,
@@ -1797,7 +1798,13 @@ export class BattleScene extends Phaser.Scene {
     this.upgrades = [];
     this.rewardChoices = [];
     this.rewardRerollsUsed = 0;
-    this.draftIds = [...STARTER_UNLOCKED_IDS];
+    const unlocked = getUnlockedIds(this.playerSave);
+    const onlyStartersUnlocked =
+      unlocked.length <= STARTER_UNLOCKED_IDS.length &&
+      unlocked.every((id) => STARTER_UNLOCKED_IDS.includes(id));
+    this.draftIds = onlyStartersUnlocked
+      ? STARTER_UNLOCKED_IDS.filter((id) => unlocked.includes(id))
+      : [];
     this.reserveIds = [];
     this.heldItemInventory = [];
     this.spawnQueue = [];
@@ -2597,11 +2604,12 @@ export class BattleScene extends Phaser.Scene {
 
     const spawns = this.activeWaves[this.wave - 1]?.spawns ?? [];
     let hasGround = spawns.length === 0;
+    let hasWallbreaker = false;
     for (const group of spawns) {
-      const mt = ENEMY_SPECIES[group.speciesId]?.movementType ?? 'ground';
-      if (mt === 'ground') {
+      const sp = ENEMY_SPECIES[group.speciesId];
+      if ((sp?.movementType ?? 'ground') === 'ground') {
         hasGround = true;
-        break;
+        if (sp && sp.wallDmgMult >= 2) hasWallbreaker = true;
       }
     }
 
@@ -2626,11 +2634,45 @@ export class BattleScene extends Phaser.Scene {
     if (hasGround) {
       for (const portal of this.activePortals) {
         for (const start of portal.cells) {
-          const openPath = findPath(start, this.tiles, blockedWalls, 'ground');
-          if (openPath && openPath.length > 1) {
+          const regular = findWallbreakerPath(
+            start,
+            this.tiles,
+            previewStructures,
+            false,
+          );
+          if (regular && !regular.targetWall && regular.path.length > 1) {
             previewPaths.push({
-              points: openPath,
+              points: regular.path,
               color: 0xffffff,
+            });
+            if (hasWallbreaker) {
+              const wb = findWallbreakerPath(
+                start,
+                this.tiles,
+                previewStructures,
+                true,
+              );
+              if (wb && wb.targetWall && wb.path.length > 1) {
+                previewPaths.push({
+                  points: wb.path,
+                  color: 0xf97316,
+                });
+                blockingWalls.push({
+                  gx: wb.targetWall.gx,
+                  gy: wb.targetWall.gy,
+                });
+              }
+            }
+          } else if (regular && regular.targetWall) {
+            if (regular.path.length > 1) {
+              previewPaths.push({
+                points: regular.path,
+                color: 0xf97316,
+              });
+            }
+            blockingWalls.push({
+              gx: regular.targetWall.gx,
+              gy: regular.targetWall.gy,
             });
           } else {
             const blockingWall = findNearestBlockingWall(
@@ -4148,16 +4190,18 @@ export class BattleScene extends Phaser.Scene {
     if (!waveDef) return;
 
     let portalIdx = 0;
+    const portalCellCounters = new Array<number>(
+      Math.max(1, this.activePortals.length),
+    ).fill(0);
 
     for (const group of waveDef.spawns) {
       const delay = group.delayMs ?? 0;
       for (let i = 0; i < group.count; i++) {
-        const portal =
-          this.activePortals[
-            (portalIdx + i) % Math.max(1, this.activePortals.length)
-          ];
+        const pIdx = (portalIdx + i) % Math.max(1, this.activePortals.length);
+        const portal = this.activePortals[pIdx];
+        const cellIdx = portalCellCounters[pIdx]++;
         const point = portal
-          ? portal.cells[i % portal.cells.length]
+          ? portal.cells[cellIdx % portal.cells.length]
           : { gx: 0, gy: Math.floor(GRID_ROWS / 2) };
         this.spawnQueue.push({
           spawnAtMs: delay + i * group.intervalMs,
@@ -4491,38 +4535,63 @@ export class BattleScene extends Phaser.Scene {
     enemy.targetWallUid = null;
     enemy.aggroUnitUid = aggroUnit ? aggroUnit.data.uid : null;
 
-    const path = aggroUnit
-      ? findEnemyPathToTarget(
-          start,
-          { gx: aggroUnit.data.gx, gy: aggroUnit.data.gy },
-          this.tiles,
-          blockedWalls,
-          spec.movementType,
-          activeFlyBlocked,
-        )
-      : findPath(
-          start,
-          this.tiles,
-          blockedWalls,
-          spec.movementType,
-          activeFlyBlocked,
-        );
-    if (path && path.length > 0) {
-      enemy.path = path;
-    } else if (spec.movementType === 'ground') {
-      const wall = findNearestBlockingWall(
+    if (!aggroUnit && spec.movementType === 'ground') {
+      const wb = findWallbreakerPath(
         start,
         this.tiles,
         this.structures.map((s) => s.data),
+        spec.wallDmgMult >= 2,
       );
-      if (wall) {
-        enemy.targetWallUid = wall.uid;
-        enemy.path = this.findPathToTile(start, { gx: wall.gx, gy: wall.gy });
+      if (wb && wb.path.length > 0) {
+        enemy.path = wb.path;
+        enemy.targetWallUid = wb.targetWall ? wb.targetWall.uid : null;
+      } else {
+        const wall = findNearestBlockingWall(
+          start,
+          this.tiles,
+          this.structures.map((s) => s.data),
+        );
+        if (wall) {
+          enemy.targetWallUid = wall.uid;
+          enemy.path = this.findPathToTile(start, { gx: wall.gx, gy: wall.gy });
+        } else {
+          enemy.path = [start];
+        }
+      }
+    } else {
+      const path = aggroUnit
+        ? findEnemyPathToTarget(
+            start,
+            { gx: aggroUnit.data.gx, gy: aggroUnit.data.gy },
+            this.tiles,
+            blockedWalls,
+            spec.movementType,
+            activeFlyBlocked,
+          )
+        : findPath(
+            start,
+            this.tiles,
+            blockedWalls,
+            spec.movementType,
+            activeFlyBlocked,
+          );
+      if (path && path.length > 0) {
+        enemy.path = path;
+      } else if (spec.movementType === 'ground') {
+        const wall = findNearestBlockingWall(
+          start,
+          this.tiles,
+          this.structures.map((s) => s.data),
+        );
+        if (wall) {
+          enemy.targetWallUid = wall.uid;
+          enemy.path = this.findPathToTile(start, { gx: wall.gx, gy: wall.gy });
+        } else {
+          enemy.path = [start];
+        }
       } else {
         enemy.path = [start];
       }
-    } else {
-      enemy.path = [start];
     }
 
     if (enemy.path.length > 1) {

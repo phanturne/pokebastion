@@ -8,6 +8,7 @@ import {
   findNearestBlockingWall,
   findPath,
   findUnitPath,
+  findWallbreakerPath,
   isNoBuildTile,
   isPortalBufferTile,
   rollWavePortals,
@@ -502,5 +503,84 @@ describe('A* Pathfinding & Grid Rules', () => {
     );
     expect(flyPath).not.toBeNull();
     expect(flyPath![flyPath!.length - 1]).toEqual({ gx: 12, gy: 8 });
+  });
+
+  it('wallbreakers walk around short detours but breach long mazes even with an open entry', () => {
+    const grid = createBaseGrid();
+
+    // 1. Short detour (single wall at 11,8): wallbreaker walks around instead of breaching
+    const shortRes = findWallbreakerPath({ gx: 10, gy: 8 }, grid, [
+      makeWall('w1', 11, 8),
+    ]);
+    expect(shortRes).not.toBeNull();
+    expect(shortRes!.targetWall).toBeNull();
+
+    // 2. Bastion enclosure with one open entry on the East side (15,8..9):
+    // West/North/South approaches to the Core (13..14, 8..9) are walled off with wood_walls.
+    // Normal ground path detours all the way around to the East entry, while wallbreakers breach the West wall.
+    const longWoodWall: GridStructure[] = [
+      // West wall
+      makeWall('w_w1', 12, 7),
+      makeWall('w_w2', 12, 8),
+      makeWall('w_w3', 12, 9),
+      makeWall('w_w4', 12, 10),
+      // North wall
+      makeWall('w_n1', 13, 7),
+      makeWall('w_n2', 14, 7),
+      makeWall('w_n3', 15, 7),
+      // South wall
+      makeWall('w_s1', 13, 10),
+      makeWall('w_s2', 14, 10),
+      makeWall('w_s3', 15, 10),
+    ];
+    const openDetour = findPath(
+      SPAWN_WEST[1],
+      grid,
+      new Set(longWoodWall.map((w) => `${w.gx},${w.gy}`)),
+      'ground',
+    );
+    expect(openDetour).not.toBeNull(); // Open entry still exists!
+
+    const breachRes = findWallbreakerPath(SPAWN_WEST[1], grid, longWoodWall);
+    expect(breachRes).not.toBeNull();
+    expect(breachRes!.targetWall).not.toBeNull();
+    expect(breachRes!.path[breachRes!.path.length - 1]).toEqual({
+      gx: breachRes!.targetWall!.gx,
+      gy: breachRes!.targetWall!.gy,
+    });
+
+    // 3. Upgrading the West wall to stone_walls deters breaching there (or forces detour/weaker side)
+    const fortified: GridStructure[] = longWoodWall.map((w) =>
+      w.gx === 12 ? { ...w, kind: 'stone_wall', hp: 300, maxHp: 300 } : w,
+    );
+    const fortifiedRes = findWallbreakerPath(SPAWN_WEST[1], grid, fortified);
+    expect(fortifiedRes).not.toBeNull();
+    if (fortifiedRes!.targetWall) {
+      expect(fortifiedRes!.targetWall.kind).toBe('wood_wall');
+    }
+    // 4. Regular ground units (isWallbreaker = false) still detour around moderate walls,
+    //    but breach if the open entry is very far away (Clash of Clans style).
+    const regularModerate = findWallbreakerPath(
+      SPAWN_WEST[1],
+      grid,
+      longWoodWall,
+      false,
+    );
+    expect(regularModerate).not.toBeNull();
+    expect(regularModerate!.targetWall).toBeNull();
+
+    // Huge wall across gx = 6 from gy = 1..15 leaving only gy = 16 open (very far detour)
+    const hugeWall: GridStructure[] = [];
+    for (let gy = 1; gy <= 15; gy++) {
+      hugeWall.push(makeWall(`hw_${gy}`, 6, gy));
+    }
+    const regularFar = findWallbreakerPath(
+      SPAWN_WEST[1],
+      grid,
+      hugeWall,
+      false,
+    );
+    expect(regularFar).not.toBeNull();
+    expect(regularFar!.targetWall).not.toBeNull();
   });
 });

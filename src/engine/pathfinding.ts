@@ -344,6 +344,8 @@ function runAStar(
   isGoal: (gx: number, gy: number) => boolean,
   heuristic: (gx: number, gy: number) => number,
   refPoint: GridPoint,
+  stepPenalty?: (gx: number, gy: number) => number,
+  canDiagCorner?: (gx: number, gy: number) => boolean,
 ): GridPoint[] | null {
   if (!inBounds(start.gx, start.gy)) return null;
   if (isGoal(start.gx, start.gy)) return [{ gx: start.gx, gy: start.gy }];
@@ -423,7 +425,8 @@ function runAStar(
       if (!canStep(nx, ny)) continue;
       // Prevent diagonal corner-cutting through solid obstacles
       if (d.gx !== 0 && d.gy !== 0) {
-        if (!canStep(cx + d.gx, cy) || !canStep(cx, cy + d.gy)) {
+        const cornerCheck = canDiagCorner ?? canStep;
+        if (!cornerCheck(cx + d.gx, cy) || !cornerCheck(cx, cy + d.gy)) {
           continue;
         }
       }
@@ -431,7 +434,8 @@ function runAStar(
       const nIdx = ny * GRID_COLS + nx;
       if (closed[nIdx]) continue;
 
-      const nextG = gScore[current] + d.cost;
+      const nextG =
+        gScore[current] + d.cost + (stepPenalty ? stepPenalty(nx, ny) : 0);
       if (nextG < gScore[nIdx]) {
         cameFrom[nIdx] = current;
         gScore[nIdx] = nextG;
@@ -482,6 +486,80 @@ export function findPath(
     minCoreDist,
     refCore,
   );
+}
+
+/**
+ * Tile-equivalent traversal penalty for a standing wall when pathing a wallbreaker.
+ * Scales with remaining HP so tougher or double-layered walls deter breaches,
+ * while long mazes or weakened walls invite wallbreakers to smash through.
+ */
+export function getWallTraversalCost(hp: number, isWallbreaker = true): number {
+  const clamped = Math.max(0, hp);
+  return isWallbreaker ? 2 + clamped / 25 : 6 + clamped / 15;
+}
+
+export interface WallbreakerPathResult {
+  path: GridPoint[];
+  targetWall: GridStructure | null;
+}
+
+/**
+ * 8-directional A* for ground enemies that prefers open paths around walls,
+ * but will breach a wall if the open detour is too far (Clash of Clans style).
+ * Wallbreakers (`isWallbreaker = true`) have a lower wall cost than regular ground units.
+ */
+export function findWallbreakerPath(
+  start: GridPoint,
+  tiles: TileKind[][],
+  structures: readonly GridStructure[],
+  isWallbreaker = true,
+): WallbreakerPathResult | null {
+  const wallMap = new Map<number, GridStructure>();
+  const wallCostMask = new Float64Array(GRID_COLS * GRID_ROWS);
+  for (const s of structures) {
+    if (!s.ruined && s.hp > 0 && STRUCTURE_SPECS[s.kind].blocksGround) {
+      const idx = s.gy * GRID_COLS + s.gx;
+      wallMap.set(idx, s);
+      wallCostMask[idx] = getWallTraversalCost(s.hp, isWallbreaker);
+    }
+  }
+
+  if (wallMap.size === 0) {
+    const open = findPath(start, tiles, new Set(), 'ground');
+    return open ? { path: open, targetWall: null } : null;
+  }
+
+  let refCore = CORE_CELLS[0];
+  let refDist = Infinity;
+  for (const c of CORE_CELLS) {
+    const d = Math.abs(start.gx - c.gx) + Math.abs(start.gy - c.gy);
+    if (d < refDist) {
+      refDist = d;
+      refCore = c;
+    }
+  }
+
+  const emptyMask = new Uint8Array(GRID_COLS * GRID_ROWS);
+  const canStep = (gx: number, gy: number) =>
+    isPassable(gx, gy, tiles, emptyMask, 'ground');
+  const path = runAStar(
+    start,
+    canStep,
+    isCoreCell,
+    minCoreDist,
+    refCore,
+    (gx, gy) => wallCostMask[gy * GRID_COLS + gx],
+    (gx, gy) => canStep(gx, gy) && wallCostMask[gy * GRID_COLS + gx] === 0,
+  );
+  if (!path) return null;
+
+  for (let i = 0; i < path.length; i++) {
+    const wall = wallMap.get(path[i].gy * GRID_COLS + path[i].gx);
+    if (wall) {
+      return { path: path.slice(0, i + 1), targetWall: wall };
+    }
+  }
+  return { path, targetWall: null };
 }
 
 /**
