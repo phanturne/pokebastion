@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:balance": "BALANCE_REPORT=1 vitest run tests/balance.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check:bundle": "node scripts/check-bundle-size.mjs",
