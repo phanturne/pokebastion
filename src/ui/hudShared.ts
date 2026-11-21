@@ -1,4 +1,5 @@
 import { CLASS_MINOR_UPGRADES } from '../data/classes';
+import { HELD_ITEM_CATALOG } from '../data/items';
 import { POKEMON_SPECIES, REWARD_POOL } from '../data/pokemon';
 import { TARGET_PRIORITY_LABELS } from '../engine/combat';
 import { doesMinorUpgradeMatchSpecies, getBranchCost } from '../engine/rules';
@@ -61,29 +62,15 @@ export const REWARD_BY_ID: Record<string, RewardOption> = Object.fromEntries(
   REWARD_POOL.map((r) => [r.id, r]),
 );
 
-export const HELD_ITEM_ICONS: Record<string, string> = {
-  bloodthirsty_edge: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="10" y="2" width="4" height="4" fill="#f85149"/>
-    <rect x="8" y="4" width="4" height="4" fill="#ff7b72"/>
-    <rect x="6" y="6" width="4" height="4" fill="#e6edf3"/>
-    <rect x="4" y="8" width="4" height="4" fill="#8b949e"/>
-    <rect x="2" y="11" width="3" height="3" fill="#d29922"/>
-  </svg>`,
-  storm_conductor: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="8" y="1" width="4" height="3" fill="#f7cc45"/>
-    <rect x="6" y="4" width="4" height="3" fill="#fde047"/>
-    <rect x="4" y="7" width="8" height="2" fill="#f7cc45"/>
-    <rect x="6" y="9" width="4" height="3" fill="#58a6ff"/>
-    <rect x="4" y="12" width="4" height="3" fill="#38bdf8"/>
-  </svg>`,
-  guardian_charm: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
-    <rect x="4" y="2" width="8" height="2" fill="#58a6ff"/>
-    <rect x="3" y="4" width="10" height="5" fill="#38bdf8"/>
-    <rect x="4" y="9" width="8" height="3" fill="#58a6ff"/>
-    <rect x="6" y="12" width="4" height="2" fill="#d29922"/>
-    <rect x="6" y="5" width="4" height="4" fill="#f7cc45"/>
-  </svg>`,
-};
+export function getHeldItemIcon(id: string): string {
+  const item = HELD_ITEM_CATALOG[id];
+  if (!item) return '';
+  return `<img src="assets/items/${item.spriteSlug}.png" width="20" height="20" style="image-rendering:pixelated" alt="" />`;
+}
+
+export const HELD_ITEM_ICONS: Record<string, string> = Object.fromEntries(
+  Object.keys(HELD_ITEM_CATALOG).map((id) => [id, getHeldItemIcon(id)]),
+);
 
 export const RELIC_ICONS: Record<string, string> = {
   sharp_claws: `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="3" y="2" width="2" height="9" fill="#f85149"/><rect x="7" y="2" width="2" height="11" fill="#ff7b72"/><rect x="11" y="2" width="2" height="9" fill="#f85149"/><rect x="3" y="12" width="10" height="2" fill="#8b949e"/></svg>`,

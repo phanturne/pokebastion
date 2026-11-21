@@ -651,6 +651,25 @@ export class HudOverlay {
       return;
     }
 
+    if (ev.code === 'Space' || ev.key === ' ') {
+      if (ev.repeat || this.lastModalHtml !== '') return;
+      const target = ev.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (this.lastSnap?.phase === 'COMBAT') {
+        ev.preventDefault();
+        this.scene()?.togglePause?.();
+      }
+      return;
+    }
+
     if (ev.key !== 'Escape') return;
     if (this.hatchResult) {
       this.hatchResult = null;

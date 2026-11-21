@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { POKEMON_SPECIES, REWARD_POOL } from '../src/data/pokemon';
+import { HELD_ITEMS, POKEMON_SPECIES, REWARD_POOL } from '../src/data/pokemon';
 import {
   BASE_AP_KILL_THRESHOLD,
   DRAFT_BUDGET,
@@ -33,6 +33,7 @@ import {
   getSellRefund,
   getStructureBuildCost,
   isFlyingSpecies,
+  pickShopItemIds,
   isInCircularRange,
   isShopAfterWave,
   isSpecialEnemy,
@@ -450,7 +451,7 @@ describe('Game Rules, AP Movement & Economy', () => {
   });
 
   it('offers an evolve reward when evolvableUnits are provided and respects Rare Candy cost', () => {
-    expect(RARE_CANDY_COST).toBe(65);
+    expect(RARE_CANDY_COST).toBe(120);
     const owned = new Set(['0001', '0004', '0007']);
     const evolvable = [
       { uid: 'u1', speciesId: '0001', targetSpeciesId: '0002' },
@@ -585,5 +586,75 @@ describe('Special Enemy Threat Helpers', () => {
     expect(
       getEffectiveStructureMaxHp('tempo_shrine', ['fortification_core']),
     ).toBe(Math.round(baseShrine * 1.4));
+  });
+
+  it('picks 6 distinct held items for the Merchant Shop and includes gear in wave rewards', () => {
+    const shopIds = pickShopItemIds(() => 0.37, 6);
+    expect(shopIds).toHaveLength(6);
+    expect(new Set(shopIds).size).toBe(6);
+    for (const id of shopIds) {
+      expect(HELD_ITEMS[id]).toBeDefined();
+    }
+
+    const choices = generateRewardChoices(
+      new Set(['0001', '0004', '0007']),
+      [],
+      [],
+      () => 0.25,
+      [],
+      false,
+      true,
+      [],
+      undefined,
+      true,
+    );
+    expect(choices).toHaveLength(3);
+    const gearChoice = choices.find((c) => c.kind === 'item');
+    expect(gearChoice).toBeDefined();
+    expect(gearChoice?.itemId).toBeDefined();
+    expect(HELD_ITEMS[gearChoice!.itemId!]).toBeDefined();
+
+    const rerolled = generateRewardChoices(
+      new Set(['0001', '0004', '0007']),
+      [],
+      [],
+      () => 0.25,
+      [],
+      false,
+      true,
+      [],
+      new Set([gearChoice!.id]),
+      true,
+    );
+    const rerolledGear = rerolled.find((c) => c.kind === 'item');
+    expect(rerolledGear).toBeDefined();
+    expect(rerolledGear?.id).not.toBe(gearChoice?.id);
+  });
+
+  it('increases rarer gear odds in later waves and lowers them in early waves', () => {
+    let seed = 1337;
+    const seededRng = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    const countRarePlus = (
+      wave: number,
+    ): { common: number; rarePlus: number } => {
+      let common = 0;
+      let rarePlus = 0;
+      for (let i = 0; i < 200; i++) {
+        for (const id of pickShopItemIds(seededRng, 6, wave, 30)) {
+          const r = HELD_ITEMS[id].rarity;
+          if (r === 'Common') common += 1;
+          if (r === 'Rare' || r === 'Epic' || r === 'Legendary') rarePlus += 1;
+        }
+      }
+      return { common, rarePlus };
+    };
+
+    const early = countRarePlus(1);
+    const late = countRarePlus(30);
+    expect(late.rarePlus).toBeGreaterThan(early.rarePlus);
+    expect(early.common).toBeGreaterThan(late.common);
   });
 });

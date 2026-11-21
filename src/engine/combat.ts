@@ -1,4 +1,4 @@
-import { POKEMON_SPECIES } from '../data/pokemon';
+import { HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
 import {
   MovementType,
   PokemonBranch,
@@ -96,8 +96,9 @@ export function computeUnitRange(
   upgrades: string[] = [],
   potential = 0,
   subclass?: PokemonSubclass,
+  heldItems: string[] = [],
 ): number {
-  const base = getEffectiveRange(speciesId, branchId, upgrades);
+  const base = getEffectiveRange(speciesId, branchId, upgrades, heldItems);
   const bonuses = getSpeciesPotentialBonuses(speciesId, potential, subclass);
   return base + (bonuses.subclassPassive === 'Sniper' ? 1 : 0);
 }
@@ -201,6 +202,7 @@ export interface BasicAttackDamageInput {
   targetIsBoss?: boolean;
   targetIsLeaking?: boolean;
   isFirstAttackAfterMove?: boolean;
+  weaknessPolicyActive?: boolean;
   attackType?: PokemonElementType;
   defenderTypes?: readonly PokemonElementType[];
 }
@@ -213,6 +215,10 @@ export interface BasicAttackDamageResult {
   lifestealHeal: number;
   chainDamage: number;
   chainTargets: number;
+  slowFactor?: number;
+  slowDurationMs?: number;
+  inflictBurn?: boolean;
+  recoilPct?: number;
   effectivenessTier: EffectivenessTier;
   effectivenessMultiplier: number;
 }
@@ -228,20 +234,35 @@ export function computeBasicAttackDamage(
   let damage = input.baseAtk;
   let isCrit = false;
 
+  let critMult = 1;
   if (
     kit.critEveryN &&
     input.hitCount > 0 &&
     input.hitCount % kit.critEveryN === 0
   ) {
-    damage = Math.round(damage * (kit.critMult ?? 1.75));
-    isCrit = true;
-  } else if (
+    critMult = Math.max(critMult, kit.critMult ?? 1.75);
+  }
+  if (
     input.branchSpecial === 'crit_boost' &&
     input.hitCount > 0 &&
     input.hitCount % 5 === 0
   ) {
-    damage = Math.round(damage * 1.6);
+    critMult = Math.max(critMult, 1.6);
+  }
+  if (
+    input.heldItems.includes('scope_lens') &&
+    input.hitCount > 0 &&
+    input.hitCount % 4 === 0
+  ) {
+    critMult = Math.max(critMult, 1.65);
+  }
+  if (critMult > 1) {
+    damage = Math.round(damage * critMult);
     isCrit = true;
+  }
+
+  if (input.weaknessPolicyActive) {
+    damage = Math.round(damage * 1.2);
   }
 
   if (kit.statusBonusDmgPct && input.targetHasStatus) {
@@ -282,6 +303,13 @@ export function computeBasicAttackDamage(
     damage = Math.round(damage * 1.25);
   }
 
+  if (
+    input.heldItems.includes('sacred_crown') &&
+    (input.targetIsBoss || input.targetHasStatus)
+  ) {
+    damage = Math.round(damage * 1.25);
+  }
+
   const eff =
     input.attackType && input.defenderTypes && input.defenderTypes.length > 0
       ? computeTypeEffectiveness(input.attackType, input.defenderTypes)
@@ -290,30 +318,51 @@ export function computeBasicAttackDamage(
     damage = Math.max(1, Math.round(damage * eff.multiplier));
   }
 
+  if (
+    input.heldItems.includes('expert_belt') &&
+    (eff.multiplier > 1 || input.targetIsBoss)
+  ) {
+    damage = Math.round(damage * 1.2);
+  }
+
+  if (input.heldItems.includes('weakness_policy') && eff.multiplier > 1) {
+    damage = Math.round(damage * 1.25);
+  }
+
+  let itemUltMult = 1;
+  for (const itemId of input.heldItems) {
+    const mult = HELD_ITEMS[itemId]?.ultChargeMult;
+    if (mult) itemUltMult *= mult;
+  }
   const ultCharge = kit.ultChargeOnHitTaken
     ? 0
-    : 15 * (1 + (kit.ultChargeBonusPct ?? 0));
+    : 15 * (1 + (kit.ultChargeBonusPct ?? 0)) * itemUltMult;
   const lifestealPct = Math.max(
     input.branchSpecial === 'lifesteal' ? 0.25 : 0,
+    input.heldItems.includes('shell_bell') ? 0.12 : 0,
     kit.onHitLifestealPct ?? 0,
   );
   const lifestealHeal =
     lifestealPct > 0 ? Math.max(1, Math.round(damage * lifestealPct)) : 0;
 
   const branchChain = input.branchSpecial === 'chain_hit';
-  const itemChain = input.heldItems.includes('storm_conductor');
+  const hasGriseous = input.heldItems.includes('griseous_core');
+  const hasStorm = input.heldItems.includes('storm_conductor');
+  const itemChainRatio = hasGriseous ? 0.35 : hasStorm ? 0.25 : 0;
+  const itemChainTargets = hasGriseous ? 2 : hasStorm ? 1 : 0;
   const kitChain = kit.onHitChain;
-  const hasChain = branchChain || itemChain || Boolean(kitChain);
+  const hasChain = branchChain || itemChainTargets > 0 || Boolean(kitChain);
   const chainRatio = Math.max(
     branchChain ? 0.4 : 0,
-    itemChain ? 0.25 : 0,
+    itemChainRatio,
     kitChain?.dmgRatio ?? 0,
   );
   const chainDamage = hasChain
     ? Math.max(1, Math.round(damage * chainRatio))
     : 0;
   const baseTargets = Math.max(
-    branchChain || itemChain ? 1 : 0,
+    branchChain ? 1 : 0,
+    itemChainTargets,
     kitChain?.targets ?? 0,
   );
   const chainTargets = hasChain
@@ -327,6 +376,11 @@ export function computeBasicAttackDamage(
     input.hitCount > 0 &&
     input.hitCount % 5 === 0;
 
+  const kingsRockFlinch =
+    input.heldItems.includes('kings_rock') &&
+    input.hitCount > 0 &&
+    input.hitCount % 3 === 0;
+
   return {
     damage,
     isCrit,
@@ -335,6 +389,10 @@ export function computeBasicAttackDamage(
     lifestealHeal,
     chainDamage,
     chainTargets,
+    slowFactor: kingsRockFlinch ? 0.4 : undefined,
+    slowDurationMs: kingsRockFlinch ? 1500 : undefined,
+    inflictBurn: hasGriseous || undefined,
+    recoilPct: input.heldItems.includes('life_orb') ? 0.04 : undefined,
     effectivenessTier: eff.tier,
     effectivenessMultiplier: eff.multiplier,
   };
@@ -399,10 +457,16 @@ export function computeEnemyAttackDamage(
     bonuses.subclassPassive === 'Juggernaut' && input.isMelee !== false
       ? 0.15
       : 0;
+  const itemThorns =
+    input.unitHeldItems.includes('rocky_helmet') ||
+    input.unitHeldItems.includes('lustrous_aegis')
+      ? 0.25
+      : 0;
   const thornsPct = Math.max(
     input.unitBranchSpecial === 'thorns' ? 0.25 : 0,
     kit.thornsPct ?? 0,
     juggernautThorns,
+    itemThorns,
   );
   const reflectedThorns =
     thornsPct > 0 ? Math.max(2, Math.round(damage * thornsPct)) : 0;

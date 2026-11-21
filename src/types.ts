@@ -138,8 +138,30 @@ export interface HeldItemSpec {
   atkMult?: number;
   hpMult?: number;
   defBonus?: number;
+  rangeBonus?: number;
   attackIntervalMult?: number;
-  special?: 'bloodthirsty' | 'storm_conductor' | 'guardian_charm';
+  ultChargeMult?: number;
+  special?:
+    | 'bloodthirsty'
+    | 'storm_conductor'
+    | 'guardian_charm'
+    | 'melee_atk_bonus'
+    | 'ult_charge_boost'
+    | 'oran_emergency_heal'
+    | 'first_strike_haste'
+    | 'expert_belt'
+    | 'rocky_helmet_thorns'
+    | 'shell_bell_lifesteal'
+    | 'scope_lens_crit'
+    | 'eviolite_unevolved'
+    | 'leftovers_regen'
+    | 'life_orb_recoil'
+    | 'kings_rock_flinch'
+    | 'weakness_policy_surge'
+    | 'focus_sash_endure'
+    | 'adamant_boss_slayer'
+    | 'lustrous_bastion'
+    | 'griseous_chain_burn';
 }
 
 export interface ArtifactSpec {
@@ -263,7 +285,7 @@ export interface ActiveUnit {
 
 export interface RewardOption {
   id: string;
-  kind: 'upgrade' | 'artifact' | 'recruit' | 'evolve';
+  kind: 'upgrade' | 'artifact' | 'recruit' | 'evolve' | 'item';
   rarity?: PokemonRarity;
   title: string;
   desc: string;
@@ -271,6 +293,7 @@ export interface RewardOption {
   targetSpeciesId?: string;
   unitUid?: string;
   targetClass?: PokemonClass;
+  itemId?: string;
 }
 
 export interface GameSnapshot {
@@ -301,6 +324,8 @@ export interface GameSnapshot {
   selectedDifficulty: RunDifficulty;
   draftBudget: number;
   heldItemInventory: string[];
+  shopOfferItemIds: string[];
+  shopPurchasedItemIds: string[];
   structures: GridStructure[];
   artifacts: string[];
   upgrades: string[];

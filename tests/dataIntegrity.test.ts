@@ -115,7 +115,7 @@ describe('Data & Asset Manifest Integrity', () => {
       expect(POKEMON_SPECIES[id].draftCost).toBe(3);
       expect(POKEMON_SPECIES[id].unlockedStarter).toBe(true);
     }
-    expect(Object.keys(HELD_ITEMS)).toHaveLength(3);
+    expect(Object.keys(HELD_ITEMS)).toHaveLength(24);
     expect(Object.keys(STRUCTURE_SPECS)).toHaveLength(9);
     for (const kind of Object.keys(STRUCTURE_SPECS)) {
       expect(

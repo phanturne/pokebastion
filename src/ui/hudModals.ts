@@ -150,6 +150,12 @@ function renderCreditsModal(snap: GameSnapshot | null): string {
             </a>
             <span>Includes SFX by Nick &ldquo;Kelvin Shadewing&rdquo; Kovacs (kelvinshadewing.net) &amp; Tuxemon contributors, plus JRPGCollection BGM loops</span>
           </div>
+          <div class="credit-item">
+            <strong>Held Item Sprites — PokeAPI / PokéSprite</strong>
+            <a href="https://pokeapi.github.io/sprites/#/item" target="_blank" rel="noopener noreferrer">
+              pokeapi.github.io/sprites
+            </a>
+          </div>
         </div>
       </div>
   `;
@@ -1232,7 +1238,12 @@ function renderRewardModal(snap: GameSnapshot): string {
   const canReroll = snap.gold >= rerollCost;
   const cards = snap.rewardChoices
     .map((choice) => {
-      const badge = choice.kind === 'evolve' ? 'EVOLVE' : choice.kind;
+      const badge =
+        choice.kind === 'evolve'
+          ? 'EVOLVE'
+          : choice.kind === 'item'
+            ? 'GEAR'
+            : choice.kind;
       const iconSpeciesId =
         choice.kind === 'evolve' && choice.targetSpeciesId
           ? choice.targetSpeciesId
@@ -1250,7 +1261,12 @@ function renderRewardModal(snap: GameSnapshot): string {
       const rarityBadgeHtml = rarity
         ? `<span class="tag rarity-tag rarity-${rarity.toLowerCase()}">${escapeHtml(rarity)}</span>`
         : '';
-      const iconHtml = iconSpeciesId ? renderPokeIcon(iconSpeciesId) : '';
+      const iconHtml =
+        choice.kind === 'item' && choice.itemId
+          ? (HELD_ITEM_ICONS[choice.itemId] ?? '')
+          : iconSpeciesId
+            ? renderPokeIcon(iconSpeciesId)
+            : '';
       return `
         <button type="button" class="reward-card ${rarityCardClass}" data-action="pick-reward" data-id="${escapeHtml(choice.id)}">
           <div class="reward-card-tags">
@@ -1343,6 +1359,8 @@ function renderExpandedUnitModal(
     unit.branchId,
     snap.upgrades,
     potential,
+    undefined,
+    unit.heldItems,
   );
   const baseIntervalMs = computeUnitAttackIntervalMs(
     unit.speciesId,
@@ -1365,9 +1383,9 @@ function renderExpandedUnitModal(
       if (!item) return '<div class="held-slot empty">Empty Slot</div>';
       return `
         <div class="held-slot filled" title="${escapeHtml(item.desc)}">
-          <span class="held-slot-name"><strong>${escapeHtml(item.name)}</strong></span>
+          <span class="held-slot-name">${HELD_ITEM_ICONS[item.id] ?? ''} <strong>${escapeHtml(item.name)}</strong></span>
           ${
-            snap.phase === 'PREP'
+            snap.phase === 'PREP' || snap.phase === 'SHOP'
               ? `<button type="button" class="held-remove" data-action="unequip-item" data-unit="${unit.uid}" data-id="${idx}" aria-label="Unequip ${escapeHtml(item.name)}">×</button>`
               : ''
           }
@@ -1434,19 +1452,28 @@ function renderExpandedUnitModal(
 }
 
 function renderShopModal(snap: GameSnapshot): string {
-  const items = Object.values(HELD_ITEMS);
+  const items =
+    snap.shopOfferItemIds.length > 0
+      ? snap.shopOfferItemIds
+          .map((id) => HELD_ITEMS[id])
+          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      : Object.values(HELD_ITEMS).slice(0, 6);
   const itemRows = items
     .map((item) => {
       const owned = snap.heldItemInventory.filter(
         (id) => id === item.id,
       ).length;
-      const canBuy = snap.gold >= item.cost;
+      const soldOut = snap.shopPurchasedItemIds.includes(item.id);
+      const canBuy = !soldOut && snap.gold >= item.cost;
+      const rarityTag = item.rarity
+        ? ` <span class="tag rarity-tag rarity-${item.rarity.toLowerCase()}">${escapeHtml(item.rarity)}</span>`
+        : '';
       return `
         <div class="shop-modal-item">
           <div class="shop-modal-item-head">
             <span class="shop-modal-item-icon">${HELD_ITEM_ICONS[item.id] ?? ''}</span>
             <div class="shop-modal-item-meta">
-              <strong>${escapeHtml(item.name)}${owned > 0 ? ` <span class="tag">${owned} in bag</span>` : ''}</strong>
+              <strong>${escapeHtml(item.name)}${rarityTag}${owned > 0 ? ` <span class="tag">${owned} in bag</span>` : ''}</strong>
               <span class="shop-item-desc">${escapeHtml(item.desc)}</span>
             </div>
           </div>
@@ -1457,7 +1484,7 @@ function renderShopModal(snap: GameSnapshot): string {
             data-id="${item.id}"
             ${canBuy ? '' : 'disabled'}
           >
-            Buy ₽${item.cost}
+            ${soldOut ? 'Sold Out' : `Buy ₽${item.cost}`}
           </button>
         </div>
       `;
