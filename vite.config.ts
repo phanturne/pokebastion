@@ -16,7 +16,8 @@ export default defineConfig({
           }
           if (
             normalized.includes('/src/data/') ||
-            normalized.includes('/src/engine/kits')
+            normalized.includes('/src/engine/kits') ||
+            normalized.includes('/src/engine/rules')
           ) {
             return 'game-data';
           }
