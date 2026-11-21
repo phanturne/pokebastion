@@ -1346,6 +1346,7 @@ function renderExpandedUnitModal(
     unit.branchId,
     unit.heldItems,
     potential,
+    snap.artifacts,
   );
   const baseDef = computeUnitDef(
     unit.speciesId,
@@ -1353,6 +1354,8 @@ function renderExpandedUnitModal(
     unit.heldItems,
     snap.upgrades,
     potential,
+    undefined,
+    snap.artifacts,
   );
   const baseRange = computeUnitRange(
     unit.speciesId,

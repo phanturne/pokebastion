@@ -525,7 +525,7 @@ function renderSelectedStructure(
   const isBarrel = struct.kind === 'barrel' && !struct.ruined;
   const showDetonate = isBarrel && snap.phase === 'COMBAT';
   const showSell = snap.phase === 'PREP';
-  const refund = getSellRefund(spec.kind);
+  const refund = getSellRefund(spec.kind, snap.artifacts);
 
   return `
     <section class="card">
@@ -588,6 +588,7 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
     false,
     unit.branchId,
     unit.heldItems,
+    snap.artifacts,
   );
   const atk = unit.effectiveAtk ?? baseAtk;
   const def =
@@ -597,6 +598,7 @@ function renderBottomPartySlot(snap: GameSnapshot, unit: ActiveUnit): string {
       unit.branchId,
       unit.heldItems,
       snap.upgrades,
+      snap.artifacts,
     );
   const range =
     unit.effectiveRange ??
@@ -745,8 +747,21 @@ export function renderBottomBarHtml(snap: GameSnapshot): string {
     const name = sp ? sp.name : id;
     let tooltip = 'Select an active Pokémon during PREP to swap';
     if (sp) {
-      const hp = getEffectiveMaxHp(sp.id, snap.upgrades);
-      const atk = getEffectiveAtk(sp.id, snap.upgrades);
+      const hp = getEffectiveMaxHp(
+        sp.id,
+        snap.upgrades,
+        null,
+        [],
+        snap.artifacts,
+      );
+      const atk = getEffectiveAtk(
+        sp.id,
+        snap.upgrades,
+        false,
+        null,
+        [],
+        snap.artifacts,
+      );
       tooltip = [
         `${sp.name} (${sp.pokeClass})`,
         `HP ${hp} | ATK ${atk} | Range ${sp.range}`,
@@ -840,7 +855,7 @@ export function renderStructurePopoverHtml(
   const showDetonate =
     struct.kind === 'barrel' && !struct.ruined && snap.phase === 'COMBAT';
   const showSell = snap.phase === 'PREP';
-  const refund = getSellRefund(spec.kind);
+  const refund = getSellRefund(spec.kind, snap.artifacts);
   const pathTag = spec.blocksGround ? '' : 'Passable';
 
   return `

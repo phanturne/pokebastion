@@ -91,19 +91,20 @@ import {
   computeProjectileLaunch,
   DRAFT_BUDGET,
   generateRewardChoices as buildRewardChoices,
+  getApKillThreshold,
   getBountyWaveMult,
   getBranchCost,
   getBranchSpec,
   getDraftCost,
   getEffectiveStructureMaxHp,
   getHealCost,
-  getMatchingMinorUpgrades,
   getPokemonReleaseRefund,
   getRepairCost,
   getReviveCost,
   getRewardRerollCost,
   getSellRefund,
   getStructureBuildCost,
+  getUltChargeMult,
   RARE_CANDY_COST,
   isFlyingSpecies,
   isInCircularRange,
@@ -1622,7 +1623,7 @@ export class BattleScene extends Phaser.Scene {
       }
     } else if (choice.kind === 'artifact') {
       this.artifacts.push(choice.id);
-      if (choice.id === 'fortification_core') {
+      if (choice.id === 'fortification_core' || choice.id === 'light_clay') {
         for (const s of this.structures) {
           const prevMax = s.data.maxHp;
           s.data.maxHp = this.computeStructureMaxHp(s.data.kind);
@@ -1633,6 +1634,14 @@ export class BattleScene extends Phaser.Scene {
             );
           }
           this.updateStructureBar(s);
+        }
+      } else if (
+        choice.id === 'safety_goggles' ||
+        choice.id === 'protective_pads' ||
+        choice.id === 'mega_bracelet'
+      ) {
+        for (const u of this.units) {
+          this.recalcUnitMaxHp(u);
         }
       }
     } else if (choice.kind === 'recruit' && choice.speciesId) {
@@ -2536,7 +2545,7 @@ export class BattleScene extends Phaser.Scene {
 
   private sellStructure(entity: StructureEntity): void {
     const spec = STRUCTURE_SPECS[entity.data.kind];
-    const refund = getSellRefund(entity.data.kind);
+    const refund = getSellRefund(entity.data.kind, this.artifacts);
     this.gold += refund;
     this.removeStructureEntity(entity);
     this.refreshPathPreview();
@@ -3738,6 +3747,7 @@ export class BattleScene extends Phaser.Scene {
       targetIsBoss: target.isBoss,
       attackType,
       defenderTypes: getSpeciesTypes(target.speciesId),
+      artifacts: this.artifacts,
     });
 
     this.addUnitUlt(unit, ultCharge);
@@ -4048,6 +4058,8 @@ export class BattleScene extends Phaser.Scene {
         potential,
         spec.subclass,
         kit.ultPowerMult ?? 1,
+        this.artifacts,
+        spec.pokeClass,
       );
       for (const ally of this.units) {
         if (ally.data.fainted) continue;
@@ -4156,7 +4168,12 @@ export class BattleScene extends Phaser.Scene {
               Math.hypot(e.gx - primary.gx, e.gy - primary.gy) <= 3.5,
           )
           .slice(0, 4);
-        const chainDmg = Math.max(1, Math.round(ultDmg * 0.65));
+        const chainDmg = Math.max(
+          1,
+          Math.round(
+            ultDmg * 0.65 * (this.artifacts.includes('loaded_dice') ? 1.3 : 1),
+          ),
+        );
         for (const ct of chainTargets) {
           this.spawnOneShotVfx(spec.impactVfx, ct.x, ct.y, 0.9);
           this.damageEnemy(ct, chainDmg, unit, false);
@@ -4239,15 +4256,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private addUnitUlt(unit: UnitEntity, amount: number): void {
-    let mult = this.upgrades.includes('quick_charge') ? 1.3 : 1;
-    for (const u of getMatchingMinorUpgrades(
+    const mult = getUltChargeMult(
       unit.data.speciesId,
       this.upgrades,
-    )) {
-      if (u.ultChargeMult !== undefined) {
-        mult *= u.ultChargeMult;
-      }
-    }
+      this.artifacts,
+    );
     unit.data.ult = Math.min(unit.data.ultMax, unit.data.ult + amount * mult);
     this.updateUnitBars(unit);
   }
@@ -5108,7 +5121,7 @@ export class BattleScene extends Phaser.Scene {
     this.kills += 1;
     this.sfx.play('faint', 130);
 
-    const apInterval = this.artifacts.includes('temporal_gear') ? 4 : 6;
+    const apInterval = getApKillThreshold(this.artifacts);
     if (this.kills % apInterval === 0 && this.ap < this.maxAp) {
       this.ap += 1;
       this.spawnFloatingText(enemy.x, enemy.y - 36, '+1 AP', '#38bdf8');
@@ -5400,6 +5413,12 @@ export class BattleScene extends Phaser.Scene {
       u.invulnTimerMs = 0;
       u.weaknessPolicyTimerMs = 0;
       u.leftoversTimerMs = 0;
+      if (u.data.fainted && this.artifacts.includes('sacred_ash')) {
+        u.data.fainted = false;
+        u.data.hp = Math.max(1, Math.round(u.data.maxHp * 0.5));
+        u.sprite.setAlpha(1);
+        this.updateUnitBars(u);
+      }
       if (
         !u.data.fainted &&
         u.data.hp > 0 &&
@@ -5415,6 +5434,9 @@ export class BattleScene extends Phaser.Scene {
           this.updateUnitBars(u);
         }
       }
+    }
+    if (this.artifacts.includes('amulet_coin_relic')) {
+      this.gold += 50;
     }
     this.ap = Math.min(this.maxAp, this.ap + 3);
 
@@ -5683,6 +5705,8 @@ export class BattleScene extends Phaser.Scene {
       branchId,
       heldItems,
       this.getSpeciesPotential(speciesId),
+      undefined,
+      this.artifacts,
     );
   }
 
@@ -5719,6 +5743,7 @@ export class BattleScene extends Phaser.Scene {
       unit.data.branchId,
       unit.data.heldItems,
       potential,
+      this.artifacts,
     );
     let def = computeUnitDef(
       unit.data.speciesId,
@@ -5726,6 +5751,8 @@ export class BattleScene extends Phaser.Scene {
       unit.data.heldItems,
       this.upgrades,
       potential,
+      undefined,
+      this.artifacts,
     );
     const range = computeUnitRange(
       unit.data.speciesId,

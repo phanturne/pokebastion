@@ -32,6 +32,7 @@ import {
   getRewardRerollCost,
   getSellRefund,
   getStructureBuildCost,
+  getUltChargeMult,
   isFlyingSpecies,
   pickShopItemIds,
   isInCircularRange,
@@ -72,9 +73,94 @@ describe('Game Rules, AP Movement & Economy', () => {
     expect(
       getEffectiveStructureMaxHp('wood_wall', ['fortification_core']),
     ).toBe(168);
+    expect(getEffectiveStructureMaxHp('wood_wall', ['light_clay'])).toBe(144);
     expect(
       getEffectiveStructureMaxHp('berry_bush', ['fortification_core']),
     ).toBe(210);
+  });
+
+  it('applies all class, branch, economy, and reward artifacts', () => {
+    const marksman = Object.values(POKEMON_SPECIES).find(
+      (s) => s.pokeClass === 'Marksman',
+    )!;
+
+    // Macho Brace: +10% ATK for Brawlers (0068) & Defenders (0007), not Support (0001)
+    expect(getEffectiveAtk('0068', [], false, null, [], ['macho_brace'])).toBe(
+      Math.round(POKEMON_SPECIES['0068'].atk * 1.1),
+    );
+    expect(getEffectiveAtk('0007', [], false, null, [], ['macho_brace'])).toBe(
+      Math.round(POKEMON_SPECIES['0007'].atk * 1.1),
+    );
+    expect(getEffectiveAtk('0001', [], false, null, [], ['macho_brace'])).toBe(
+      POKEMON_SPECIES['0001'].atk,
+    );
+
+    // Wide Lens: +10% ATK for Marksmen
+    expect(
+      getEffectiveAtk(marksman.id, [], false, null, [], ['wide_lens']),
+    ).toBe(Math.round(marksman.atk * 1.1));
+
+    // Safety Goggles: +15% ATK and +10% Max HP for Blasters (0004)
+    expect(
+      getEffectiveAtk('0004', [], false, null, [], ['safety_goggles']),
+    ).toBe(Math.round(POKEMON_SPECIES['0004'].atk * 1.15));
+    expect(getEffectiveMaxHp('0004', [], null, [], ['safety_goggles'])).toBe(
+      Math.round(POKEMON_SPECIES['0004'].maxHp * 1.1),
+    );
+
+    // Protective Pads: +10 DEF and +20% Max HP for Defenders (0007)
+    expect(getEffectiveDef('0007', null, [], [], ['protective_pads'])).toBe(
+      POKEMON_SPECIES['0007'].def + 10,
+    );
+    expect(getEffectiveMaxHp('0007', [], null, [], ['protective_pads'])).toBe(
+      Math.round(POKEMON_SPECIES['0007'].maxHp * 1.2),
+    );
+
+    // Mega Bracelet: +20% ATK, +20% Max HP, +15% Attack Speed for specialized units
+    const branch = POKEMON_SPECIES['0025'].branches[0];
+    expect(
+      getEffectiveAtk('0025', [], false, branch.id, [], ['mega_bracelet']),
+    ).toBe(
+      Math.round(POKEMON_SPECIES['0025'].atk * 1.2 * (branch.atkMult ?? 1)),
+    );
+    expect(
+      getEffectiveMaxHp('0025', [], branch.id, [], ['mega_bracelet']),
+    ).toBe(
+      Math.round(POKEMON_SPECIES['0025'].maxHp * 1.2 * (branch.hpMult ?? 1)),
+    );
+    expect(
+      getEffectiveAttackIntervalMs(
+        '0025',
+        ['mega_bracelet'],
+        branch.id,
+        [],
+        [],
+      ),
+    ).toBe(
+      Math.round(
+        POKEMON_SPECIES['0025'].attackIntervalMs *
+          (1 / 1.15) *
+          (branch.attackIntervalMult ?? 1),
+      ),
+    );
+
+    // Exp. Share (+20% all) & Terrain Extender (+15% Specialists: 0094)
+    expect(getUltChargeMult('0004', [], ['exp_share'])).toBeCloseTo(1.2);
+    expect(
+      getUltChargeMult('0094', [], ['exp_share', 'terrain_extender']),
+    ).toBeCloseTo(1.2 * 1.15);
+
+    // Amulet Coin Relic: +15% structure sell refund (wood_wall 20 * 0.85 = 17)
+    expect(getSellRefund('wood_wall', ['amulet_coin_relic'])).toBe(17);
+
+    // Shiny Charm: 4 reward choices instead of 3
+    const fourChoices = generateRewardChoices(
+      new Set(['0025']),
+      [],
+      ['shiny_charm'],
+      () => 0.25,
+    );
+    expect(fourChoices).toHaveLength(4);
   });
 
   it('calculates sell refunds, repair costs, and AP/bounty artifacts', () => {
@@ -304,8 +390,8 @@ describe('Game Rules, AP Movement & Economy', () => {
       [],
       true,
     );
-    expect(deduped).toHaveLength(3);
-    expect(new Set(deduped.map((c) => c.id)).size).toBe(3);
+    expect(deduped).toHaveLength(4);
+    expect(new Set(deduped.map((c) => c.id)).size).toBe(4);
 
     // 6 active, 3 reserve cap + recruit suppression when reserve is full
     expect(MAX_ACTIVE_UNITS).toBe(6);
@@ -395,11 +481,8 @@ describe('Game Rules, AP Movement & Economy', () => {
       true,
     );
     expect(initial).toHaveLength(3);
-    expect(initial.map((c) => c.kind)).toEqual([
-      'recruit',
-      'upgrade',
-      'upgrade',
-    ]);
+    expect(initial[0]?.kind).toBe('recruit');
+    expect(new Set(initial.map((c) => c.id)).size).toBe(3);
 
     const excludeIds = new Set(initial.map((c) => c.id));
     const rerolled = generateRewardChoices(

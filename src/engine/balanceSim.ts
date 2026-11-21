@@ -411,6 +411,9 @@ function refreshUnitStats(
     [...ownedUpgrades],
     null,
     u.heldItems,
+    0,
+    undefined,
+    [...ownedArtifacts],
   );
   u.hp = Math.min(u.maxHp, u.hp + Math.max(0, u.maxHp - prevMaxHp));
   u.atk = computeUnitAtk(
@@ -419,8 +422,18 @@ function refreshUnitStats(
     false,
     null,
     u.heldItems,
+    0,
+    [...ownedArtifacts],
   );
-  u.def = computeUnitDef(u.speciesId, null, u.heldItems, [...ownedUpgrades]);
+  u.def = computeUnitDef(
+    u.speciesId,
+    null,
+    u.heldItems,
+    [...ownedUpgrades],
+    0,
+    undefined,
+    [...ownedArtifacts],
+  );
   u.range = computeUnitRange(
     u.speciesId,
     null,
@@ -451,7 +464,15 @@ function createSimUnit(
   const spec = POKEMON_SPECIES[speciesId];
   const ultMax = spec?.ultMax ?? 100;
   const items = [...heldItems];
-  const maxHp = computeUnitMaxHp(speciesId, [...ownedUpgrades], null, items);
+  const maxHp = computeUnitMaxHp(
+    speciesId,
+    [...ownedUpgrades],
+    null,
+    items,
+    0,
+    undefined,
+    [...ownedArtifacts],
+  );
   return {
     uid,
     speciesId,
@@ -459,8 +480,18 @@ function createSimUnit(
     gy,
     hp: maxHp,
     maxHp,
-    atk: computeUnitAtk(speciesId, [...ownedUpgrades], false, null, items),
-    def: computeUnitDef(speciesId, null, items, [...ownedUpgrades]),
+    atk: computeUnitAtk(speciesId, [...ownedUpgrades], false, null, items, 0, [
+      ...ownedArtifacts,
+    ]),
+    def: computeUnitDef(
+      speciesId,
+      null,
+      items,
+      [...ownedUpgrades],
+      0,
+      undefined,
+      [...ownedArtifacts],
+    ),
     range: computeUnitRange(
       speciesId,
       null,
