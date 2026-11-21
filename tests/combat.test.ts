@@ -896,4 +896,53 @@ describe('Expanded Held Items Combat Effects', () => {
     });
     expect(lustrous.reflectedThorns).toBe(25);
   });
+
+  it('applies Soothe Bell heal ult bonus and Loaded Dice chain damage bonus', () => {
+    const baseHeal = computeUltPower(
+      100,
+      1,
+      true,
+      0,
+      undefined,
+      1,
+      [],
+      'Support',
+    );
+    const sootheHeal = computeUltPower(
+      100,
+      1,
+      true,
+      0,
+      undefined,
+      1,
+      ['soothe_bell'],
+      'Support',
+    );
+    expect(sootheHeal).toBe(Math.round(baseHeal * 1.15));
+
+    const baseChain = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      branchSpecial: 'chain_hit',
+      heldItems: [],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+    });
+    const loadedChain = computeBasicAttackDamage({
+      baseAtk: 100,
+      speciesId: '0025',
+      hitCount: 1,
+      branchSpecial: 'chain_hit',
+      heldItems: [],
+      targetHp: 500,
+      targetMaxHp: 500,
+      targetHasStatus: false,
+      artifacts: ['loaded_dice'],
+    });
+    expect(loadedChain.chainDamage).toBe(
+      Math.round(baseChain.chainDamage * 1.3),
+    );
+  });
 });

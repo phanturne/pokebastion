@@ -316,7 +316,7 @@ export const ARTIFACT_CATALOG: Record<string, ArtifactSpec> = {
     name: "Commander's Insignia",
     rarity: 'Uncommon',
     spriteSlug: 'amulet-coin',
-    desc: '+25% Pokédollar bounties from defeated enemies.',
+    desc: '+35% Pokédollar bounties from defeated enemies.',
   },
   terrain_extender: {
     id: 'terrain_extender',

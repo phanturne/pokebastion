@@ -1,5 +1,5 @@
 import { GEN1_ENEMIES, GEN1_POKEMON } from './gen1';
-import { HELD_ITEM_CATALOG } from './items';
+import { ARTIFACT_CATALOG, HELD_ITEM_CATALOG } from './items';
 import {
   EnemySpecies,
   HeldItemSpec,
@@ -384,34 +384,14 @@ export const REWARD_POOL: RewardOption[] = [
     title: 'Thick Hide',
     desc: '+30% Max HP for all allied Pokémon.',
   },
-  {
-    id: 'fortification_core',
-    kind: 'artifact',
-    rarity: 'Rare',
-    title: 'Fortification Core',
-    desc: '+40% Max HP for all structures.',
-  },
-  {
-    id: 'temporal_gear',
-    kind: 'artifact',
-    rarity: 'Epic',
-    title: 'Temporal Gear',
-    desc: 'Gain +1 AP every 4 enemy kills instead of 6.',
-  },
-  {
-    id: 'arcane_conduit',
-    kind: 'artifact',
-    rarity: 'Epic',
-    title: 'Arcane Conduit',
-    desc: '+20% Attack Speed for all allied Pokémon.',
-  },
-  {
-    id: 'commanders_insignia',
-    kind: 'artifact',
-    rarity: 'Rare',
-    title: "Commander's Insignia",
-    desc: '+35% Pokédollar bounties from defeated enemies.',
-  },
+  ...Object.values(ARTIFACT_CATALOG).map((a) => ({
+    id: a.id,
+    kind: 'artifact' as const,
+    rarity: a.rarity,
+    title: a.name,
+    desc: a.desc,
+    targetClass: a.targetClass,
+  })),
 ];
 
 export const WAVE_DEFINITIONS: WaveDefinition[] = [

@@ -2,6 +2,7 @@ import { HELD_ITEMS, POKEMON_SPECIES } from '../data/pokemon';
 import {
   MovementType,
   PokemonBranch,
+  PokemonClass,
   PokemonSubclass,
   TARGET_PRIORITIES,
   TargetPriority,
@@ -51,8 +52,15 @@ export function computeUnitMaxHp(
   heldItems: string[] = [],
   potential = 0,
   subclass?: PokemonSubclass,
+  artifacts: string[] = [],
 ): number {
-  const base = getEffectiveMaxHp(speciesId, upgrades, branchId, heldItems);
+  const base = getEffectiveMaxHp(
+    speciesId,
+    upgrades,
+    branchId,
+    heldItems,
+    artifacts,
+  );
   const bonuses = getSpeciesPotentialBonuses(speciesId, potential, subclass);
   const bastionHpMult = bonuses.subclassPassive === 'Bastion' ? 1.1 : 1;
   return Math.round(base * bonuses.hpMult * bastionHpMult);
@@ -65,6 +73,7 @@ export function computeUnitAtk(
   branchId: string | null = null,
   heldItems: string[] = [],
   potential = 0,
+  artifacts: string[] = [],
 ): number {
   const base = getEffectiveAtk(
     speciesId,
@@ -72,6 +81,7 @@ export function computeUnitAtk(
     hasBulbasaurAura,
     branchId,
     heldItems,
+    artifacts,
   );
   const bonuses = getSpeciesPotentialBonuses(speciesId, potential);
   return Math.round(base * bonuses.atkMult);
@@ -84,8 +94,15 @@ export function computeUnitDef(
   upgrades: string[] = [],
   potential = 0,
   subclass?: PokemonSubclass,
+  artifacts: string[] = [],
 ): number {
-  const base = getEffectiveDef(speciesId, branchId, heldItems, upgrades);
+  const base = getEffectiveDef(
+    speciesId,
+    branchId,
+    heldItems,
+    upgrades,
+    artifacts,
+  );
   const bonuses = getSpeciesPotentialBonuses(speciesId, potential, subclass);
   return base + (bonuses.subclassPassive === 'Bastion' ? 5 : 0);
 }
@@ -152,11 +169,19 @@ export function computeUltPower(
   potential = 0,
   subclass?: PokemonSubclass,
   kitPowerMult = 1,
+  artifacts: string[] = [],
+  speciesClass?: PokemonClass,
 ): number {
   const bonuses = getPotentialBonuses(potential, subclass);
   if (isHeal) {
     const healMult = bonuses.subclassPassive === 'Healer' ? 1.25 : 1;
-    return Math.round(baseAtk * 2.5 * ultMult * healMult * kitPowerMult);
+    const sootheMult =
+      artifacts.includes('soothe_bell') && speciesClass === 'Support'
+        ? 1.15
+        : 1;
+    return Math.round(
+      baseAtk * 2.5 * ultMult * healMult * sootheMult * kitPowerMult,
+    );
   }
   const aoeMult =
     bonuses.subclassPassive === 'Elemental AoE'
@@ -205,6 +230,7 @@ export interface BasicAttackDamageInput {
   weaknessPolicyActive?: boolean;
   attackType?: PokemonElementType;
   defenderTypes?: readonly PokemonElementType[];
+  artifacts?: readonly string[];
 }
 
 export interface BasicAttackDamageResult {
@@ -357,9 +383,13 @@ export function computeBasicAttackDamage(
     itemChainRatio,
     kitChain?.dmgRatio ?? 0,
   );
-  const chainDamage = hasChain
+  const baseChainDamage = hasChain
     ? Math.max(1, Math.round(damage * chainRatio))
     : 0;
+  const chainDamage =
+    baseChainDamage > 0 && input.artifacts?.includes('loaded_dice')
+      ? Math.max(1, Math.round(baseChainDamage * 1.3))
+      : baseChainDamage;
   const baseTargets = Math.max(
     branchChain ? 1 : 0,
     itemChainTargets,
@@ -411,6 +441,7 @@ export interface EnemyAttackDamageInput {
   isMelee?: boolean;
   attackType?: PokemonElementType;
   defenderTypes?: readonly PokemonElementType[];
+  artifacts?: readonly string[];
 }
 
 export interface EnemyAttackDamageResult {

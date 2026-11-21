@@ -251,9 +251,20 @@ export function getEffectiveMaxHp(
   upgrades: string[],
   branchId: string | null = null,
   heldItems: string[] = [],
+  artifacts: string[] = [],
 ): number {
-  const base = POKEMON_SPECIES[speciesId]?.maxHp ?? 100;
+  const sp = POKEMON_SPECIES[speciesId];
+  const base = sp?.maxHp ?? 100;
   let initMult = upgrades.includes('thick_hide') ? 1.3 : 1;
+  if (artifacts.includes('safety_goggles') && sp?.pokeClass === 'Blaster') {
+    initMult *= 1.1;
+  }
+  if (artifacts.includes('protective_pads') && sp?.pokeClass === 'Defender') {
+    initMult *= 1.2;
+  }
+  if (branchId && artifacts.includes('mega_bracelet')) {
+    initMult *= 1.2;
+  }
   if (getEvolutionTargets(speciesId).length > 0) {
     for (const itemId of heldItems) {
       if (HELD_ITEMS[itemId]?.special === 'eviolite_unevolved') {
@@ -281,12 +292,29 @@ export function getEffectiveAtk(
   hasBulbasaurAura = false,
   branchId: string | null = null,
   heldItems: string[] = [],
+  artifacts: string[] = [],
 ): number {
-  const base = POKEMON_SPECIES[speciesId]?.atk ?? 20;
+  const sp = POKEMON_SPECIES[speciesId];
+  const base = sp?.atk ?? 20;
   let initMult = 1;
   if (upgrades.includes('sharp_claws')) initMult += 0.25;
   if (hasBulbasaurAura) initMult += 0.1;
-  if (POKEMON_SPECIES[speciesId]?.isMelee) {
+  if (
+    artifacts.includes('macho_brace') &&
+    (sp?.pokeClass === 'Brawler' || sp?.pokeClass === 'Defender')
+  ) {
+    initMult *= 1.1;
+  }
+  if (artifacts.includes('wide_lens') && sp?.pokeClass === 'Marksman') {
+    initMult *= 1.1;
+  }
+  if (artifacts.includes('safety_goggles') && sp?.pokeClass === 'Blaster') {
+    initMult *= 1.15;
+  }
+  if (branchId && artifacts.includes('mega_bracelet')) {
+    initMult *= 1.2;
+  }
+  if (sp?.isMelee) {
     for (const itemId of heldItems) {
       if (HELD_ITEMS[itemId]?.special === 'melee_atk_bonus') {
         initMult *= 1.14 / 1.06;
@@ -312,9 +340,14 @@ export function getEffectiveDef(
   branchId: string | null = null,
   heldItems: string[] = [],
   upgrades: string[] = [],
+  artifacts: string[] = [],
 ): number {
-  const base = POKEMON_SPECIES[speciesId]?.def ?? 0;
+  const sp = POKEMON_SPECIES[speciesId];
+  const base = sp?.def ?? 0;
   let extraDef = 0;
+  if (artifacts.includes('protective_pads') && sp?.pokeClass === 'Defender') {
+    extraDef += 10;
+  }
   if (getEvolutionTargets(speciesId).length > 0) {
     for (const itemId of heldItems) {
       if (HELD_ITEMS[itemId]?.special === 'eviolite_unevolved') {
@@ -359,7 +392,10 @@ export function getEffectiveAttackIntervalMs(
   upgrades: string[] = [],
 ): number {
   const base = POKEMON_SPECIES[speciesId]?.attackIntervalMs ?? 1000;
-  const initMult = artifacts.includes('arcane_conduit') ? 0.83 : 1;
+  let initMult = artifacts.includes('arcane_conduit') ? 0.83 : 1;
+  if (branchId && artifacts.includes('mega_bracelet')) {
+    initMult *= 1 / 1.15;
+  }
   return Math.round(
     base *
       applyStatModifiers(
@@ -379,14 +415,42 @@ export function getEffectiveStructureMaxHp(
   artifacts: string[],
 ): number {
   const base = STRUCTURE_SPECS[kind].maxHp;
-  if (artifacts.includes('fortification_core')) {
-    return Math.round(base * 1.4);
-  }
-  return base;
+  let mult = 1;
+  if (artifacts.includes('light_clay')) mult *= 1.2;
+  if (artifacts.includes('fortification_core')) mult *= 1.4;
+  return Math.round(base * mult);
 }
 
-export function getSellRefund(kind: StructureKind): number {
-  return Math.round(STRUCTURE_SPECS[kind].cost * SELL_REFUND_RATE);
+export function getSellRefund(
+  kind: StructureKind,
+  artifacts: string[] = [],
+): number {
+  const rate =
+    SELL_REFUND_RATE + (artifacts.includes('amulet_coin_relic') ? 0.15 : 0);
+  return Math.round(STRUCTURE_SPECS[kind].cost * rate);
+}
+
+export function getUltChargeMult(
+  speciesId: string,
+  upgrades: string[],
+  artifacts: string[],
+): number {
+  let mult = upgrades.includes('quick_charge') ? 1.3 : 1;
+  for (const u of getMatchingMinorUpgrades(speciesId, upgrades)) {
+    if (u.ultChargeMult !== undefined) {
+      mult *= u.ultChargeMult;
+    }
+  }
+  if (artifacts.includes('exp_share')) {
+    mult *= 1.2;
+  }
+  if (
+    artifacts.includes('terrain_extender') &&
+    POKEMON_SPECIES[speciesId]?.pokeClass === 'Specialist'
+  ) {
+    mult *= 1.15;
+  }
+  return mult;
 }
 
 /**
@@ -726,19 +790,24 @@ export function generateRewardChoices(
     });
   };
 
+  const maxChoices = ownedArtifacts.includes('shiny_charm') ? 4 : 3;
   const choices: RewardOption[] = [];
 
-  if (preferredEvolvable.length > 0 && choices.length < 3) {
+  if (preferredEvolvable.length > 0 && choices.length < maxChoices) {
     pushEvolveChoice(pickRandom(preferredEvolvable));
   }
 
-  if (canRecruit && preferredSpecies.length > 0 && choices.length < 3) {
+  if (
+    canRecruit &&
+    preferredSpecies.length > 0 &&
+    choices.length < maxChoices
+  ) {
     pushRecruitChoice(
       pickByRarityTier(preferredSpecies, (sp) => sp.rarity, rng, rarityWeights),
     );
   }
 
-  if (preferredItems.length > 0 && choices.length < 3) {
+  if (preferredItems.length > 0 && choices.length < maxChoices) {
     choices.push(
       pickByRarityTier(preferredItems, (i) => i.rarity, rng, rarityWeights),
     );
@@ -750,14 +819,14 @@ export function generateRewardChoices(
     rng,
     rarityWeights,
   )) {
-    if (choices.length >= 3) break;
+    if (choices.length >= maxChoices) break;
     choices.push(item);
   }
 
-  // Fall back to excluded options only if needed to reach 3 choices
+  // Fall back to excluded options only if needed to reach maxChoices
   if (
     canRecruit &&
-    choices.length < 3 &&
+    choices.length < maxChoices &&
     !choices.some((c) => c.kind === 'recruit') &&
     excludedSpecies.length > 0
   ) {
@@ -772,12 +841,12 @@ export function generateRewardChoices(
     rng,
     rarityWeights,
   )) {
-    if (choices.length >= 3) break;
+    if (choices.length >= maxChoices) break;
     choices.push(item);
   }
 
   if (
-    choices.length < 3 &&
+    choices.length < maxChoices &&
     !choices.some((c) => c.kind === 'item') &&
     excludedItems.length > 0
   ) {
@@ -787,7 +856,7 @@ export function generateRewardChoices(
   }
 
   if (
-    choices.length < 3 &&
+    choices.length < maxChoices &&
     !choices.some((c) => c.kind === 'evolve') &&
     excludedEvolvable.length > 0
   ) {
