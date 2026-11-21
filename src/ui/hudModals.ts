@@ -150,6 +150,12 @@ function renderCreditsModal(snap: GameSnapshot | null): string {
             </a>
             <span>Includes SFX by Nick &ldquo;Kelvin Shadewing&rdquo; Kovacs (kelvinshadewing.net) &amp; Tuxemon contributors, plus JRPGCollection BGM loops</span>
           </div>
+          <div class="credit-item">
+            <strong>Held Item Sprites — PokeAPI / PokéSprite</strong>
+            <a href="https://pokeapi.github.io/sprites/#/item" target="_blank" rel="noopener noreferrer">
+              pokeapi.github.io/sprites
+            </a>
+          </div>
         </div>
       </div>
   `;
