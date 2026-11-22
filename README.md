@@ -1,5 +1,9 @@
 # PokéBastion TD
 
+![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)
+
+> **Alpha:** This project is in active alpha development—gameplay mechanics, balance, and save data formats may change.
+
 An open-map, real-time roguelike Pokémon tower defense game inspired by _The Last Spell_, _Arknights_, and _Path to Nowhere_.
 
 Instead of fixed enemy lanes, wild Pokémon dynamically pathfind across a `28×18` battlefield toward your central Pokémon Center. Build walls and traps to reshape their routes, draft your squad, reposition units mid-fight with Action Points, and unleash manual or auto-cast Ultimates across 20–50 wave runs.

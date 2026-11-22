@@ -819,7 +819,10 @@ function renderHomeModal(snap: GameSnapshot): string {
           >${SVG_GITHUB}</a>
         </div>
         <div class="home-hero">
-          <div class="home-title" id="modal-title-home">PokéBastion TD</div>
+          <div class="home-title-row">
+            <h1 class="home-title" id="modal-title-home">PokéBastion TD</h1>
+            <span class="home-alpha-badge">Alpha</span>
+          </div>
           <p class="home-subtitle">
             Tactical Pokémon tower defense. Build walls, reposition units in real time, and defend the Pokémon Center.
           </p>
@@ -830,6 +833,7 @@ function renderHomeModal(snap: GameSnapshot): string {
           <button type="button" class="btn home-btn" data-action="open-pokedex">Pokédex (${unlockedCount}/${totalCount})</button>
           <button type="button" class="btn home-btn ${totalEggs > 0 ? 'has-eggs' : ''}" data-action="open-eggs">Eggs (${totalEggs})${totalEggs > 0 ? '<span class="egg-notify-dot" aria-hidden="true"></span>' : ''}</button>
           <button type="button" class="btn home-btn" data-action="toggle-credits">Credits</button>
+          <a class="btn home-btn" href="about.html">About</a>
         </div>
       </div>
     </div>
