@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>About PokéBastion TD — Pokémon Tower Defense (Alpha)</title>
+    <meta
+      name="description"
+      content="Learn about PokéBastion TD, a free browser-based open-map roguelike Pokémon tower defense game in alpha. Draft 152 Gen 1 Pokémon, build walls, and defend the Pokémon Center."
+    />
+    <link
+      rel="canonical"
+      href="https://phanturne.github.io/pokebastion/about.html"
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="About PokéBastion TD — Pokémon Tower Defense (Alpha)"
+    />
+    <meta
+      property="og:description"
+      content="Free browser-based open-map roguelike Pokémon tower defense game in alpha. Build walls, draft 152 Gen 1 Pokémon, and defend the Pokémon Center."
+    />
+    <meta
+      property="og:url"
+      content="https://phanturne.github.io/pokebastion/about.html"
+    />
+    <meta
+      property="og:image"
+      content="https://phanturne.github.io/pokebastion/assets/ui/menu-bg.jpg"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="About PokéBastion TD — Pokémon Tower Defense (Alpha)"
+    />
+    <meta
+      name="twitter:description"
+      content="Free browser-based open-map roguelike Pokémon tower defense game in alpha."
+    />
+    <meta
+      name="twitter:image"
+      content="https://phanturne.github.io/pokebastion/assets/ui/menu-bg.jpg"
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "PokéBastion TD",
+        "description": "An open-map, real-time roguelike Pokémon tower defense game in alpha. Build walls, draft 152 Gen 1 Pokémon, and defend the Pokémon Center.",
+        "url": "https://phanturne.github.io/pokebastion/",
+        "image": "https://phanturne.github.io/pokebastion/assets/ui/menu-bg.jpg",
+        "genre": ["Tower Defense", "Roguelike", "Strategy"],
+        "gamePlatform": "Web Browser",
+        "applicationCategory": "Game",
+        "operatingSystem": "Any",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: rgba(255, 255, 255, 0.12);
+        --text: #e6edf3;
+        --muted: #9fb0c3;
+        --gold: #f7cc45;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.6;
+      }
+      .wrap {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 36px 20px 64px;
+      }
+      .hero {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 36px 28px;
+        background:
+          linear-gradient(
+            to bottom,
+            rgba(13, 17, 23, 0.72),
+            rgba(13, 17, 23, 0.94)
+          ),
+          url('assets/ui/menu-bg.jpg') center / cover no-repeat;
+        margin-bottom: 28px;
+      }
+      .badge {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(247, 204, 69, 0.55);
+        background: rgba(44, 34, 12, 0.85);
+        color: var(--gold);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(28px, 4vw, 40px);
+        line-height: 1.15;
+        color: #f8fafc;
+      }
+      .lead {
+        margin: 0 0 20px;
+        color: #cbd5e1;
+        max-width: 660px;
+      }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 18px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: rgba(22, 27, 34, 0.9);
+        color: var(--text);
+        font-weight: 700;
+        font-size: 14px;
+        text-decoration: none;
+      }
+      .btn-primary {
+        background: var(--gold);
+        border-color: var(--gold);
+        color: #0d1117;
+      }
+      .btn:hover {
+        filter: brightness(1.08);
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin-bottom: 18px;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 19px;
+        color: #f8fafc;
+      }
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 8px;
+      }
+      strong {
+        color: var(--text);
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 28px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer a {
+        color: var(--gold);
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hero">
+        <div class="badge">Alpha</div>
+        <h1>PokéBastion TD — Pokémon Tower Defense</h1>
+        <p class="lead">
+          An open-map, real-time roguelike Pokémon tower defense game in your
+          browser, inspired by <em>The Last Spell</em>, <em>Arknights</em>, and
+          <em>Path to Nowhere</em>.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="./">Play Now</a>
+          <a
+            class="btn"
+            href="https://github.com/phanturne/pokebastion"
+            target="_blank"
+            rel="noopener noreferrer"
+            >View on GitHub</a
+          >
+        </div>
+      </header>
+
+      <section>
+        <h2>What Makes PokéBastion TD Different</h2>
+        <ul>
+          <li>
+            <strong>Open-Map Dynamic Pathfinding:</strong> Wild Pokémon route
+            across a 28×18 battlefield toward your central Pokémon Center. Build
+            walls and traps to reshape their path in real time, with live dashed
+            path previews during prep.
+          </li>
+          <li>
+            <strong>152 Playable Gen 1 Pokémon:</strong> Draft a starting squad
+            within a 10-point budget, recruit more between waves, evolve units,
+            and unlock 3 distinct specialization branches per species.
+          </li>
+          <li>
+            <strong>Real-Time Tactical Repositioning:</strong> Pokémon
+            auto-attack in range while you spend shared Action Points (AP) to
+            reposition units mid-fight and trigger manual or auto-cast
+            Ultimates.
+          </li>
+          <li>
+            <strong>9 Defensive Structures &amp; Traps:</strong> Place
+            Barricades, Stone Walls, Thorn Walls, Flame Braziers, Berry Bushes,
+            Tempo Shrines, Honey Traps, Lightning Rods, and Bomb Barrels.
+          </li>
+          <li>
+            <strong>24 Held Items &amp; Roguelike Relics:</strong> Equip up to 3
+            held items per Pokémon, draft team-wide class upgrades, and collect
+            global artifacts across 20–50 wave runs.
+          </li>
+          <li>
+            <strong>Meta-Progression:</strong> Earn Species Shards, Universal
+            Shards, Eggs, and Achievements to unlock Pokémon in the Pokédex and
+            upgrade their Potential (★0–★5).
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>How to Play</h2>
+        <ol>
+          <li>
+            <strong>Draft Your Squad:</strong> Pick a map and difficulty (Easy
+            to Expert), then assemble your starting team within the 10-point
+            draft budget.
+          </li>
+          <li>
+            <strong>Prep Phase:</strong> Place, move, repair, or sell structures
+            to funnel enemies into kill zones. Reposition Pokémon freely (0 AP)
+            and equip held items before starting the wave.
+          </li>
+          <li>
+            <strong>Combat Phase:</strong> Spend 1 AP per move to reposition
+            around threats (ground, burrowing, flying, and wall-breaker enemies)
+            and trigger Ultimates. Press <strong>Esc</strong> or right-click to
+            cancel selection or aiming.
+          </li>
+          <li>
+            <strong>Rewards &amp; Shop:</strong> Draft 1 of 3 roguelike rewards
+            after waves and visit the shop every 5th wave.
+          </li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Alpha Status</h2>
+        <p>
+          PokéBastion TD is currently in active <strong>Alpha</strong>
+          development. Gameplay balance, features, and local save data formats
+          may change between updates. Feedback and bug reports are welcome on
+          <a
+            href="https://github.com/phanturne/pokebastion"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="color: var(--gold)"
+            >GitHub</a
+          >.
+        </p>
+      </section>
+
+      <footer>
+        <a href="./">← Back to PokéBastion TD</a>
+      </footer>
+    </main>
+  </body>
+</html>
